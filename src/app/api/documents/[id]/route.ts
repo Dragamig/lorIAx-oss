@@ -181,11 +181,34 @@ export async function PATCH(
   if (icon !== undefined) updateData.icon = icon;
   if (properties !== undefined) updateData.properties = properties;
 
+  // Projection explicite : `contentText` est volontairement exclu de la reponse.
+  // Un `.returning()` nu renverrait le contenu complet du document, ce qui permet a un
+  // utilisateur autorise a ecrire mais pas a lire (document `secret` par exemple)
+  // d'exfiltrer le contenu via un simple PATCH.
   const [updated] = await db
     .update(documents)
     .set(updateData)
     .where(eq(documents.id, id))
-    .returning();
+    .returning({
+      id: documents.id,
+      spaceId: documents.spaceId,
+      parentId: documents.parentId,
+      title: documents.title,
+      slug: documents.slug,
+      filePath: documents.filePath,
+      visibility: documents.visibility,
+      classification: documents.classification,
+      isFolder: documents.isFolder,
+      templateId: documents.templateId,
+      createdBy: documents.createdBy,
+      lockedBy: documents.lockedBy,
+      lockedAt: documents.lockedAt,
+      icon: documents.icon,
+      position: documents.position,
+      properties: documents.properties,
+      createdAt: documents.createdAt,
+      updatedAt: documents.updatedAt,
+    });
 
   // Indexer les embeddings en arrière-plan (non bloquant)
   if (content !== undefined) {

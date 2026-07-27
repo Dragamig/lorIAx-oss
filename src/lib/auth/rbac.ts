@@ -44,7 +44,13 @@ export function canEditDocument(
     return hasPermissionLevel(spacePermission, "editor");
   }
 
-  return userGlobalRole === "editor";
+  // Fallback ferme : sans permission explicite (document ou espace), on refuse.
+  // Le role global "editor" est la valeur par defaut du schema Drizzle, s'en servir
+  // ici donnerait a tout compte fraichement inscrit le droit d'editer et de supprimer
+  // n'importe quel document. L'acces legitime passe par une permission d'espace ou de
+  // document, la propriete de l'espace (voir checkDocumentEditAccess), ou un role
+  // global admin / super_admin traite plus haut.
+  return false;
 }
 
 export function canViewDocument(
@@ -62,6 +68,7 @@ export function canViewDocument(
     return hasPermissionLevel(spacePermission, "viewer");
   }
 
+  // Fallback ferme : aucun role global en dessous d'admin n'ouvre l'acces sans permission.
   return false;
 }
 
@@ -71,6 +78,7 @@ export function canAdminSpace(
 ): boolean {
   if (hasGlobalRole(userGlobalRole, "admin")) return true;
   if (spacePermission) return spacePermission === "admin";
+  // Fallback ferme : administrer un espace exige la permission d'espace "admin".
   return false;
 }
 

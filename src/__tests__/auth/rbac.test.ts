@@ -69,6 +69,16 @@ describe("canEditDocument", () => {
   it("permission document editor donne accès", () => {
     expect(canEditDocument("viewer", null, "editor")).toBe(true);
   });
+
+  it("le rôle global editor seul ne donne aucun accès (fallback fermé)", () => {
+    expect(canEditDocument("editor", null, null)).toBe(false);
+    expect(canEditDocument("editor", undefined, undefined)).toBe(false);
+  });
+
+  it("permission viewer explicite prime sur le rôle global editor", () => {
+    expect(canEditDocument("editor", "viewer", null)).toBe(false);
+    expect(canEditDocument("editor", null, "viewer")).toBe(false);
+  });
 });
 
 describe("canAdminSpace", () => {
