@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { purgeAllData } from "@/lib/setup/purge";
-import { guardSetupNotCompleted } from "@/lib/setup/guards";
+import { guardSetupAccess } from "@/lib/setup/guards";
 
 export async function POST() {
-  const blocked = await guardSetupNotCompleted();
-  if (blocked) return blocked;
+  const access = await guardSetupAccess();
+  if (!access.allowed) return access.response;
 
   try {
     await purgeAllData();

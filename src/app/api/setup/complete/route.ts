@@ -1,13 +1,17 @@
 // src/app/api/setup/complete/route.ts
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { systemSettings, users } from "@/lib/db/schema";
+import { users } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { guardSetupNotCompleted } from "@/lib/setup/guards";
+import {
+  clearWizardTicket,
+  guardSetupAccess,
+  markSetupCompleted,
+} from "@/lib/setup/guards";
 
 export async function POST() {
-  const blocked = await guardSetupNotCompleted();
-  if (blocked) return blocked;
+  const access = await guardSetupAccess();
+  if (!access.allowed) return access.response;
 
   // Vérifier qu'un super admin a été créé avant de finaliser
   const [adminRow] = await db
@@ -23,14 +27,7 @@ export async function POST() {
     );
   }
 
-  const now = new Date();
-  await db
-    .insert(systemSettings)
-    .values({ key: "setup_completed", value: true, updatedAt: now })
-    .onConflictDoUpdate({
-      target: systemSettings.key,
-      set: { value: true, updatedAt: now },
-    });
+  await markSetupCompleted();
 
-  return NextResponse.json({ success: true });
+  return clearWizardTicket(NextResponse.json({ success: true }));
 }

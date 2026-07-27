@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { spacePermissions } from "@/lib/db/schema";
-import { guardSetupNotCompleted } from "@/lib/setup/guards";
+import { guardSetupAccess } from "@/lib/setup/guards";
 
 interface PermissionEntry {
   spaceId: string;
@@ -11,8 +11,8 @@ interface PermissionEntry {
 }
 
 export async function POST(request: NextRequest) {
-  const blocked = await guardSetupNotCompleted();
-  if (blocked) return blocked;
+  const access = await guardSetupAccess();
+  if (!access.allowed) return access.response;
 
   const body = await request.json();
   const { permissions } = body as { permissions: PermissionEntry[] };

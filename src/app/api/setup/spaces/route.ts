@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { spaces } from "@/lib/db/schema";
 import { initRepository } from "@/lib/git/repository";
-import { guardSetupNotCompleted } from "@/lib/setup/guards";
+import { guardSetupAccess } from "@/lib/setup/guards";
 import { getDefaultOrgId } from "@/lib/org/get-org-id";
 
 interface SpaceInput {
@@ -14,8 +14,8 @@ interface SpaceInput {
 }
 
 export async function POST(request: NextRequest) {
-  const blocked = await guardSetupNotCompleted();
-  if (blocked) return blocked;
+  const access = await guardSetupAccess();
+  if (!access.allowed) return access.response;
 
   const body = await request.json();
   const { spaces: spaceInputs } = body as { spaces: SpaceInput[] };

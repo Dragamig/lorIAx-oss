@@ -7,7 +7,7 @@ import bcrypt from "bcryptjs";
 import slugify from "slugify";
 import { initRepository } from "@/lib/git/repository";
 import { ensurePersonalCalendar } from "@/lib/calendar/auto-provision";
-import { guardSetupNotCompleted } from "@/lib/setup/guards";
+import { guardSetupAccess, issueWizardTicket } from "@/lib/setup/guards";
 import logger from "@/lib/logger";
 import { getDefaultOrgId } from "@/lib/org/get-org-id";
 
@@ -23,8 +23,8 @@ const VALID_ROLES = ["super_admin", "admin", "editor", "viewer"];
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function POST(request: NextRequest) {
-  const blocked = await guardSetupNotCompleted();
-  if (blocked) return blocked;
+  const access = await guardSetupAccess();
+  if (!access.allowed) return access.response;
 
   try {
     const body = await request.json();
@@ -183,10 +183,21 @@ export async function POST(request: NextRequest) {
       "[setup/users] Utilisateurs créés via le wizard"
     );
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       success: true,
       created: createdUsers,
     });
+
+    // Cette route est le seul point du wizard qui fait basculer l'instance de
+    // « vierge » à « peuplée » : la garde se refermerait sur les étapes suivantes
+    // (spaces, permissions, complete), que le wizard enchaîne sans ouvrir de
+    // session. Le ticket signé, à durée de vie courte, autorise ce client précis
+    // à terminer le parcours qu'il a légitimement démarré.
+    if (access.mode === "bootstrap") {
+      issueWizardTicket(response);
+    }
+
+    return response;
   } catch (error) {
     logger.error({ err: error }, "[setup/users] Erreur création utilisateurs");
     return NextResponse.json(
