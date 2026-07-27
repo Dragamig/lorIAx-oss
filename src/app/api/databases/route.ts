@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { userDatabases, userDatabaseColumns } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { getSessionUser } from "@/lib/auth/get-user";
-import { getSpacePermission, checkSpaceViewAccess } from "@/lib/auth/check-access";
+import { checkSpaceViewAccess, checkSpaceEditAccess } from "@/lib/auth/check-access";
 import { z } from "zod";
 
 export async function GET(request: NextRequest) {
@@ -21,7 +21,14 @@ export async function GET(request: NextRequest) {
   // Une base est rattachee a un espace : lister les bases d'un espace exige le droit
   // de lecture sur cet espace. Sans ce controle, `?spaceId=` suffisait a enumerer les
   // bases de tous les espaces.
-  const canView = await checkSpaceViewAccess(user, spaceId);
+  //
+  // Mode `member` et non `app` : `user_databases` ne porte qu'un `spaceId`, jamais de
+  // `documentId`. Le contenu d'un bloc base insere dans un document `confidential` ou
+  // `secret` n'est donc pas filtrable par classification. Ouvrir la branche « espace
+  // d'organisation » servirait ce contenu a tout compte authentifie alors que
+  // GET /api/documents/[id] refuse le document qui le porte. Un lien explicite
+  // (propriete ou permission) est exige tant que le rattachement `documentId` n'existe pas.
+  const canView = await checkSpaceViewAccess(user, spaceId, "member");
   if (!canView) {
     return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
   }
@@ -66,8 +73,8 @@ export async function POST(request: Request) {
   const { name, description, spaceId, columns } = parsed.data;
 
   // Verify space access
-  const perm = await getSpacePermission(user.id, spaceId);
-  if (!perm || perm === "viewer") {
+  const canEdit = await checkSpaceEditAccess(user, spaceId);
+  if (!canEdit) {
     return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
   }
 

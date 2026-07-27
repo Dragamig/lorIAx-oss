@@ -16,7 +16,13 @@ import {
   hasPermissionLevel,
 } from "@/lib/auth/rbac";
 import { users } from "@/lib/db/schema";
-import type { SessionUser, PermissionLevel, ClassificationLevel } from "@/types";
+import { canViewSpaceContents, type SpaceViewMode } from "@/lib/auth/space-access";
+import type {
+  SessionUser,
+  PermissionLevel,
+  ClassificationLevel,
+  SpaceType,
+} from "@/types";
 
 // ─── Cache LRU pour getSpacePermission() ────────────────────────────────────
 const PERM_CACHE_TTL = 5_000; // 5 secondes
@@ -245,55 +251,95 @@ export async function checkDocumentDeclassifyAccess(
   return spacePerm === "admin";
 }
 
+// ─── Cache LRU pour getUserTeamIds() ────────────────────────────────────────
+// L'appartenance aux equipes ne depend pas de l'espace vise : la barre laterale
+// recharge l'arborescence a chaque changement d'espace, ce cache evite de rejouer
+// la meme requete a chaque fois.
+const teamCache = new Map<string, { value: string[]; expiresAt: number }>();
+
+/** Invalider le cache d'appartenance aux equipes pour un utilisateur donne */
+export function invalidateUserTeamCache(userId: string): void {
+  teamCache.delete(userId);
+}
+
 /**
  * Team IDs the user belongs to.
  */
 async function getUserTeamIds(userId: string): Promise<string[]> {
+  const cached = teamCache.get(userId);
+  if (cached && Date.now() <= cached.expiresAt) return cached.value;
+
   const rows = await db
     .select({ teamId: teamMembers.teamId })
     .from(teamMembers)
     .where(eq(teamMembers.userId, userId));
-  return rows.map((r) => r.teamId);
+  const value = rows.map((r) => r.teamId);
+
+  if (teamCache.size >= PERM_CACHE_MAX) {
+    const firstKey = teamCache.keys().next().value;
+    if (firstKey) teamCache.delete(firstKey);
+  }
+  teamCache.set(userId, { value, expiresAt: Date.now() + PERM_CACHE_TTL });
+  return value;
+}
+
+/**
+ * L'espace appartient-il a l'organisation de la requete courante ?
+ *
+ * `GET /api/spaces` borne sa liste a `eq(spaces.organizationId, orgId)`, ou `orgId`
+ * est resolu depuis l'en-tete `x-org-slug` pose par le middleware. Sans cette borne,
+ * les espaces d'organisation d'un locataire B redeviennent lisibles depuis A.
+ *
+ * L'import est dynamique : `next/headers` n'existe pas dans le serveur WebSocket
+ * autonome, qui charge lui aussi ce module. En cas d'echec (hors contexte de requete,
+ * organisation introuvable) on repond `false`, ce qui ferme les branches implicites
+ * sans jamais bloquer un proprietaire ni un membre nomme.
+ */
+async function isRequestOrganization(spaceOrganizationId: string): Promise<boolean> {
+  try {
+    const { headers } = await import("next/headers");
+    const { getOrgId, getOrgSlugFromHeaders } = await import("@/lib/org/get-org-id");
+    const orgSlug = await getOrgSlugFromHeaders(headers);
+    return (await getOrgId(orgSlug)) === spaceOrganizationId;
+  } catch {
+    return false;
+  }
 }
 
 /**
  * Check if a user may read the content of a space (document tree, activity,
- * databases attached to the space).
+ * labels, databases attached to the space).
  *
- * This mirrors, one space at a time, the visibility rule already applied by the
- * space listing (GET /api/spaces) : a space is reachable when the user owns it,
- * holds an explicit permission on it (directly or through one of their teams),
- * belongs to the owning team, or when the space is an organization space.
- * Spaces classified `secret` stay restricted to their owner, to users holding an
- * explicit permission, and to global admins.
+ * Enveloppe de collecte : la decision elle-meme vit dans `canViewSpaceContents`
+ * (`@/lib/auth/space-access`), pure et couverte par des tests, parce qu'elle est
+ * sensible a l'ordre de ses branches. Voir `SpaceViewMode` pour le choix du mode.
  *
  * Without this check the per space routes were reachable by slug or id alone,
  * which turned any authenticated account into a reader of every space.
  */
 export async function checkSpaceViewAccess(
   user: SessionUser,
-  spaceId: string
+  spaceId: string,
+  mode: SpaceViewMode = "app"
 ): Promise<boolean> {
-  if (isGlobalAdmin(user)) return true;
-
   const [space] = await db
     .select({
       type: spaces.type,
       classification: spaces.classification,
       ownerUserId: spaces.ownerUserId,
       ownerTeamId: spaces.ownerTeamId,
+      organizationId: spaces.organizationId,
     })
     .from(spaces)
     .where(eq(spaces.id, spaceId))
     .limit(1);
 
   if (!space) return false;
-  if (space.ownerUserId === user.id) return true;
 
   const teamIds = await getUserTeamIds(user.id);
 
-  const [explicitPerm] = await db
-    .select({ level: spacePermissions.level })
+  const perms = await db
+    .select({ userId: spacePermissions.userId, teamId: spacePermissions.teamId })
     .from(spacePermissions)
     .where(
       and(
@@ -305,18 +351,63 @@ export async function checkSpaceViewAccess(
             )
           : eq(spacePermissions.userId, user.id)
       )
-    )
+    );
+
+  // L'organisation n'est resolue que si une branche implicite peut encore servir.
+  const mayNeedOrg =
+    mode === "app" && (space.type === "organization" || !!space.ownerTeamId);
+
+  return canViewSpaceContents(
+    {
+      userGlobalRole: user.globalRole,
+      spaceType: space.type as SpaceType,
+      spaceClassification: (space.classification || "internal") as ClassificationLevel,
+      isSpaceOwner: space.ownerUserId === user.id,
+      hasDirectPermission: perms.some((p) => p.userId === user.id),
+      hasTeamPermission: perms.some((p) => !!p.teamId && teamIds.includes(p.teamId)),
+      isOwningTeamMember: !!space.ownerTeamId && teamIds.includes(space.ownerTeamId),
+      isRequestOrganization: mayNeedOrg
+        ? await isRequestOrganization(space.organizationId)
+        : false,
+    },
+    mode
+  );
+}
+
+/**
+ * Predicat de visibilite par classification, a appliquer aux LISTES de documents
+ * d'un espace (arborescence, activite, index v1).
+ *
+ * Ces listes n'exposent que des metadonnees, mais un titre est tres souvent la
+ * donnee sensible elle-meme. Le predicat reprend exactement la moitie
+ * « classification » de `checkDocumentViewAccess`, la moitie RBAC etant deja
+ * assuree en amont par `checkSpaceViewAccess`.
+ */
+export async function buildDocumentVisibilityFilter(
+  user: SessionUser,
+  spaceId: string
+): Promise<(doc: { classification: string | null; createdBy: string | null }) => boolean> {
+  if (isGlobalAdmin(user)) return () => true;
+
+  const [space] = await db
+    .select({ ownerUserId: spaces.ownerUserId })
+    .from(spaces)
+    .where(eq(spaces.id, spaceId))
     .limit(1);
 
-  if (explicitPerm) return true;
+  // Meme court-circuit que checkDocumentViewAccess : le proprietaire voit tout.
+  if (space?.ownerUserId === user.id) return () => true;
 
-  // Un espace `secret` n'est jamais atteint par appartenance implicite.
-  if (space.classification === "secret") return false;
+  const spacePerm = await getSpacePermission(user.id, spaceId);
 
-  if (space.type === "organization") return true;
-  if (space.ownerTeamId && teamIds.includes(space.ownerTeamId)) return true;
-
-  return false;
+  return (doc) =>
+    canViewByClassification((doc.classification || "internal") as ClassificationLevel, {
+      isAuthenticated: true,
+      isSpaceMember: !!spacePerm,
+      isSpaceAdmin: spacePerm === "admin",
+      isDocumentAuthor: doc.createdBy === user.id,
+      userGlobalRole: user.globalRole,
+    });
 }
 
 /**

@@ -5,7 +5,10 @@ import { and, gte, lte, or, inArray } from "drizzle-orm";
 import { authenticateApiRequest } from "@/lib/api/auth-api";
 import { apiSuccess, apiError } from "@/lib/api/response";
 import { hasScope } from "@/lib/auth/api-key";
-import { getAccessibleCalendarIds } from "@/lib/calendar/permissions";
+import {
+  getAccessibleCalendarIds,
+  checkCalendarAccess,
+} from "@/lib/calendar/permissions";
 
 export async function GET(request: NextRequest) {
   const auth = await authenticateApiRequest(request);
@@ -33,22 +36,29 @@ export async function GET(request: NextRequest) {
     return apiError("Dates invalides");
   }
 
-  // Get accessible calendar IDs.
   // `?calendarId=` ne peut que restreindre l'ensemble accessible, jamais l'elargir :
   // pris tel quel, il court-circuitait getAccessibleCalendarIds et exposait les
   // evenements de n'importe quel calendrier a toute cle API `calendars:read`.
-  const allowedIds = await getAccessibleCalendarIds({
-    id: user.id,
-    email: user.email,
-    name: user.name,
-    globalRole: user.globalRole,
-  });
+  //
+  // Le calendrier explicitement demande est valide par checkCalendarAccess, et non par
+  // appartenance a getAccessibleCalendarIds : cette derniere ignore les calendriers
+  // rattaches a un espace (`calendars.space_id`), que checkCalendarAccess honore, y
+  // compris pour le POST ci-dessous. Un consommateur legitime d'un calendrier d'espace
+  // recevrait sinon un 403.
+  let accessibleIds: string[];
 
-  if (calendarId && !allowedIds.includes(calendarId)) {
-    return apiError("Accès refusé au calendrier", 403);
+  if (calendarId) {
+    const hasAccess = await checkCalendarAccess(user.id, calendarId, "read");
+    if (!hasAccess) return apiError("Accès refusé au calendrier", 403);
+    accessibleIds = [calendarId];
+  } else {
+    accessibleIds = await getAccessibleCalendarIds({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      globalRole: user.globalRole,
+    });
   }
-
-  const accessibleIds = calendarId ? [calendarId] : allowedIds;
 
   if (accessibleIds.length === 0) {
     return apiSuccess([]);
@@ -89,7 +99,6 @@ export async function POST(request: NextRequest) {
     return apiError("calendarId, title, startAt, endAt requis");
   }
 
-  const { checkCalendarAccess } = await import("@/lib/calendar/permissions");
   const hasAccess = await checkCalendarAccess(user.id, calendarId, "write");
   if (!hasAccess) return apiError("Accès refusé au calendrier", 403);
 

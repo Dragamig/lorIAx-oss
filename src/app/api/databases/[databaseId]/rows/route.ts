@@ -3,10 +3,11 @@ import { db } from "@/lib/db";
 import { userDatabases, userDatabaseRows } from "@/lib/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { getSessionUser } from "@/lib/auth/get-user";
-import { getSpacePermission } from "@/lib/auth/check-access";
+import { checkSpaceEditAccess } from "@/lib/auth/check-access";
+import type { SessionUser } from "@/types";
 import { z } from "zod";
 
-async function getDatabaseWithAccess(databaseId: string, userId: string) {
+async function getDatabaseWithAccess(databaseId: string, user: SessionUser) {
   const [database] = await db
     .select()
     .from(userDatabases)
@@ -14,8 +15,10 @@ async function getDatabaseWithAccess(databaseId: string, userId: string) {
     .limit(1);
   if (!database) return { database: null, allowed: false };
 
-  const perm = await getSpacePermission(userId, database.spaceId);
-  const allowed = !!perm && perm !== "viewer";
+  // checkSpaceEditAccess et non getSpacePermission : cette derniere ignore la
+  // propriete de l'espace, un utilisateur ne pouvait donc pas ecrire dans les bases
+  // de son propre espace personnel, faute de ligne space_permissions a son nom.
+  const allowed = await checkSpaceEditAccess(user, database.spaceId);
   return { database, allowed };
 }
 
@@ -31,7 +34,7 @@ export async function POST(
   if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
 
   const { databaseId } = await params;
-  const { database, allowed } = await getDatabaseWithAccess(databaseId, user.id);
+  const { database, allowed } = await getDatabaseWithAccess(databaseId, user);
   if (!database) return NextResponse.json({ error: "Base introuvable" }, { status: 404 });
   if (!allowed) return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
 
@@ -76,7 +79,7 @@ export async function PATCH(
   if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
 
   const { databaseId } = await params;
-  const { database, allowed } = await getDatabaseWithAccess(databaseId, user.id);
+  const { database, allowed } = await getDatabaseWithAccess(databaseId, user);
   if (!database) return NextResponse.json({ error: "Base introuvable" }, { status: 404 });
   if (!allowed) return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
 
@@ -126,7 +129,7 @@ export async function DELETE(
   if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
 
   const { databaseId } = await params;
-  const { database, allowed } = await getDatabaseWithAccess(databaseId, user.id);
+  const { database, allowed } = await getDatabaseWithAccess(databaseId, user);
   if (!database) return NextResponse.json({ error: "Base introuvable" }, { status: 404 });
   if (!allowed) return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
 

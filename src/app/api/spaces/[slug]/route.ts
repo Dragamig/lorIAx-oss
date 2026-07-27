@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { spaces, documents, spacePermissions } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { getSessionUser } from "@/lib/auth/get-user";
+import { checkSpaceViewAccess } from "@/lib/auth/check-access";
 import { hasGlobalRole } from "@/lib/auth/rbac";
 import type { UserRole } from "@/types";
 import { logActivity } from "@/lib/activity";
@@ -48,6 +49,14 @@ export async function GET(
 
   if (!space) {
     return NextResponse.json({ error: "Espace introuvable" }, { status: 404 });
+  }
+
+  // Route detail de l'espace : elle renvoyait la ligne complete sur simple slug, dont
+  // `gitRepoPath`, un chemin du systeme de fichiers serveur. Elle est alignee sur la
+  // route liste, comme l'arborescence et le journal d'activite.
+  const canView = await checkSpaceViewAccess(user, space.id);
+  if (!canView) {
+    return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
   }
 
   return NextResponse.json(space);

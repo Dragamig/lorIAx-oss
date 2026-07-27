@@ -16,7 +16,11 @@ import { writeDocument } from "@/lib/storage/filesystem";
 import { commitFile } from "@/lib/git/repository";
 import slugify from "slugify";
 import { logActivity } from "@/lib/activity";
-import { checkSpaceViewAccess, checkSpaceEditAccess } from "@/lib/auth/check-access";
+import {
+  checkSpaceViewAccess,
+  checkSpaceEditAccess,
+  buildDocumentVisibilityFilter,
+} from "@/lib/auth/check-access";
 import { isClassificationAllowed } from "@/lib/auth/classification";
 import { z } from "zod";
 import { getBuiltinTemplateById } from "@/lib/templates/builtin";
@@ -29,7 +33,7 @@ export async function GET(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   const user = await getSessionUser();
-  if (!user) return NextResponse.json([], { status: 401 });
+  if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
 
   const { slug } = await params;
 
@@ -39,7 +43,7 @@ export async function GET(
     .where(eq(spaces.slug, slug))
     .limit(1);
 
-  if (!space) return NextResponse.json([], { status: 404 });
+  if (!space) return NextResponse.json({ error: "Espace introuvable" }, { status: 404 });
 
   // L'arborescence expose les titres et les etiquettes de tous les documents de
   // l'espace : elle exige le droit de lecture sur l'espace. Le slug seul ne suffit pas.
@@ -49,7 +53,10 @@ export async function GET(
   }
 
   // Recuperer les documents racine (sans parent)
-  const docs = await db
+  // La classification n'est jamais renvoyee, elle ne sert qu'au filtrage ci-dessous.
+  const isVisible = await buildDocumentVisibilityFilter(user, space.id);
+
+  const rootDocs = await db
     .select({
       id: documents.id,
       title: documents.title,
@@ -58,10 +65,16 @@ export async function GET(
       icon: documents.icon,
       parentId: documents.parentId,
       position: documents.position,
+      classification: documents.classification,
+      createdBy: documents.createdBy,
     })
     .from(documents)
     .where(and(eq(documents.spaceId, space.id), isNull(documents.parentId)))
     .orderBy(desc(documents.isFolder), asc(documents.position), asc(documents.title));
+
+  // Un titre est tres souvent la donnee sensible elle-meme : l'arborescence est filtree
+  // document par document, comme le fait GET /api/documents/[id] a l'unite.
+  const docs = rootDocs.filter(isVisible);
 
   // PERF-01 — Charger TOUS les enfants en une seule requête (fix N+1)
   const folderIds = docs.filter((d) => d.isFolder).map((d) => d.id);
@@ -78,12 +91,14 @@ export async function GET(
         icon: documents.icon,
         parentId: documents.parentId,
         position: documents.position,
+        classification: documents.classification,
+        createdBy: documents.createdBy,
       })
       .from(documents)
       .where(inArray(documents.parentId, folderIds))
       .orderBy(desc(documents.isFolder), asc(documents.position), asc(documents.title));
 
-    for (const child of allChildren) {
+    for (const child of allChildren.filter(isVisible)) {
       if (!child.parentId) continue;
       const siblings = childrenByParent.get(child.parentId) || [];
       siblings.push(child);
@@ -118,12 +133,16 @@ export async function GET(
     }
   }
 
-  const result = docs.map((doc) => {
+  // La forme de la reponse est inchangee : classification et createdBy, charges pour
+  // le filtrage, ne sont pas exposes.
+  const result = docs.map(({ classification: _c, createdBy: _u, ...doc }) => {
     if (doc.isFolder) {
-      const children = (childrenByParent.get(doc.id) || []).map((child) => ({
-        ...child,
-        labels: labelsByDoc.get(child.id) ?? [],
-      }));
+      const children = (childrenByParent.get(doc.id) || []).map(
+        ({ classification: _cc, createdBy: _cu, ...child }) => ({
+          ...child,
+          labels: labelsByDoc.get(child.id) ?? [],
+        })
+      );
       return { ...doc, children, labels: labelsByDoc.get(doc.id) ?? [] };
     }
     return { ...doc, labels: labelsByDoc.get(doc.id) ?? [] };

@@ -7,7 +7,8 @@ import {
   checkDocumentViewAccess,
   checkSpaceEditAccess,
 } from "@/lib/auth/check-access";
-import { isClassificationAllowed } from "@/lib/auth/classification";
+import { enforceClassificationFloor } from "@/lib/auth/classification";
+import { logActivity } from "@/lib/activity";
 import { z } from "zod";
 import type { ClassificationLevel } from "@/types";
 
@@ -69,13 +70,20 @@ export async function POST(
       return NextResponse.json({ error: "Accès refusé (espace cible)" }, { status: 403 });
     }
 
-    // Le document ne peut pas atterrir sous le plancher de classification de l'espace
-    // cible : deplacer n'est pas un moyen de declasser.
+    // La ligne deplacee ne peut pas atterrir sous le plancher de classification de
+    // l'espace cible : deplacer n'est pas un moyen de declasser. Niveau propage et non
+    // choisi par l'appelant, donc releve et non refuse (voir enforceClassificationFloor).
+    //
+    // Limite connue, heritee : seule la ligne du document deplace est mise a jour. Le
+    // deplacement d'un DOSSIER laisse ses enfants avec l'ancien `spaceId` et l'ancienne
+    // classification, ils restent donc rattachees a l'espace d'origine et gardent leur
+    // niveau. Aucune declassification n'en resulte, mais l'arborescence devient
+    // incoherente : a traiter avec le deplacement recursif, hors perimetre de ce lot.
     const docClassification = (doc.classification || "internal") as ClassificationLevel;
-    const targetSpaceClassification = (targetSpace.classification || "internal") as ClassificationLevel;
-    const nextClassification = isClassificationAllowed(docClassification, targetSpaceClassification)
-      ? docClassification
-      : targetSpaceClassification;
+    const nextClassification = enforceClassificationFloor(
+      docClassification,
+      (targetSpace.classification || "internal") as ClassificationLevel
+    );
 
     await db
       .update(documents)
@@ -85,6 +93,23 @@ export async function POST(
         classification: nextClassification,
       })
       .where(eq(documents.id, id));
+
+    // Une reclassification est un evenement d'audit, meme lorsqu'elle est automatique.
+    logActivity({
+      userId: user.id,
+      action: "move",
+      entityType: "document",
+      entityId: id,
+      metadata: {
+        title: doc.title,
+        spaceId: targetSpace.id,
+        sourceSpaceId: doc.spaceId,
+        targetSpaceSlug: targetSpace.slug,
+        ...(nextClassification !== docClassification
+          ? { classificationRaisedFrom: docClassification, classification: nextClassification }
+          : {}),
+      },
+    });
 
     return NextResponse.json({ ok: true, spaceSlug: targetSpace.slug });
   }

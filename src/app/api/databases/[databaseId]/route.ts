@@ -7,7 +7,7 @@ import {
 } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { getSessionUser } from "@/lib/auth/get-user";
-import { getSpacePermission, checkSpaceViewAccess } from "@/lib/auth/check-access";
+import { checkSpaceViewAccess, checkSpaceEditAccess } from "@/lib/auth/check-access";
 import { z } from "zod";
 
 async function getDatabase(databaseId: string) {
@@ -33,8 +33,9 @@ export async function GET(
   }
 
   // Le PATCH et le DELETE verifiaient l'espace, pas le GET : l'identifiant de base
-  // suffisait a lire toutes les colonnes et toutes les lignes.
-  const canView = await checkSpaceViewAccess(user, database.spaceId);
+  // suffisait a lire toutes les colonnes et toutes les lignes. Mode `member` : voir
+  // la note de GET /api/databases, une base n'est pas filtrable par classification.
+  const canView = await checkSpaceViewAccess(user, database.spaceId, "member");
   if (!canView) {
     return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
   }
@@ -73,8 +74,8 @@ export async function PATCH(
     return NextResponse.json({ error: "Base introuvable" }, { status: 404 });
   }
 
-  const perm = await getSpacePermission(user.id, database.spaceId);
-  if (!perm || perm === "viewer") {
+  const canEdit = await checkSpaceEditAccess(user, database.spaceId);
+  if (!canEdit) {
     return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
   }
 
@@ -109,8 +110,8 @@ export async function DELETE(
     return NextResponse.json({ error: "Base introuvable" }, { status: 404 });
   }
 
-  const perm = await getSpacePermission(user.id, database.spaceId);
-  if (!perm || perm === "viewer") {
+  const canEdit = await checkSpaceEditAccess(user, database.spaceId);
+  if (!canEdit) {
     return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
   }
 

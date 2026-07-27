@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { spaces, activityLog, users } from "@/lib/db/schema";
-import { eq, desc, and, or, sql } from "drizzle-orm";
+import { spaces, activityLog, users, documents } from "@/lib/db/schema";
+import { eq, desc, and, or, sql, inArray } from "drizzle-orm";
 import { getSessionUser } from "@/lib/auth/get-user";
-import { checkSpaceViewAccess } from "@/lib/auth/check-access";
+import {
+  checkSpaceViewAccess,
+  buildDocumentVisibilityFilter,
+  getSpacePermission,
+  isGlobalAdmin,
+} from "@/lib/auth/check-access";
 
 export async function GET(
   request: NextRequest,
@@ -65,5 +70,45 @@ export async function GET(
     .limit(limit)
     .offset(offset);
 
-  return NextResponse.json(activities);
+  // Les entrees « document » portent le titre dans `metadata`, et un titre est tres
+  // souvent la donnee sensible elle-meme : le journal est filtre par classification,
+  // comme l'arborescence de l'espace.
+  const documentIds = [
+    ...new Set(
+      activities
+        .filter((a) => a.entityType === "document" && a.entityId)
+        .map((a) => a.entityId as string)
+    ),
+  ];
+
+  const known = new Map<string, { classification: string | null; createdBy: string | null }>();
+  if (documentIds.length > 0) {
+    const rows = await db
+      .select({
+        id: documents.id,
+        classification: documents.classification,
+        createdBy: documents.createdBy,
+      })
+      .from(documents)
+      .where(inArray(documents.id, documentIds));
+    for (const row of rows) known.set(row.id, row);
+  }
+
+  const isVisible = await buildDocumentVisibilityFilter(user, space.id);
+
+  // Un document supprime ne peut plus etre classe : son entree n'est conservee que
+  // pour les membres de l'espace, qui pouvaient deja le voir de son vivant.
+  const seesDeletedEntries =
+    isGlobalAdmin(user) ||
+    space.ownerUserId === user.id ||
+    !!(await getSpacePermission(user.id, space.id));
+
+  const visibleActivities = activities.filter((entry) => {
+    if (entry.entityType !== "document" || !entry.entityId) return true;
+    const doc = known.get(entry.entityId);
+    if (!doc) return seesDeletedEntries;
+    return isVisible(doc);
+  });
+
+  return NextResponse.json(visibleActivities);
 }

@@ -36,8 +36,9 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   if (!database) return NextResponse.json({ error: "Base introuvable" }, { status: 404 });
 
   // La configuration de synchronisation decrit la destination externe de la base :
-  // sa lecture exige le droit de lecture sur l'espace qui porte la base.
-  const canView = await checkSpaceViewAccess(user, database.spaceId);
+  // sa lecture exige un lien explicite avec l'espace qui porte la base (mode `member`,
+  // voir la note de GET /api/databases).
+  const canView = await checkSpaceViewAccess(user, database.spaceId, "member");
   if (!canView) {
     return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
   }

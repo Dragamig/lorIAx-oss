@@ -7,7 +7,7 @@ import {
   checkDocumentViewAccess,
   checkSpaceEditAccess,
 } from "@/lib/auth/check-access";
-import { isClassificationAllowed } from "@/lib/auth/classification";
+import { enforceClassificationFloor } from "@/lib/auth/classification";
 import { readDocument, writeDocument } from "@/lib/storage/filesystem";
 import { commitFile } from "@/lib/git/repository";
 import slugify from "slugify";
@@ -70,11 +70,13 @@ export async function POST(
 
   // La copie herite de la classification de la source, et ne peut jamais descendre
   // sous le plancher de l'espace cible : copier n'est pas un moyen de declasser.
+  // Niveau propage et non choisi par l'appelant : on releve au lieu de refuser en 400,
+  // voir enforceClassificationFloor.
   const sourceClassification = (doc.classification || "internal") as ClassificationLevel;
-  const targetSpaceClassification = (targetSpace.classification || "internal") as ClassificationLevel;
-  const copyClassification = isClassificationAllowed(sourceClassification, targetSpaceClassification)
-    ? sourceClassification
-    : targetSpaceClassification;
+  const copyClassification = enforceClassificationFloor(
+    sourceClassification,
+    (targetSpace.classification || "internal") as ClassificationLevel
+  );
 
   // Lire le contenu du document source
   let content = doc.contentText || "";
@@ -131,6 +133,10 @@ export async function POST(
       sourceDocumentId: id,
       sourceTitle: doc.title,
       targetSpaceSlug: targetSpace.slug,
+      spaceId: targetSpace.id,
+      ...(copyClassification !== sourceClassification
+        ? { classificationRaisedFrom: sourceClassification, classification: copyClassification }
+        : {}),
     },
   });
 

@@ -5,6 +5,8 @@ import { writeDocument } from "@/lib/storage/filesystem";
 import { commitFile } from "@/lib/git/repository";
 import slugify from "slugify";
 import logger from "@/lib/logger";
+import { enforceClassificationFloor } from "@/lib/auth/classification";
+import type { ClassificationLevel } from "@/types";
 
 const log = logger.child({ module: "meet-notes" });
 
@@ -26,7 +28,8 @@ interface CreateNotesInput {
  */
 async function getOrCreateNotesFolder(
   spaceId: string,
-  createdBy: string
+  createdBy: string,
+  spaceClassification: ClassificationLevel
 ): Promise<string> {
   const [existing] = await db
     .select({ id: documents.id })
@@ -51,7 +54,10 @@ async function getOrCreateNotesFolder(
       filePath: MEETING_NOTES_FOLDER_SLUG,
       icon: MEETING_NOTES_FOLDER_ICON,
       visibility: "team",
-      classification: "internal",
+      // Dernier point de creation qui ignorait le plafond de l'espace : un espace
+      // `confidential` recevait un dossier `internal`. Niveau propage et non choisi,
+      // donc releve au plancher de l'espace (voir enforceClassificationFloor).
+      classification: enforceClassificationFloor("internal", spaceClassification),
       isFolder: true,
       createdBy,
     })
@@ -82,7 +88,14 @@ export async function createMeetingNotes(
   }
 
   // Ensure the "Comptes rendus" folder exists
-  const folderId = await getOrCreateNotesFolder(spaceId, createdBy);
+  const spaceClassification = ((space.classification as ClassificationLevel) ||
+    "internal") as ClassificationLevel;
+
+  const folderId = await getOrCreateNotesFolder(
+    spaceId,
+    createdBy,
+    spaceClassification
+  );
 
   // Build the document content
   const date = new Date().toLocaleDateString("fr-FR", {
@@ -136,12 +149,7 @@ ${transcript}
       filePath,
       icon: "📋",
       visibility: space.type === "personal" ? "private" : "team",
-      classification:
-        (space.classification as
-          | "public"
-          | "internal"
-          | "confidential"
-          | "secret") || "internal",
+      classification: spaceClassification,
       isFolder: false,
       createdBy,
       contentText: content,

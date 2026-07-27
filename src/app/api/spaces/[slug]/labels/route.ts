@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { labels, spaces, spacePermissions } from "@/lib/db/schema";
 import { eq, or, and } from "drizzle-orm";
 import { getSessionUser } from "@/lib/auth/get-user";
+import { checkSpaceViewAccess } from "@/lib/auth/check-access";
 import { canAdminSpace } from "@/lib/auth/rbac";
 import type { PermissionLevel } from "@/types";
 import { z } from "zod";
@@ -46,6 +47,13 @@ export async function GET(
   const { slug } = await params;
   const space = await getSpaceBySlug(slug);
   if (!space) return NextResponse.json({ error: "Espace introuvable" }, { status: 404 });
+
+  // Le vocabulaire d'etiquetage d'un espace decrit son organisation interne : meme
+  // droit de lecture que l'arborescence, le slug seul ne suffit pas.
+  const canView = await checkSpaceViewAccess(user, space.id);
+  if (!canView) {
+    return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+  }
 
   const result = await db
     .select()
