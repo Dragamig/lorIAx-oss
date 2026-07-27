@@ -207,27 +207,49 @@ npm run dev:full
 
 ### Installation manuelle (pas à pas)
 
+**1. Récupérer le projet et son fichier de configuration.**
+
 ```bash
 git clone https://github.com/Flavien-Dragamig/lorIAx-oss.git
 cd lorIAx-oss
 cp .env.example .env.local
+```
+
+**2. Renseigner les deux secrets, obligatoire.** `.env.example` est complet pour un poste
+de développement à deux exceptions près : `NEXTAUTH_SECRET` et `ENCRYPTION_KEY` y sont
+**volontairement vides**, aucun secret n'étant versionné. Générez deux valeurs
+différentes :
+
+```bash
+openssl rand -base64 32    # valeur pour NEXTAUTH_SECRET
+openssl rand -base64 32    # valeur pour ENCRYPTION_KEY
+```
+
+Ouvrez `.env.local` et **collez chaque valeur à la suite du signe égal** sur les deux
+lignes vides correspondantes, pour obtenir :
+
+```dotenv
+NEXTAUTH_SECRET=<coller ici la première valeur générée>
+ENCRYPTION_KEY=<coller ici la seconde valeur générée>
+```
+
+Ne recopiez aucune valeur trouvée dans une documentation : un secret publié n'en est
+plus un.
+
+Sans cette étape, l'application s'arrête au démarrage : `NEXTAUTH_SECRET` doit faire au
+moins 16 caractères et `ENCRYPTION_KEY` est obligatoire.
+
+**3. Installer, démarrer les dépendances, initialiser la base et lancer le serveur.**
+
+```bash
 npm install
 docker compose up -d postgres garage garage-init   # dépendances (BDD + S3)
 npm run db:fresh                  # reset + migrations + comptes de démo + templates
 npm run dev
 ```
 
-`.env.example` est complet pour un poste de développement, à deux exceptions près :
-`NEXTAUTH_SECRET` et `ENCRYPTION_KEY` y sont **volontairement vides**, aucun secret
-n'étant versionné. L'application refuse de démarrer tant qu'ils ne sont pas renseignés :
-
-```bash
-openssl rand -base64 32    # une valeur pour NEXTAUTH_SECRET
-openssl rand -base64 32    # une autre pour ENCRYPTION_KEY
-```
-
-`npm run dev:full` s'en charge automatiquement, c'est le seul écart entre les deux
-chemins d'installation.
+`npm run dev:full` exécute ces trois étapes pour vous, génération des secrets comprise :
+c'est le seul écart entre les deux chemins d'installation.
 
 Sans Docker, il faut fournir un PostgreSQL 16 avec les extensions `pgvector` et `pg_trgm`, et ajuster `DATABASE_URL` dans `.env.local`.
 
