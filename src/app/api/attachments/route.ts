@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { attachments, documents } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { getSessionUser } from "@/lib/auth/get-user";
-import { getSpacePermission, checkDocumentEditAccess } from "@/lib/auth/check-access";
+import { checkSpaceEditAccess, checkDocumentEditAccess } from "@/lib/auth/check-access";
 import { uploadFile, getFileUrl } from "@/lib/storage/s3";
 import { randomUUID } from "crypto";
 import {
@@ -43,9 +43,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Fichier et spaceId requis" }, { status: 400 });
   }
 
-  // Vérification de la permission sur l'espace
-  const permission = await getSpacePermission(user.id, spaceId);
-  if (!permission) {
+  // Vérification de la permission sur l'espace.
+  // `getSpacePermission` ne regarde que les lignes `space_permissions`, or
+  // `POST /api/spaces` n'en insère aucune pour le créateur : un utilisateur non
+  // administrateur recevait donc 403 en téléversant dans son propre espace
+  // personnel. Invisible en développement, les comptes de seed étant admins.
+  // `checkSpaceEditAccess` couvre la propriété de l'espace, comme ailleurs.
+  const canUpload = await checkSpaceEditAccess(user, spaceId);
+  if (!canUpload) {
     return NextResponse.json({ error: "Accès refusé à cet espace" }, { status: 403 });
   }
 

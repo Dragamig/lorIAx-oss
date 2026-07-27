@@ -3,6 +3,7 @@ import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSessionUser } from "@/lib/auth/get-user";
 import { s3Client, BUCKET } from "@/lib/storage/s3";
 import { resolveReadableAttachment } from "@/lib/storage/attachment-access";
+import { presentationOverrides } from "@/lib/storage/safe-content-type";
 
 export async function GET(
   _req: NextRequest,
@@ -41,7 +42,14 @@ export async function GET(
     }
 
     const buffer = Buffer.from(await response.Body.transformToByteArray());
-    const contentType = response.ContentType || "application/octet-stream";
+
+    // H9 : le type renvoyé par S3 est celui posé au dépôt, donc, pour un objet
+    // antérieur au durcissement, celui déclaré par son déposant. Il passe par la
+    // même règle de restitution que l'URL signée. Cette route sert des
+    // téléchargements, la disposition reste `attachment` en toutes circonstances.
+    const contentType = presentationOverrides(
+      response.ContentType || "application/octet-stream"
+    ).contentType;
 
     const filename = access.attachment.filename || segments[segments.length - 1] || "file";
     return new NextResponse(buffer, {

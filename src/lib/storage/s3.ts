@@ -45,8 +45,29 @@ export async function uploadFile(
   return key;
 }
 
-export async function getFileUrl(key: string, expiresIn = 900): Promise<string> {
-  const command = new GetObjectCommand({ Bucket: BUCKET, Key: key });
+export interface SignedUrlOptions {
+  /**
+   * Type et disposition imposes a la reponse, via les parametres `response-*` de
+   * GetObject. Ils priment sur les metadonnees de l'objet, ce qui permet de
+   * neutraliser a la restitution un objet stocke avant le durcissement H9 avec un
+   * type declare par son deposant, sans reprise de donnees. Garage les implemente
+   * (`GetObjectOverrides`, `src/api/s3/get.rs`), comme AWS S3 et MinIO.
+   */
+  responseContentType?: string;
+  responseContentDisposition?: string;
+}
+
+export async function getFileUrl(
+  key: string,
+  expiresIn = 900,
+  options: SignedUrlOptions = {}
+): Promise<string> {
+  const command = new GetObjectCommand({
+    Bucket: BUCKET,
+    Key: key,
+    ResponseContentType: options.responseContentType,
+    ResponseContentDisposition: options.responseContentDisposition,
+  });
   return getSignedUrl(s3Client, command, { expiresIn });
 }
 

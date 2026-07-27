@@ -13,6 +13,11 @@ interface RecordingOverlayProps {
 export function RecordingOverlay({ meetingId }: RecordingOverlayProps) {
   const [recording, setRecording] = useState(false);
   const [starting, setStarting] = useState(false);
+  // Le déclenchement de l'enregistrement est réservé à l'organisateur : c'est la
+  // seule action de la famille /meet/rooms/[id] à toucher la vie privée de tiers.
+  // Sans cet état, le bouton restait affiché pour tout le monde et échouait en
+  // silence pour les autres participants.
+  const [isOrganizer, setIsOrganizer] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [connected, setConnected] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval>>(null);
@@ -76,6 +81,7 @@ export function RecordingOverlay({ meetingId }: RecordingOverlayProps) {
         if (data.egressId) {
           setRecording(true);
         }
+        setIsOrganizer(Boolean(data.isOrganizer));
       })
       .catch(() => {});
   }, [meetingId]);
@@ -98,6 +104,10 @@ export function RecordingOverlay({ meetingId }: RecordingOverlayProps) {
       </div>
     );
   }
+
+  // Participant non organisateur : la pastille REC reste visible quand la
+  // transcription tourne, mais pas le bouton de déclenchement.
+  if (!isOrganizer) return null;
 
   return (
     <div className="absolute top-3 right-3 z-50">

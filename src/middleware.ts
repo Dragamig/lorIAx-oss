@@ -102,6 +102,10 @@ export default async function proxy(req: NextRequest) {
   // exemption, `checkAuth` redirige l'appel en 307 vers /login faute de cookie de
   // session, et le handler n'est jamais atteint : le cron de rappels d'agenda et
   // la mise à jour de plan depuis la facturation deviennent inatteignables.
+  //
+  // ATTENTION : l'exemption porte sur tout le préfixe `/api/internal/`. Toute route
+  // ajoutée sous ce préfixe DOIT vérifier elle-même son secret partagé et refuser
+  // sans lui. Une route interne qui s'appuierait sur la session serait publique.
   if (
     pathname === "/api/calendar-reminders" ||
     pathname.startsWith("/api/internal/")

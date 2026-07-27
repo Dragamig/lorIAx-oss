@@ -36,6 +36,9 @@ export async function GET(
 
   return NextResponse.json({
     id: meeting.id,
+    // H12 : `start-recording` est réservé à l'organisateur. L'interface a besoin de
+    // le savoir pour ne pas proposer un bouton qui répondra 403 sans message.
+    isOrganizer: meeting.createdBy === user.id,
     status: meeting.status,
     notesDocumentId: meeting.notesDocumentId,
     egressId: meeting.egressId || null,

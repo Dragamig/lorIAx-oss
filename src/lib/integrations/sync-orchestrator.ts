@@ -15,7 +15,7 @@ import { airtableProvider } from "./airtable/client";
 import { notionProvider } from "./notion/client";
 import { decrypt } from "@/lib/crypto";
 import { uploadFile } from "@/lib/storage/s3";
-import { extensionOf, resolveSafeStorageType } from "@/lib/storage/safe-content-type";
+import { resolveDownloadedStorageType } from "@/lib/storage/safe-content-type";
 import { safeFetch } from "@/lib/security/safe-fetch";
 import logger from "@/lib/logger";
 import { randomUUID } from "crypto";
@@ -120,7 +120,8 @@ export async function syncPull(mappingId: string): Promise<SyncResult> {
           cells[colMapping.loriaxColumnId] = await downloadAndReupload(
             rawFiles as { url: string; filename: string }[],
             targetDatabase.spaceId,
-            targetDatabase.createdBy
+            targetDatabase.createdBy,
+            result.errors
           );
         }
 
@@ -471,11 +472,17 @@ function mapLoriaxToExternal(
  * H8 : Chaque objet stocké est également enregistré dans la table `attachments` :
  * c'est elle qui porte désormais le contrôle d'accès des routes de lecture, une clé
  * absente de la table n'est plus servie.
+ *
+ * Le tableau retourné ÉCRASE la cellule de la ligne synchronisée : un fichier qui
+ * n'y figure pas disparaît de l'interface. Tout abandon doit donc remonter dans
+ * `errors`, sans quoi la synchronisation se déclare en succès en ayant vidé une
+ * cellule.
  */
 async function downloadAndReupload(
   files: { url: string; filename: string; expiry?: string }[],
   spaceId: string,
-  uploadedBy: string
+  uploadedBy: string,
+  errors: string[]
 ): Promise<{ key: string; filename: string; mimeType: string; size: number }[]> {
   const MAX_SIZE = 20 * 1024 * 1024; // 20 Mo
   const results: { key: string; filename: string; mimeType: string; size: number }[] = [];
@@ -492,7 +499,12 @@ async function downloadAndReupload(
         timeoutMs: 30000,
         maxBytes: MAX_SIZE,
       });
-      if (!res.ok) continue;
+      if (!res.ok) {
+        errors.push(
+          `Fichier « ${file.filename} » non récupéré (réponse ${res.status} de la source)`
+        );
+        continue;
+      }
 
       const buffer = Buffer.from(await res.arrayBuffer());
 
@@ -500,20 +512,23 @@ async function downloadAndReupload(
       // de verite. L'URL etant saisie librement dans la base externe, un serveur
       // controle par l'attaquant annoncerait `image/svg+xml` ou `text/html`, et
       // l'objet serait ensuite distribue par URL presignee sur l'origine de
-      // stockage, donc rendu en ligne. Meme decision que POST /api/attachments :
-      // liste blanche d'extensions, octets magiques, type impose par le serveur.
-      const ext = extensionOf(file.filename);
-      const storageType = await resolveSafeStorageType(ext, buffer);
+      // stockage, donc rendu en ligne.
+      //
+      // La decision part des OCTETS et non du nom : pour une propriete Notion
+      // `files` en mode external, `filename` vaut `f.name`, un libelle libre
+      // souvent depourvu d'extension. Un contenu non typable est stocke inerte
+      // plutot que refuse : refuser reviendrait a vider la cellule de la ligne
+      // synchronisee, la neutralisation suffit a fermer le vecteur.
+      const { ext, contentType, contentDisposition, neutralized } =
+        await resolveDownloadedStorageType(file.filename, buffer);
 
-      if (!storageType.ok) {
-        logger.warn(
-          { filename: file.filename, reason: storageType.reason },
-          "[sync] Fichier externe refuse : type de contenu non conforme"
+      if (neutralized) {
+        logger.info(
+          { filename: file.filename },
+          "[sync] Fichier externe stocke en binaire opaque : type de contenu non reconnu"
         );
-        continue;
       }
 
-      const { contentType, contentDisposition } = storageType;
       const key = `${spaceId}/sync-${randomUUID()}.${ext}`;
 
       await uploadFile(key, buffer, contentType, { contentDisposition });
@@ -535,7 +550,11 @@ async function downloadAndReupload(
       });
     } catch (err) {
       // Erreur sur un fichier (cible refusée, trop volumineuse, injoignable) :
-      // on journalise côté serveur et on continue les autres.
+      // on journalise côté serveur, on le signale dans le compte rendu de
+      // synchronisation, et on continue les autres.
+      errors.push(
+        `Fichier « ${file.filename} » non récupéré (cible refusée, trop volumineuse ou injoignable)`
+      );
       logger.warn(
         { err, filename: file.filename },
         "[sync] Téléchargement de fichier externe refusé"
