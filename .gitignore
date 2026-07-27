@@ -32,10 +32,10 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files
+# env files (tout .env sauf l'exemple documenté)
 .env
-.env.local
-.env.production.local
+.env.*
+!.env.example
 
 # workspaces (volumes git des espaces)
 /workspaces/
@@ -63,4 +63,6 @@ docs/superpowers/
 /AUDIT-PRECOPIE.md
 /CLAUDE.md
 /.claude/
+/CURRENT_WORK.md
+/AUDIT-2026-07.md
 
