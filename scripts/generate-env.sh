@@ -12,6 +12,7 @@ ENCRYPTION_KEY=$(openssl rand -base64 32)
 POSTGRES_PASSWORD=$(openssl rand -base64 24 | tr -d '/+=')
 S3_ACCESS_KEY=$(openssl rand -hex 12)
 S3_SECRET_KEY=$(openssl rand -base64 24 | tr -d '/+=')
+SETUP_INSTALL_TOKEN=$(openssl rand -base64 32)
 
 cat <<EOF
 # ===========================================
@@ -28,6 +29,10 @@ NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
 
 # --- Chiffrement ---
 ENCRYPTION_KEY=${ENCRYPTION_KEY}
+
+# --- Assistant de configuration (/setup) ---
+# Cle a saisir pour creer le premier super administrateur.
+SETUP_INSTALL_TOKEN=${SETUP_INSTALL_TOKEN}
 
 # --- Stockage S3 (Garage) ---
 S3_ACCESS_KEY=${S3_ACCESS_KEY}

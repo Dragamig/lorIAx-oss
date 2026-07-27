@@ -40,7 +40,7 @@ export function StepSummary({ data, onBack }: StepSummaryProps) {
       <div className="space-y-4">
         <div className="p-4 rounded-lg border border-border">
           <h3 className="font-medium mb-2">Organisation</h3>
-          <p className="text-sm">{data.identity.name || "—"}</p>
+          <p className="text-sm">{data.identity.name || "Non renseigne"}</p>
           {data.identity.description && (
             <p className="text-sm text-muted-foreground">{data.identity.description}</p>
           )}
@@ -59,7 +59,7 @@ export function StepSummary({ data, onBack }: StepSummaryProps) {
           <p className="text-sm">{data.users.length} utilisateur{data.users.length > 1 ? "s" : ""} créé{data.users.length > 1 ? "s" : ""}</p>
           <ul className="text-sm text-muted-foreground mt-1 space-y-0.5">
             {data.users.slice(0, 5).map((u) => (
-              <li key={u.id}>{u.name} ({u.email}) — {u.role}</li>
+              <li key={u.id}>{u.name} ({u.email}) : {u.role}</li>
             ))}
             {data.users.length > 5 && <li>... et {data.users.length - 5} autres</li>}
           </ul>

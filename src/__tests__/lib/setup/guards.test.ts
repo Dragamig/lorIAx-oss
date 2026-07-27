@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 type MockDb = {
   select: ReturnType<typeof vi.fn>;
@@ -134,5 +134,48 @@ describe("guardSetupAccess", () => {
     const access = await guardSetupAccess();
 
     expect(access).toEqual({ allowed: true, mode: "super_admin" });
+  });
+
+  describe("clé imposée par SETUP_INSTALL_TOKEN", () => {
+    const CONFIGURED = "cle-imposee-par-l-exploitant";
+
+    afterEach(() => {
+      delete process.env.SETUP_INSTALL_TOKEN;
+    });
+
+    it("fait autorité sans jamais lire la clé stockée en base", async () => {
+      process.env.SETUP_INSTALL_TOKEN = CONFIGURED;
+      // Seul setup_completed est lu : une deuxième lecture signalerait que la
+      // clé de la base est encore consultée, donc encore exposée.
+      queueSettings(undefined, INSTALL_TOKEN);
+      mockCookieGet.mockReturnValue({ value: CONFIGURED });
+
+      const access = await guardSetupAccess();
+
+      expect(access).toEqual({ allowed: true, mode: "installer" });
+      expect(mockDb.limit).toHaveBeenCalledTimes(1);
+    });
+
+    it("rend la clé stockée en base inopérante", async () => {
+      process.env.SETUP_INSTALL_TOKEN = CONFIGURED;
+      queueSettings(undefined, INSTALL_TOKEN);
+      mockCookieGet.mockReturnValue({ value: INSTALL_TOKEN });
+
+      const access = await guardSetupAccess();
+
+      expect(access.allowed).toBe(false);
+      if (access.allowed) return;
+      expect(access.response.status).toBe(401);
+    });
+
+    it("ignore une valeur trop courte et revient à la clé de la base", async () => {
+      process.env.SETUP_INSTALL_TOKEN = "trop-court";
+      queueSettings(undefined, INSTALL_TOKEN);
+      mockCookieGet.mockReturnValue({ value: INSTALL_TOKEN });
+
+      const access = await guardSetupAccess();
+
+      expect(access).toEqual({ allowed: true, mode: "installer" });
+    });
   });
 });

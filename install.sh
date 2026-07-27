@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================
-# LorIAx — Script d'installation auto-hébergée
+# LorIAx : script d'installation auto-hebergee
 # Usage : bash install.sh
 # ============================================================
 
@@ -25,7 +25,7 @@ echo "  ██║     ██║   ██║██╔══██╗██║█�
 echo "  ███████╗╚██████╔╝██║  ██║██║██║  ██║██╔╝ ██╗"
 echo "  ╚══════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝╚═╝  ╚═╝╚═╝  ╚═╝"
 echo ""
-info "Installation de LorIAx — Plateforme collaborative de gestion de connaissances"
+info "Installation de LorIAx, plateforme collaborative de gestion de connaissances"
 echo ""
 
 # --- Vérifications préalables ---
@@ -59,11 +59,14 @@ NEXTAUTH_SECRET=$(openssl rand -base64 32)
 ENCRYPTION_KEY=$(openssl rand -base64 32)
 S3_ACCESS_KEY="loriax_$(openssl rand -hex 8)"
 S3_SECRET_KEY=$(openssl rand -hex 32)
+# Clé d'accès à l'assistant /setup : la fixer ici évite à l'exploitant d'aller
+# la chercher dans les journaux du conteneur.
+SETUP_INSTALL_TOKEN=$(openssl rand -base64 32)
 
 # --- Création du .env ---
 
 if [ -f .env ]; then
-    warn ".env existant détecté — sauvegarde vers .env.backup"
+    warn ".env existant detecte, sauvegarde vers .env.backup"
     cp .env .env.backup
 fi
 
@@ -82,6 +85,9 @@ NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
 # Chiffrement
 ENCRYPTION_KEY=${ENCRYPTION_KEY}
 
+# Assistant de configuration (/setup)
+SETUP_INSTALL_TOKEN=${SETUP_INSTALL_TOKEN}
+
 # Stockage objet (Garage S3)
 S3_ENDPOINT=garage
 S3_PORT=3900
@@ -98,7 +104,7 @@ LORIAX_LICENSE_KEY=${LICENSE_KEY}
 # Chemins
 WORKSPACES_PATH=/app/workspaces
 
-# IA (optionnel — configurable via l'interface admin)
+# IA (optionnel, configurable via l'interface admin)
 # ANTHROPIC_API_KEY=
 # OPENAI_API_KEY=
 # MISTRAL_API_KEY=
@@ -137,7 +143,6 @@ echo "  │                                                     │"
 success "  │   LorIAx est installé et démarré !                 │"
 echo "  │                                                     │"
 echo "  │   URL         : ${APP_URL}"
-echo "  │   Compte admin: admin@${APP_DOMAIN}"
 echo "  │                                                     │"
 echo "  │   Prochaine étape : configurez votre reverse proxy  │"
 echo "  │   (Nginx, Caddy, Traefik) pour pointer vers         │"
@@ -146,5 +151,13 @@ echo "  │                                                     │"
 echo "  │   Logs : docker compose -f docker-compose.client.yml logs -f  │"
 echo "  └─────────────────────────────────────────────────────┘"
 echo ""
-warn "Conservez le fichier .env en lieu sûr — il contient vos secrets."
+info "Aucun compte n'existe encore. Ouvrez ${APP_URL}/setup pour creer le"
+info "premier super administrateur. La cle d'installation demandee est :"
+echo ""
+echo "    ${SETUP_INSTALL_TOKEN}"
+echo ""
+info "Elle est aussi dans le .env (SETUP_INSTALL_TOKEN) et cesse d'etre"
+info "acceptee des que la configuration est terminee."
+echo ""
+warn "Conservez le fichier .env en lieu sur, il contient vos secrets."
 echo ""

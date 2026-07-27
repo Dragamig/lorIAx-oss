@@ -38,8 +38,13 @@ export async function GET() {
 
   const rows = await db.select().from(systemSettings);
 
+  // Même liste blanche qu'en écriture. system_settings sert de fourre-tout à
+  // toute l'application : sans filtre, cette route exposerait aussi l'état de
+  // l'assistant de configuration, dont le jeton d'installation, à un simple
+  // administrateur, alors que ce jeton vaut prise de contrôle de l'instance.
   const settings: Record<string, unknown> = {};
   for (const row of rows) {
+    if (!isValidKey(row.key)) continue;
     settings[row.key] = row.value;
   }
 

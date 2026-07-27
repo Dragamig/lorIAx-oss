@@ -210,7 +210,7 @@ npm run dev:full
 ```bash
 git clone https://github.com/Flavien-Dragamig/lorIAx-oss.git
 cd lorIAx-oss
-cp .env.example .env.local        # puis renseigner NEXTAUTH_SECRET et ENCRYPTION_KEY
+bash scripts/generate-env.sh > .env.local   # secrets générés (voir Configuration)
 npm install
 docker compose up -d postgres garage garage-init   # dépendances (BDD + S3)
 npm run db:fresh                  # reset + migrations + comptes de démo + templates
@@ -232,17 +232,34 @@ Comptes de démo (à changer avant tout déploiement public) :
 
 L'assistant de configuration (`/setup`) crée le premier super administrateur : il n'est
 donc pas ouvert au premier visiteur venu. Sur une instance encore vide, il réclame une
-**clé d'installation** que le serveur écrit dans ses journaux la première fois que la
-page est ouverte :
+**clé d'installation**. Deux façons de l'obtenir.
 
-```
-[setup] Jeton d'installation de cette instance, a saisir dans l'assistant de configuration : <cle>
+**Option 1, recommandée en production : la fixer vous-même.** Renseignez
+`SETUP_INSTALL_TOKEN` (16 caractères minimum) avant le premier démarrage. Elle n'est
+alors ni générée, ni stockée en base, ni écrite dans les journaux, et l'installation
+devient automatisable.
+
+```bash
+openssl rand -base64 32          # la valeur à mettre dans SETUP_INSTALL_TOKEN
 ```
 
-Récupérez-la dans la sortie du serveur (`docker compose logs app` en conteneur), collez-la
-dans l'assistant, puis déroulez les étapes. La clé est supprimée dès que la configuration
-est terminée ou reportée. Sur une instance déjà en service, aucune clé n'est nécessaire :
-il suffit d'être connecté avec un compte `super_admin`.
+**Option 2 : la laisser générer.** Sans cette variable, le serveur en crée une au
+premier affichage de `/setup` et l'écrit dans ses journaux, au niveau `warn`, avec le
+message `Jeton d'installation de cette instance`. En production les journaux sont au
+format NDJSON : la clé est la fin du champ `msg`.
+
+```bash
+# installation via install.sh
+docker compose -f docker-compose.client.yml logs app | grep "Jeton d'installation"
+# stack docker-compose.yml
+docker compose logs app | grep "Jeton d'installation"
+```
+
+Collez la clé dans l'assistant, puis déroulez les étapes. Une clé générée est supprimée
+de la base dès que la configuration est terminée ou reportée ; une clé fournie par
+`SETUP_INSTALL_TOKEN` cesse simplement d'être acceptée, l'assistant étant clos. Sur une
+instance déjà en service, aucune clé n'est nécessaire : il suffit d'être connecté avec
+un compte `super_admin`.
 
 ## Configuration
 
@@ -255,6 +272,8 @@ Sous-ensemble essentiel :
 | `DATABASE_URL` | serveur | URL PostgreSQL (pgvector + pg_trgm requis) |
 | `NEXTAUTH_SECRET` | serveur | Secret de signature des sessions (`openssl rand -base64 32`) |
 | `NEXTAUTH_URL` | serveur | URL publique pour les redirections OAuth |
+| `ENCRYPTION_KEY` | serveur | Clé 32 octets base64 chiffrant en base les secrets IA, LDAP, SMTP et sauvegarde (`openssl rand -base64 32`) |
+| `SETUP_INSTALL_TOKEN` | serveur | Clé d'accès à l'assistant `/setup` (optionnel, sinon générée et journalisée au premier affichage) |
 | `NEXT_PUBLIC_APP_URL` | client+serveur | URL publique (emails, webhooks, QR codes) |
 | `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` | serveur | Stockage objet (optionnel, filesystem par défaut) |
 | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `MISTRAL_API_KEY` / `OLLAMA_HOST` | serveur | Providers IA (optionnels, configurables aussi en runtime via l'admin) |
@@ -277,9 +296,13 @@ npm start    # Next.js + serveur WebSocket collaboration
 Stack tout-en-un : app + PostgreSQL (pgvector) + Garage (S3) + Ollama + backup planifié.
 
 ```bash
-cp .env.example .env.local
+bash scripts/generate-env.sh > .env.local   # secrets générés, puis ajuster les URLs
 docker compose up -d
 ```
+
+`.env.example` documente les variables mais ne contient **aucune** valeur de secret :
+`NEXTAUTH_SECRET` et `ENCRYPTION_KEY` y sont vides, et l'application refuse de démarrer
+tant qu'ils ne sont pas renseignés. `scripts/generate-env.sh` les tire pour vous.
 
 Variantes fournies à la racine :
 

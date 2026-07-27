@@ -35,6 +35,32 @@ interface InstallTokenRecord {
 const TOKEN_LOG_INTERVAL_MS = 60 * 1000;
 let lastTokenLogAt = 0;
 
+/** Longueur minimale d'un jeton fourni par l'exploitant. */
+const MIN_CONFIGURED_TOKEN_LENGTH = 16;
+
+/**
+ * Jeton imposé par l'environnement (SETUP_INSTALL_TOKEN).
+ *
+ * Porte de secours pour qui n'a pas accès aux journaux du conteneur, et seule
+ * façon d'automatiser une installation. Quand il est défini, rien n'est écrit
+ * en base et rien n'est journalisé : le secret reste dans la configuration de
+ * l'exploitant.
+ */
+function getConfiguredInstallToken(): string | null {
+  const raw = process.env.SETUP_INSTALL_TOKEN?.trim();
+  if (!raw) return null;
+
+  if (raw.length < MIN_CONFIGURED_TOKEN_LENGTH) {
+    logger.error(
+      "[setup] SETUP_INSTALL_TOKEN ignore : %d caracteres minimum requis",
+      MIN_CONFIGURED_TOKEN_LENGTH
+    );
+    return null;
+  }
+
+  return raw;
+}
+
 function constantTimeEquals(a: string, b: string): boolean {
   const digestA = createHash("sha256").update(a, "utf8").digest();
   const digestB = createHash("sha256").update(b, "utf8").digest();
@@ -75,10 +101,16 @@ function logInstallToken(token: string, created: boolean): void {
 
 /**
  * Retourne le jeton d'installation, en le créant au premier appel.
- * Il n'est diffusé que par les journaux du serveur : la configuration initiale
- * est ainsi réservée à qui a accès à la machine.
+ * Sans SETUP_INSTALL_TOKEN, il n'est diffusé que par les journaux du serveur :
+ * la configuration initiale est ainsi réservée à qui a accès à la machine.
  */
 export async function ensureInstallToken(): Promise<string> {
+  const configured = getConfiguredInstallToken();
+  if (configured) {
+    // Jamais journalisé, jamais persisté : il vient déjà de l'exploitant.
+    return configured;
+  }
+
   const existing = await readSetting<InstallTokenRecord>(INSTALL_TOKEN_KEY);
 
   if (existing?.token) {
@@ -107,6 +139,13 @@ export async function ensureInstallToken(): Promise<string> {
 export async function verifyInstallToken(candidate: string): Promise<boolean> {
   if (!candidate) return false;
 
+  const configured = getConfiguredInstallToken();
+  if (configured) {
+    // Le jeton d'environnement fait autorité : aucune lecture en base, donc
+    // aucune trace du secret dans system_settings.
+    return constantTimeEquals(candidate, configured);
+  }
+
   const stored = await readSetting<InstallTokenRecord>(INSTALL_TOKEN_KEY);
   if (!stored?.token) return false;
 
@@ -122,7 +161,11 @@ export async function hasValidInstallToken(): Promise<boolean> {
   return verifyInstallToken(presented);
 }
 
-/** Supprime le jeton d'installation : révocation immédiate, côté serveur. */
+/**
+ * Supprime le jeton d'installation : révocation immédiate, côté serveur.
+ * Un jeton imposé par SETUP_INSTALL_TOKEN ne peut pas être effacé ici ; il est
+ * neutralisé par le drapeau setup_completed, que la garde teste en premier.
+ */
 export async function revokeInstallToken(): Promise<void> {
   await db.delete(systemSettings).where(eq(systemSettings.key, INSTALL_TOKEN_KEY));
 }
