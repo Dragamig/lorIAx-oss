@@ -15,6 +15,7 @@ import { airtableProvider } from "./airtable/client";
 import { notionProvider } from "./notion/client";
 import { decrypt } from "@/lib/crypto";
 import { uploadFile } from "@/lib/storage/s3";
+import { extensionOf, resolveSafeStorageType } from "@/lib/storage/safe-content-type";
 import { safeFetch } from "@/lib/security/safe-fetch";
 import logger from "@/lib/logger";
 import { randomUUID } from "crypto";
@@ -495,22 +496,43 @@ async function downloadAndReupload(
 
       const buffer = Buffer.from(await res.arrayBuffer());
 
-      const mimeType = res.headers.get("content-type") || "application/octet-stream";
-      const ext = file.filename.includes(".") ? file.filename.split(".").pop() : "bin";
+      // H9 : le `Content-Type` renvoye par le serveur distant n'est pas une source
+      // de verite. L'URL etant saisie librement dans la base externe, un serveur
+      // controle par l'attaquant annoncerait `image/svg+xml` ou `text/html`, et
+      // l'objet serait ensuite distribue par URL presignee sur l'origine de
+      // stockage, donc rendu en ligne. Meme decision que POST /api/attachments :
+      // liste blanche d'extensions, octets magiques, type impose par le serveur.
+      const ext = extensionOf(file.filename);
+      const storageType = await resolveSafeStorageType(ext, buffer);
+
+      if (!storageType.ok) {
+        logger.warn(
+          { filename: file.filename, reason: storageType.reason },
+          "[sync] Fichier externe refuse : type de contenu non conforme"
+        );
+        continue;
+      }
+
+      const { contentType, contentDisposition } = storageType;
       const key = `${spaceId}/sync-${randomUUID()}.${ext}`;
 
-      await uploadFile(key, buffer, mimeType);
+      await uploadFile(key, buffer, contentType, { contentDisposition });
 
       await db.insert(attachments).values({
         spaceId,
         filename: file.filename.slice(0, 500),
-        mimeType: mimeType.slice(0, 255),
+        mimeType: contentType.slice(0, 255),
         sizeBytes: buffer.length,
         storageKey: key,
         uploadedBy,
       });
 
-      results.push({ key, filename: file.filename, mimeType, size: buffer.length });
+      results.push({
+        key,
+        filename: file.filename,
+        mimeType: contentType,
+        size: buffer.length,
+      });
     } catch (err) {
       // Erreur sur un fichier (cible refusée, trop volumineuse, injoignable) :
       // on journalise côté serveur et on continue les autres.

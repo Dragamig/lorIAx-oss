@@ -28,7 +28,12 @@ export async function GET(
   }
 
   try {
-    const command = new GetObjectCommand({ Bucket: BUCKET, Key: key });
+    // Objet lu par la clé relue en base, pas par la chaîne d'URL : les deux sont
+    // égales par construction, l'invariant devient structurel.
+    const command = new GetObjectCommand({
+      Bucket: BUCKET,
+      Key: access.attachment.storageKey,
+    });
     const response = await s3Client.send(command);
 
     if (!response.Body) {

@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
-import { attachments, documents, spaces } from "@/lib/db/schema";
+import { attachments, documents } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { checkDocumentViewAccess, getSpacePermission } from "@/lib/auth/check-access";
+import { checkDocumentViewAccess, checkSpaceViewAccess } from "@/lib/auth/check-access";
 import type { SessionUser } from "@/types";
 
 /**
@@ -53,8 +53,12 @@ async function findByStorageKey(storageKey: string): Promise<ResolvedAttachment 
  *
  * Attached to a document: the document view check applies (RBAC + classification).
  * Attached to a space only (database blocks, orphaned attachments after a document
- * deletion): space ownership or any explicit space permission is required. Global
- * admins are covered by getSpacePermission(), which returns "admin" for them.
+ * deletion): the decision is delegated to checkSpaceViewAccess() in "member" mode,
+ * the very rule that governs the database rows carrying those attachments
+ * (src/app/api/databases/[databaseId]/route.ts). Reimplementing it here with
+ * getSpacePermission() made the attachment stricter than the row that displays it:
+ * a user whose access comes from a team permission saw the cell and got a 403 when
+ * opening it.
  */
 async function canRead(user: SessionUser, attachment: ResolvedAttachment): Promise<boolean> {
   if (attachment.documentId) {
@@ -69,16 +73,7 @@ async function canRead(user: SessionUser, attachment: ResolvedAttachment): Promi
     if (doc) return checkDocumentViewAccess(user, doc.spaceId, doc.id);
   }
 
-  const [space] = await db
-    .select({ ownerUserId: spaces.ownerUserId })
-    .from(spaces)
-    .where(eq(spaces.id, attachment.spaceId))
-    .limit(1);
-
-  if (!space) return false;
-  if (space.ownerUserId === user.id) return true;
-
-  return (await getSpacePermission(user.id, attachment.spaceId)) !== null;
+  return checkSpaceViewAccess(user, attachment.spaceId, "member");
 }
 
 /**

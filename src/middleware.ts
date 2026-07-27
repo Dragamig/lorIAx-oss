@@ -97,6 +97,18 @@ export default async function proxy(req: NextRequest) {
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
+  // Points d'entrée machine : l'authentification est un secret partagé porté par
+  // l'en-tête Authorization et vérifié fail-closed dans le handler. Sans cette
+  // exemption, `checkAuth` redirige l'appel en 307 vers /login faute de cookie de
+  // session, et le handler n'est jamais atteint : le cron de rappels d'agenda et
+  // la mise à jour de plan depuis la facturation deviennent inatteignables.
+  if (
+    pathname === "/api/calendar-reminders" ||
+    pathname.startsWith("/api/internal/")
+  ) {
+    return NextResponse.next();
+  }
+
   // APIs internes : pas de CSP HTML nécessaire
   if (pathname.startsWith("/api/")) {
     return checkAuth(req);

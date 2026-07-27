@@ -396,7 +396,14 @@ export const attachments = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (table) => [index("idx_attachments_document").on(table.documentId)]
+  (table) => [
+    index("idx_attachments_document").on(table.documentId),
+    // Point d'entree unique du controle d'acces aux pieces jointes
+    // (`resolveReadableAttachment`) : chaque lecture resout la cle S3 par cette
+    // colonne. Sans index, parcours sequentiel d'une table qui grossit a chaque
+    // televersement et a chaque synchronisation externe.
+    index("idx_attachments_storage_key").on(table.storageKey),
+  ]
 );
 
 // ============================================================

@@ -1,46 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { attachments } from "@/lib/db/schema";
+import { attachments, documents } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 import { getSessionUser } from "@/lib/auth/get-user";
-import { getSpacePermission } from "@/lib/auth/check-access";
+import { getSpacePermission, checkDocumentEditAccess } from "@/lib/auth/check-access";
 import { uploadFile, getFileUrl } from "@/lib/storage/s3";
 import { randomUUID } from "crypto";
-import { fileTypeFromBuffer } from "file-type";
-
-const ALLOWED_EXTENSIONS = new Set([
-  "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp",
-  "txt", "csv", "json", "xml", "yaml", "yml", "md",
-  "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico",
-  "mp4", "webm", "mp3", "wav", "ogg",
-  "zip", "tar", "gz",
-]);
-
-// Extensions texte que file-type ne peut pas détecter (pas de magic bytes).
-// H9 : `svg` a été retiré de cette liste : le SVG est un document actif (script,
-// handlers, xlink), le laisser ici lui faisait sauter tout contrôle de contenu.
-const TEXT_EXTENSIONS = new Set([
-  "txt", "csv", "json", "xml", "yaml", "yml", "md",
-]);
-
-/**
- * H9 : Formats textuels que le navigateur peut exécuter s'il les rend en ligne
- * (SVG : balise script ; XML : feuille XSLT). Ils restent acceptés par le produit
- * mais sont stockés en binaire opaque : `application/octet-stream` +
- * `Content-Disposition: attachment` sur l'objet S3 lui-même, de sorte qu'une URL
- * signée ouverte directement sur l'origine de stockage déclenche un téléchargement
- * au lieu d'un rendu. Aucun XSS stocké n'est donc possible sur cette origine.
- */
-const NEUTRALIZED_EXTENSIONS = new Set(["svg", "xml"]);
-
-/** Content-Type sûr imposé par le serveur pour les extensions sans magic bytes. */
-const TEXT_CONTENT_TYPES: Record<string, string> = {
-  txt: "text/plain; charset=utf-8",
-  csv: "text/csv; charset=utf-8",
-  md: "text/plain; charset=utf-8",
-  yaml: "text/plain; charset=utf-8",
-  yml: "text/plain; charset=utf-8",
-  json: "application/json; charset=utf-8",
-};
+import {
+  ALLOWED_UPLOAD_EXTENSIONS,
+  extensionOf,
+  resolveSafeStorageType,
+} from "@/lib/storage/safe-content-type";
 
 /**
  * SEC-06 — Sanitise le nom de fichier pour empêcher path traversal et
@@ -89,55 +59,65 @@ export async function POST(request: NextRequest) {
   }
 
   // Validation de l'extension
-  const ext = file.name.split(".").pop()?.toLowerCase() || "";
-  if (!ALLOWED_EXTENSIONS.has(ext)) {
+  const ext = extensionOf(file.name);
+  if (!ALLOWED_UPLOAD_EXTENSIONS.has(ext)) {
     return NextResponse.json(
       { error: `Extension .${ext} non autorisée` },
       { status: 400 }
     );
   }
 
+  // Le document porteur gouverne desormais la lisibilite de la piece jointe
+  // (`resolveReadableAttachment`). Accrocher un fichier a un document arbitraire
+  // reviendrait donc a s'en priver soi-meme, ou a le deposer dans un espace tiers.
+  if (documentId) {
+    const [doc] = await db
+      .select({ id: documents.id, spaceId: documents.spaceId })
+      .from(documents)
+      .where(eq(documents.id, documentId))
+      .limit(1);
+
+    if (!doc || doc.spaceId !== spaceId) {
+      return NextResponse.json(
+        { error: "Document introuvable dans cet espace" },
+        { status: 404 }
+      );
+    }
+
+    const canEdit = await checkDocumentEditAccess(user, doc.spaceId, doc.id);
+    if (!canEdit) {
+      return NextResponse.json({ error: "Accès refusé à ce document" }, { status: 403 });
+    }
+  }
+
   const buffer = Buffer.from(await file.arrayBuffer());
 
-  // H9 : Le Content-Type est décidé par le serveur, jamais repris de `file.type`
+  // H9 : le Content-Type est decide par le serveur, jamais repris de `file.type`
   // fourni par le client : c'est lui que S3 renverra ensuite sur son origine.
-  let contentType: string;
-  let contentDisposition: string | undefined;
+  const storageType = await resolveSafeStorageType(ext, buffer);
 
-  if (NEUTRALIZED_EXTENSIONS.has(ext)) {
-    contentType = "application/octet-stream";
-    contentDisposition = "attachment";
-  } else if (TEXT_EXTENSIONS.has(ext)) {
-    contentType = TEXT_CONTENT_TYPES[ext] ?? "application/octet-stream";
-  } else {
-    // SEC-05 : Vérification des magic bytes pour les fichiers binaires
-    const detectedType = await fileTypeFromBuffer(buffer);
-
-    if (!detectedType) {
+  if (!storageType.ok) {
+    if (storageType.reason === "unrecognized") {
       return NextResponse.json(
         { error: "Type de fichier non reconnu" },
         { status: 415 }
       );
     }
-
-    // Vérifier que l'extension correspond au type MIME réel
-    const detectedExt = detectedType.ext;
-    // Normaliser jpg/jpeg
-    const normalizedExt = ext === "jpg" ? "jpeg" : ext;
-    const normalizedDetected = detectedExt === "jpg" ? "jpeg" : detectedExt;
-
-    if (normalizedExt !== normalizedDetected) {
+    if (storageType.reason === "mismatch") {
       return NextResponse.json(
         {
-          error: `Type de fichier incohérent : extension .${ext} mais contenu détecté comme .${detectedExt}`,
+          error: `Type de fichier incohérent : extension .${ext} mais contenu détecté comme .${storageType.detectedExt}`,
         },
         { status: 400 }
       );
     }
-
-    // Type MIME issu des octets réels, pas de la déclaration du client
-    contentType = detectedType.mime;
+    return NextResponse.json(
+      { error: `Extension .${ext} non autorisée` },
+      { status: 400 }
+    );
   }
+
+  const { contentType, contentDisposition } = storageType;
 
   // SEC-06 — Sanitiser le nom de fichier
   const safeName = sanitizeFilename(file.name);

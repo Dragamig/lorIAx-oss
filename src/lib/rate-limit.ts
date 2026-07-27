@@ -195,12 +195,15 @@ export const RATE_LIMITS = {
   /** Meet: 20 requests per minute */
   meet: { maxRequests: 20, windowMs: 60 * 1000 },
   /**
-   * CalDAV: 20 *failed* authentications per IP per 15 minutes.
+   * CalDAV: 20 *rejected credentials* per 15 minutes, per client IP, or per presented
+   * username when no IP can be resolved (see caldavRateLimitKey in the route).
    * A CalDAV client re-authenticates on every request, so counting every attempt
-   * would break legitimate synchronisation. Only failures are counted, which leaves
-   * a legitimate client untouched while capping password guessing at 80 attempts
-   * per hour. The margin of 20 absorbs the burst of failures a client produces
-   * between a password change and its reconfiguration.
+   * would break legitimate synchronisation. Only credentials that were presented and
+   * rejected are counted, never the initial challenge with no Authorization header,
+   * which every Basic client and the RFC 6764 discovery flow both produce. That
+   * leaves a correctly configured client untouched while capping password guessing at
+   * 80 attempts per hour. The margin of 20 absorbs the burst of failures a client
+   * produces between a password change and its reconfiguration.
    */
   caldavAuth: { maxRequests: 20, windowMs: 15 * 60 * 1000 },
 } as const;

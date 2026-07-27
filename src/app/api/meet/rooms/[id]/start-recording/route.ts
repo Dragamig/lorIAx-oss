@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/get-user";
-import { getMeeting, updateMeetingStatus, canAccessMeeting } from "@/lib/meet/rooms";
+import { getMeeting, updateMeetingStatus } from "@/lib/meet/rooms";
 import { startRecording } from "@/lib/meet/egress";
 import logger from "@/lib/logger";
 
@@ -22,9 +22,14 @@ export async function POST(
     return NextResponse.json({ error: "Réunion introuvable" }, { status: 404 });
   }
 
-  // H12 : Contrôle d'accès identique aux cinq routes voisines de /meet/rooms/[id]
-  const allowed = await canAccessMeeting(user.id, meeting);
-  if (!allowed) {
+  // H12 : la route n'avait aucun contrôle d'accès à la réunion. Elle s'aligne sur
+  // les trois autres routes MUTANTES de la famille (`activate`, `end`,
+  // `speaker-mapping`), qui exigent l'organisateur, et non sur les deux routes de
+  // LECTURE (`status`, `notes`), qui se contentent de `canAccessMeeting` et
+  // ouvriraient donc à tout participant. Déclencher l'enregistrement audio puis la
+  // transcription de tous les présents est la seule action de la famille à toucher
+  // la vie privée de tiers : elle appartient à l'organisateur.
+  if (meeting.createdBy !== user.id) {
     return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
   }
 

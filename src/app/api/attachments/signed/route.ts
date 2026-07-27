@@ -30,7 +30,9 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const url = await getFileUrl(key, 900);
+    // La clé signée est celle relue en base, pas la chaîne du paramètre : les deux
+    // sont égales par construction, l'invariant devient structurel.
+    const url = await getFileUrl(access.attachment.storageKey, 900);
     return NextResponse.json({ url });
   } catch {
     return NextResponse.json({ error: "Fichier introuvable" }, { status: 404 });

@@ -35,6 +35,46 @@ function caldavHeaders(extra: Record<string, string> = {}): Record<string, strin
   };
 }
 
+function unauthorized(): NextResponse {
+  return new NextResponse("Unauthorized", {
+    status: 401,
+    headers: { "WWW-Authenticate": 'Basic realm="LorIAx CalDAV"' },
+  });
+}
+
+/** Identifiant présenté en Basic, en minuscules, ou null (Bearer, en-tête illisible). */
+function basicAuthUsername(authHeader: string): string | null {
+  if (!authHeader.startsWith("Basic ")) return null;
+  try {
+    const decoded = Buffer.from(authHeader.slice(6), "base64").toString("utf-8");
+    const separator = decoded.indexOf(":");
+    if (separator <= 0) return null;
+    return decoded.slice(0, separator).toLowerCase().trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Clé du limiteur d'échecs, ou null quand aucune dimension fiable n'est disponible.
+ *
+ * `getClientIp` renvoie la chaîne « unknown » en l'absence de `x-forwarded-for`,
+ * cas courant en auto-hébergement, et notamment quand CalDAV est servi par le
+ * serveur Node maison qui porte PROPFIND et REPORT. Limiter sur cette valeur
+ * réunirait tous les clients dans un même compteur : n'importe qui gèlerait alors
+ * CalDAV pour l'installation entière, sans même s'authentifier. On retombe donc
+ * sur l'identifiant présenté, qui est la dimension réellement pertinente pour une
+ * attaque par force brute. Reste hors limitation le seul cas « pas d'adresse
+ * résolue et jeton Bearer », où le secret deviné serait une clé d'API de 32 octets.
+ */
+function caldavRateLimitKey(request: NextRequest, authHeader: string): string | null {
+  const ip = getClientIp(request);
+  if (ip !== "unknown") return `caldav-auth:ip:${ip}`;
+
+  const username = basicAuthUsername(authHeader);
+  return username ? `caldav-auth:user:${username}` : null;
+}
+
 async function handleRequest(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
@@ -56,13 +96,21 @@ async function handleRequest(
     return new NextResponse(null, { status: result.status, headers: result.headers });
   }
 
-  // H11 : L'authentification Basic est rejouée à chaque requête CalDAV : sans
-  // limitation, le point d'entrée est un oracle de force brute sur les mots de passe.
-  // Seuls les échecs sont comptés (peek avant, consommation après), donc un client
-  // légitime, qui s'authentifie correctement, n'est jamais freiné.
-  const ip = getClientIp(request);
-  const rateLimitKey = `caldav-auth:${ip}`;
-  if (!peekRateLimit(rateLimitKey, RATE_LIMITS.caldavAuth).success) {
+  // H11 : l'authentification Basic est rejouée à chaque requête CalDAV, sans
+  // limitation le point d'entrée est un oracle de force brute sur les mots de passe.
+  // Seuls les identifiants PRESENTES ET REJETES sont comptés, jamais le défi
+  // d'authentification : une requête sans en-tête Authorization est le premier
+  // échange normal de tout client Basic, et c'est exactement ce que produit la
+  // découverte RFC 6764 via /.well-known/caldav. La compter ferait tomber en 429
+  // la synchronisation de tous les postes partageant une même adresse.
+  const authHeader = request.headers.get("authorization");
+  if (!authHeader) {
+    return unauthorized();
+  }
+
+  const rateLimitKey = caldavRateLimitKey(request, authHeader);
+
+  if (rateLimitKey && !peekRateLimit(rateLimitKey, RATE_LIMITS.caldavAuth).success) {
     return new NextResponse("Too Many Requests", {
       status: 429,
       headers: { "Retry-After": "900" },
@@ -72,11 +120,8 @@ async function handleRequest(
   // Authenticate
   const user = await authenticateCalDAV(request);
   if (!user) {
-    checkRateLimit(rateLimitKey, RATE_LIMITS.caldavAuth);
-    return new NextResponse("Unauthorized", {
-      status: 401,
-      headers: { "WWW-Authenticate": 'Basic realm="LorIAx CalDAV"' },
-    });
+    if (rateLimitKey) checkRateLimit(rateLimitKey, RATE_LIMITS.caldavAuth);
+    return unauthorized();
   }
 
   const pathSegments = (await params).path;
