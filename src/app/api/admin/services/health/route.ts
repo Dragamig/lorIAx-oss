@@ -15,7 +15,7 @@ export const runtime = "nodejs";
 // d'où la dérogation réseau privé.
 const ALLOW_PRIVATE = true;
 
-// Sondes de sante : jamais de redirection suivie, une sonde n'a pas a rebondir.
+// Sondes de santé : jamais de redirection suivie, une sonde n'a pas à rebondir.
 const PROBE = { allowPrivate: ALLOW_PRIVATE, followRedirects: false } as const;
 
 type ServiceStatus = "up" | "down" | "starting" | "disabled" | "configured" | "unconfigured";

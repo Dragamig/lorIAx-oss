@@ -185,6 +185,13 @@ export const RATE_LIMITS = {
   linkPreview: { maxRequests: 30, windowMs: 60 * 1000 },
   /** Routing (OSRM): 30 requests per minute */
   routing: { maxRequests: 30, windowMs: 60 * 1000 },
+  /**
+   * Data proxy: 20 requests per minute.
+   * Every call buffers up to 10 MiB in memory before re-serialising it, so
+   * without a rate limit a single authenticated account could multiply that
+   * footprint by the number of parallel requests.
+   */
+  dataProxy: { maxRequests: 20, windowMs: 60 * 1000 },
   /** Meet: 20 requests per minute */
   meet: { maxRequests: 20, windowMs: 60 * 1000 },
   /**

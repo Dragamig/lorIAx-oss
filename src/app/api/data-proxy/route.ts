@@ -2,13 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/get-user";
 import { validateExternalUrl } from "@/lib/security/url-validator";
 import { SafeFetchError, isBlockedTargetError, safeFetch } from "@/lib/security/safe-fetch";
+import { checkRateLimit, getClientIp, RATE_LIMITS } from "@/lib/rate-limit";
 import logger from "@/lib/logger";
 
 export const runtime = "nodejs";
 
-// Cette route alimente les blocs base de donnees et tableur : ingerer de gros
-// jeux JSON ou CSV est son metier. Le plafond porte sur les octets decompresses.
-const MAX_PAYLOAD_BYTES = 25 * 1024 * 1024;
+// Cette route alimente les blocs base de données et tableur : ingérer de gros
+// jeux JSON ou CSV est son métier. Le plafond porte sur les octets bruts comme
+// sur les octets décompressés. Il reste volontairement modéré car le corps est
+// entièrement bufferisé en mémoire, puis re-sérialisé par NextResponse.json
+// sur la branche rest-api, ce qui multiplie l'empreinte côté V8.
+const MAX_PAYLOAD_BYTES = 10 * 1024 * 1024;
 
 /**
  * POST /api/data-proxy
@@ -19,6 +23,17 @@ export async function POST(req: NextRequest) {
   const user = await getSessionUser();
   if (!user) {
     return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+  }
+
+  // Plafond de débit : sans lui, N requêtes parallèles d'un même compte
+  // multiplient par N les 10 Mio bufferisés en mémoire.
+  const ip = getClientIp(req);
+  const rl = checkRateLimit(`data-proxy:${ip}`, RATE_LIMITS.dataProxy);
+  if (!rl.success) {
+    return NextResponse.json(
+      { error: "Trop de requêtes. Réessayez dans un instant." },
+      { status: 429 }
+    );
   }
 
   const body = await req.json();
@@ -95,7 +110,7 @@ export async function POST(req: NextRequest) {
 
       if (!res.ok) {
         return NextResponse.json(
-          { error: `Google Sheets HTTP ${res.status} — vérifiez que la feuille est partagée publiquement` },
+          { error: `Google Sheets HTTP ${res.status}, vérifiez que la feuille est partagée publiquement` },
           { status: 502 }
         );
       }
@@ -117,14 +132,14 @@ export async function POST(req: NextRequest) {
     }
     if (err instanceof SafeFetchError && err.code === "response_too_large") {
       return NextResponse.json(
-        { error: "Réponse trop volumineuse (limite 25 Mo)" },
+        { error: "Réponse trop volumineuse (limite 10 Mo)" },
         { status: 502 }
       );
     }
-    // Le message brut d'une erreur reseau expose l'adresse resolue et le port
+    // Le message brut d'une erreur réseau expose l'adresse résolue et le port
     // ("connect ECONNREFUSED 93.184.216.34:22"), ce qui transformerait cette
-    // route en scanner de ports. Detail journalise cote serveur uniquement.
-    logger.warn({ err, type }, "[data-proxy] Echec de recuperation");
+    // route en scanner de ports. Détail journalisé côté serveur uniquement.
+    logger.warn({ err, type }, "[data-proxy] Échec de récupération");
     return NextResponse.json({ error: "Erreur de récupération" }, { status: 502 });
   }
 }

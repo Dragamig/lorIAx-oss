@@ -68,8 +68,10 @@ export async function POST(req: NextRequest) {
   // L'URL de base provient exclusivement de la configuration serveur
   // (variable d'env ROUTING_API_URL), jamais de la requête : seules les
   // coordonnées numériques déjà validées entrent dans le chemin.
-  // Une instance OSRM auto-hébergée sur le réseau privé est un cas d'usage
-  // documenté (.env.example), d'où allowPrivate ci-dessous.
+  // Une instance OSRM auto-hébergée sur le réseau privé est un déploiement
+  // légitime (voir la documentation du projet OSRM citée dans .env.example),
+  // d'où la dérogation ci-dessous, accordée uniquement si l'exploitant a
+  // effectivement configuré sa propre instance.
   const routingUrl = process.env.ROUTING_API_URL || DEFAULT_OSRM_URL;
 
   let parsedRoutingUrl: URL | null = null;
@@ -96,8 +98,8 @@ export async function POST(req: NextRequest) {
     const res = await safeFetch(osrmUrl, {
       headers: { "User-Agent": "LorIAx/1.0" },
       timeoutMs: 15000,
-      // Derogation uniquement quand l'exploitant a configure sa propre
-      // instance : la cible par defaut est l'OSRM public, qui n'en a pas besoin.
+      // Dérogation uniquement quand l'exploitant a configuré sa propre
+      // instance : la cible par défaut est l'OSRM public, qui n'en a pas besoin.
       allowPrivate: Boolean(process.env.ROUTING_API_URL),
     });
 
@@ -142,9 +144,9 @@ export async function POST(req: NextRequest) {
     ) {
       return NextResponse.json({ error: "Délai d'attente dépassé (15s)" }, { status: 504 });
     }
-    // Message brut jamais renvoye au client : il exposerait l'adresse et le
-    // port de la cible resolue.
-    logger.warn({ err }, "[route-proxy] Echec de calcul d'itineraire");
+    // Message brut jamais renvoyé au client : il exposerait l'adresse et le
+    // port de la cible résolue.
+    logger.warn({ err }, "[route-proxy] Échec de calcul d'itinéraire");
     return NextResponse.json(
       { error: "Erreur de calcul d'itinéraire" },
       { status: 502 }

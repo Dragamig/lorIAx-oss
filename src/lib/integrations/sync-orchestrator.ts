@@ -481,12 +481,12 @@ async function downloadAndReupload(
 
   for (const file of files) {
     try {
-      // L'URL vient de la base externe : pour une propriete Notion "files" de
+      // L'URL vient de la base externe : pour une propriété Notion "files" de
       // type "external", elle est saisie librement par l'utilisateur. Le corps
-      // recupere finit sur S3 puis rattache a une ligne LorIAx, donc restitue :
-      // c'est une lecture arbitraire du reseau, pas un SSRF aveugle. Aucune
-      // derogation reseau prive, et le plafond de taille est applique pendant
-      // le transfert et non apres coup.
+      // récupéré finit sur S3 puis rattaché à une ligne LorIAx, donc restitué :
+      // c'est une lecture arbitraire du réseau, pas un SSRF aveugle. Aucune
+      // dérogation réseau privé, et le plafond de taille est appliqué pendant
+      // le transfert et non après coup.
       const res = await safeFetch(file.url, {
         timeoutMs: 30000,
         maxBytes: MAX_SIZE,
@@ -512,9 +512,12 @@ async function downloadAndReupload(
 
       results.push({ key, filename: file.filename, mimeType, size: buffer.length });
     } catch (err) {
-      // Erreur sur un fichier (cible refusee, trop volumineuse, injoignable) :
-      // on journalise cote serveur et on continue les autres.
-      logger.warn({ err, filename: file.filename }, "[sync] Telechargement de fichier externe refuse");
+      // Erreur sur un fichier (cible refusée, trop volumineuse, injoignable) :
+      // on journalise côté serveur et on continue les autres.
+      logger.warn(
+        { err, filename: file.filename },
+        "[sync] Téléchargement de fichier externe refusé"
+      );
     }
   }
 

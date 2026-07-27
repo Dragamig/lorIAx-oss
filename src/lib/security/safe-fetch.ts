@@ -14,9 +14,11 @@
  *  - redirects are never followed by the transport (node:http does not follow
  *    them). They are followed by this module, revalidating every hop in full,
  *    with a hop cap;
- *  - a global deadline and a decompressed response size cap are always enforced;
- *  - compressed responses are decompressed here (node:zlib). An encoding we
- *    cannot decode fails loudly instead of handing back an unreadable body.
+ *  - a global deadline and a response size cap are always enforced, on the raw
+ *    bytes as well as on the decompressed ones;
+ *  - compressed responses are decompressed here (node:zlib), tolerantly: an
+ *    encoding we do not recognise is handed back untouched, with its
+ *    content-encoding header preserved, exactly like fetch() does.
  *
  * `allowPrivate: true` is an explicit opt-out reserved for destinations whose
  * URL comes from server configuration (env vars or `system_settings`), never
@@ -48,7 +50,6 @@ export type SafeFetchErrorCode =
   | "dns_failure"
   | "too_many_redirects"
   | "response_too_large"
-  | "unsupported_encoding"
   | "timeout"
   | "network";
 
@@ -81,7 +82,7 @@ export interface SafeFetchOptions {
   signal?: AbortSignal;
   /** Global deadline covering every redirect hop. Default 10s. */
   timeoutMs?: number;
-  /** Maximum number of DECOMPRESSED response bytes buffered. Default 5 MiB. */
+  /** Response size cap, applied to the raw AND the decompressed bytes. Default 5 MiB. */
   maxBytes?: number;
   /** Maximum number of redirects followed. Default 5. */
   maxRedirects?: number;
@@ -107,12 +108,8 @@ const DEFAULT_MAX_REDIRECTS = 5;
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 const NULL_BODY_STATUSES = new Set([101, 204, 205, 304]);
-// content-encoding and content-length are dropped because the body handed back
-// is already decompressed: keeping them would describe bytes that no longer exist.
 const STRIPPED_RESPONSE_HEADERS = new Set([
   "connection",
-  "content-encoding",
-  "content-length",
   "keep-alive",
   "proxy-authenticate",
   "proxy-authorization",
@@ -121,6 +118,10 @@ const STRIPPED_RESPONSE_HEADERS = new Set([
   "transfer-encoding",
   "upgrade",
 ]);
+
+// Dropped only when a decompressor ran: they would then describe bytes that no
+// longer exist.
+const DECOMPRESSION_STALE_HEADERS = new Set(["content-encoding", "content-length"]);
 
 interface HeaderEntry {
   /** Original casing, preserved so receivers see X-LorIAx-Signature untouched. */
@@ -251,11 +252,31 @@ function pinnedLookup(addresses: PinnedAddress[]): net.LookupFunction {
   };
 }
 
+// fetch() and undici build their decompressors with Z_SYNC_FLUSH precisely
+// because a sizeable share of servers and CDNs close the connection without a
+// complete gzip trailer, and because an empty body carrying a Content-Encoding
+// (a compress-everything server answering 204 or 302) would make a default
+// gunzip fail on zero input. Both cases must keep working.
+const ZLIB_OPTIONS: zlib.ZlibOptions = {
+  flush: zlib.constants.Z_SYNC_FLUSH,
+  finishFlush: zlib.constants.Z_SYNC_FLUSH,
+};
+
+const BROTLI_OPTIONS: zlib.BrotliOptions = {
+  flush: zlib.constants.BROTLI_OPERATION_FLUSH,
+  finishFlush: zlib.constants.BROTLI_OPERATION_FLUSH,
+};
+
 /**
  * Pick a decompressor for the advertised content-encoding.
- * Returns null for identity. Throws for an encoding we cannot decode: handing
- * back an undecodable body with its content-encoding stripped would be a silent
- * corruption, so this fails loudly instead.
+ *
+ * Returns null when nothing has to be decoded, which covers three cases:
+ * no header, `identity`, and an encoding we do not recognise. In that last
+ * case the body is handed back untouched WITH its `content-encoding` header
+ * preserved (see buildResponse): `Content-Encoding: none`, `utf-8` or a
+ * flattened `gzip, gzip` are real, widespread misconfigurations that fetch()
+ * tolerates, and failing hard on them would break legitimate targets. The
+ * signal stays visible in the response headers, the caller decides.
  */
 function createDecompressor(encoding: string | undefined): zlib.Gzip | null {
   const normalized = (encoding ?? "").trim().toLowerCase();
@@ -264,25 +285,18 @@ function createDecompressor(encoding: string | undefined): zlib.Gzip | null {
   switch (normalized) {
     case "gzip":
     case "x-gzip":
-      return zlib.createGunzip() as unknown as zlib.Gzip;
+      return zlib.createGunzip(ZLIB_OPTIONS) as unknown as zlib.Gzip;
     case "deflate":
-      return zlib.createInflate() as unknown as zlib.Gzip;
+      return zlib.createInflate(ZLIB_OPTIONS) as unknown as zlib.Gzip;
     case "br":
-      return zlib.createBrotliDecompress() as unknown as zlib.Gzip;
+      return zlib.createBrotliDecompress(BROTLI_OPTIONS) as unknown as zlib.Gzip;
     case "zstd": {
       const factory = (zlib as unknown as { createZstdDecompress?: () => zlib.Gzip })
         .createZstdDecompress;
-      if (typeof factory === "function") return factory();
-      throw new SafeFetchError(
-        `Encodage de réponse non supporté : ${normalized}`,
-        "unsupported_encoding"
-      );
+      return typeof factory === "function" ? factory() : null;
     }
     default:
-      throw new SafeFetchError(
-        `Encodage de réponse non supporté : ${normalized}`,
-        "unsupported_encoding"
-      );
+      return null;
   }
 }
 
@@ -291,6 +305,8 @@ interface RawResponse {
   statusText: string;
   headers: http.IncomingHttpHeaders;
   body: Buffer;
+  /** True when a decompressor actually ran, so content-encoding is now stale. */
+  decompressed: boolean;
 }
 
 interface ExecuteOptions {
@@ -343,20 +359,17 @@ function executeRequest(
     };
 
     const req = transport.request(requestOptions, (res) => {
-      let decompressor: zlib.Gzip | null;
-      try {
-        decompressor = createDecompressor(res.headers["content-encoding"]);
-      } catch (err) {
-        res.destroy();
-        req.destroy();
-        fail(err as Error);
-        return;
-      }
+      const decompressor = createDecompressor(res.headers["content-encoding"]);
 
       const abortStreams = () => {
         decompressor?.destroy();
         res.destroy();
         req.destroy();
+      };
+
+      const tooLarge = () => {
+        abortStreams();
+        fail(new SafeFetchError("Réponse trop volumineuse", "response_too_large"));
       };
 
       const source: Readable = decompressor ? res.pipe(decompressor) : res;
@@ -366,8 +379,7 @@ function executeRequest(
       source.on("data", (chunk: Buffer) => {
         size += chunk.length;
         if (size > options.maxBytes) {
-          abortStreams();
-          fail(new SafeFetchError("Réponse trop volumineuse", "response_too_large"));
+          tooLarge();
           return;
         }
         chunks.push(chunk);
@@ -377,7 +389,16 @@ function executeRequest(
         abortStreams();
         fail(err);
       });
+
       if (decompressor) {
+        // Second counter on the raw stream: without it only the global deadline
+        // would stop an endless compressed flow, burning bandwidth and CPU.
+        // Compression then works in the caller's favour.
+        let rawSize = 0;
+        res.on("data", (chunk: Buffer) => {
+          rawSize += chunk.length;
+          if (rawSize > options.maxBytes) tooLarge();
+        });
         res.on("error", (err) => {
           abortStreams();
           fail(err);
@@ -390,6 +411,7 @@ function executeRequest(
           statusText: res.statusMessage ?? "",
           headers: res.headers,
           body: Buffer.concat(chunks),
+          decompressed: decompressor !== null,
         });
       });
     });
@@ -407,6 +429,11 @@ function buildResponse(raw: RawResponse, finalUrl: URL): Response {
   const headers = new Headers();
   for (const [key, value] of Object.entries(raw.headers)) {
     if (STRIPPED_RESPONSE_HEADERS.has(key)) continue;
+    // content-encoding and content-length only become wrong once a
+    // decompressor has run. When the body is handed back untouched, including
+    // for an encoding we did not recognise, both stay so the caller keeps the
+    // signal.
+    if (raw.decompressed && DECOMPRESSION_STALE_HEADERS.has(key)) continue;
     if (value === undefined) continue;
     if (Array.isArray(value)) {
       for (const item of value) headers.append(key, item);
@@ -461,8 +488,7 @@ function applyUrlCredentials(bag: HeaderBag, target: URL): void {
 
 /**
  * Perform an outgoing HTTP(S) request with full SSRF protection.
- * Throws `SafeFetchError` for refused targets, timeouts, unsupported response
- * encodings and oversized bodies.
+ * Throws `SafeFetchError` for refused targets, timeouts and oversized bodies.
  */
 export async function safeFetch(
   input: string | URL,

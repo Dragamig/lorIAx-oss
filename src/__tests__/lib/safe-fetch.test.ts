@@ -303,15 +303,69 @@ describe("safeFetch, compression et flux", () => {
     expect(res.headers.get("content-encoding")).toBeNull();
   });
 
-  it("annonce accept-encoding et échoue sur un encodage inconnu", async () => {
-    handler = (_req, res) => {
-      res.writeHead(200, { "Content-Encoding": "exotic-9000" });
-      res.end("données illisibles");
-    };
-    await expect(safeFetch(localUrl("/weird"))).rejects.toMatchObject({
-      code: "unsupported_encoding",
-    });
+  it("annonce accept-encoding et rend tel quel un encodage inconnu", async () => {
+    // Content-Encoding: none, utf-8 ou un gzip, gzip aplati sont des mauvaises
+    // configurations reelles et repandues que fetch() tolere. On rend le corps
+    // brut en conservant l'en-tete : le signal reste, l'appelant decide.
+    for (const encoding of ["none", "utf-8", "gzip, gzip"]) {
+      handler = (_req, res) => {
+        res.writeHead(200, { "Content-Encoding": encoding });
+        res.end("contenu non decode");
+      };
+      const res = await safeFetch(localUrl("/weird"));
+      expect(res.status).toBe(200);
+      await expect(res.text()).resolves.toBe("contenu non decode");
+      expect(res.headers.get("content-encoding")).toBe(encoding);
+    }
     expect(lastRequest?.headers["accept-encoding"]).toContain("gzip");
+  });
+
+  it("tolère un corps gzip tronqué sans trailer", async () => {
+    const complet = zlib.gzipSync(Buffer.from("contenu utile malgré la coupure"));
+    handler = (_req, res) => {
+      res.writeHead(200, { "Content-Encoding": "gzip" });
+      // Trailer CRC32 + ISIZE retire : ce que font des CDN qui coupent la
+      // connexion avant la fin. finishFlush Z_SYNC_FLUSH doit l'accepter.
+      res.end(complet.subarray(0, complet.length - 8));
+    };
+    const res = await safeFetch(localUrl("/tronque"));
+    await expect(res.text()).resolves.toBe("contenu utile malgré la coupure");
+  });
+
+  it("suit une redirection à corps vide annoncée gzip", async () => {
+    handler = (req, res) => {
+      if (req.url === "/vide") {
+        // Serveur qui compresse tout, y compris un 302 sans corps : un gunzip
+        // par defaut echouerait sur zero octet.
+        res.writeHead(302, {
+          Location: `http://local.test:${port}/final`,
+          "Content-Encoding": "gzip",
+        });
+        res.end();
+        return;
+      }
+      res.writeHead(200, { "Content-Type": "text/plain" });
+      res.end("arrivée");
+    };
+    const res = await safeFetch(localUrl("/vide"));
+    expect(res.status).toBe(200);
+    await expect(res.text()).resolves.toBe("arrivée");
+  });
+
+  it("borne aussi les octets compressés en entrée", async () => {
+    // Flux gzip valide qui ne produit jamais la moindre sortie : en-tete gzip
+    // suivi de trames deflate Z_SYNC_FLUSH vides. Seul le compteur d'entree
+    // peut l'arreter, le compteur de sortie restant a zero.
+    const enTeteGzip = Buffer.from([0x1f, 0x8b, 0x08, 0, 0, 0, 0, 0, 0, 0x03]);
+    const trameVide = Buffer.from([0x00, 0x00, 0x00, 0xff, 0xff]);
+    const bourrage = Buffer.concat([enTeteGzip, ...Array(4000).fill(trameVide)]);
+    handler = (_req, res) => {
+      res.writeHead(200, { "Content-Encoding": "gzip" });
+      res.end(bourrage);
+    };
+    await expect(
+      safeFetch(localUrl("/entree"), { maxBytes: 4096, timeoutMs: 5000 })
+    ).rejects.toMatchObject({ code: "response_too_large" });
   });
 
   it("applique le plafond aux octets décompressés (bombe de compression)", async () => {
