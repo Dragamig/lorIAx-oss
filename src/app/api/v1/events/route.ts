@@ -5,6 +5,7 @@ import { and, gte, lte, or, inArray } from "drizzle-orm";
 import { authenticateApiRequest } from "@/lib/api/auth-api";
 import { apiSuccess, apiError } from "@/lib/api/response";
 import { hasScope } from "@/lib/auth/api-key";
+import { hasGlobalRole } from "@/lib/auth/rbac";
 import {
   getAccessibleCalendarIds,
   checkCalendarAccess,
@@ -48,7 +49,15 @@ export async function GET(request: NextRequest) {
   let accessibleIds: string[];
 
   if (calendarId) {
-    const hasAccess = await checkCalendarAccess(user.id, calendarId, "read");
+    // checkCalendarAccess n'a pas de branche admin global, contrairement a
+    // getAccessibleCalendarIds qui retourne tout a un admin. Sans cette premiere
+    // condition, un admin global recevrait les evenements d'un calendrier tiers en
+    // appelant sans parametre, et 403 en le designant : meme population, deux
+    // reponses. Le rattrapage est fait ici plutot que dans checkCalendarAccess, que
+    // le serveur CalDAV partage.
+    const hasAccess =
+      hasGlobalRole(user.globalRole, "admin") ||
+      (await checkCalendarAccess(user.id, calendarId, "read"));
     if (!hasAccess) return apiError("Accès refusé au calendrier", 403);
     accessibleIds = [calendarId];
   } else {

@@ -85,8 +85,14 @@ export async function GET(
 
   const hasMore = results.length > limit;
   const page = hasMore ? results.slice(0, limit) : results;
-  // Le curseur est calcule AVANT le filtrage par classification : la pagination reste
-  // exacte, seule la page servie peut etre plus courte que `limit`.
+  // Le curseur est calcule AVANT le filtrage par classification, de sorte que le
+  // filtrage ne fasse pas sauter de page : il ne fait que raccourcir celle servie.
+  //
+  // Il ne rend pas la pagination exacte pour autant, et ne la degrade pas non plus :
+  // la route trie par `asc(position), asc(id)` mais pagine par `gt(documents.id,
+  // cursor)`. Curseur et ordre portent sur des cles differentes, donc des documents
+  // sont sautes ou repetes des que deux d'entre eux ont `position` et `id` en ordre
+  // inverse. Defaut preexistant, hors perimetre de ce lot de securite.
   const nextCursor = hasMore ? page[page.length - 1]?.id : null;
 
   const isVisible = await buildDocumentVisibilityFilter(auth.user, space.id);

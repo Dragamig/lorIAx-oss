@@ -8,6 +8,7 @@ import { canViewByClassification } from "@/lib/auth/rbac";
 import {
   isClassificationAllowed,
   enforceClassificationFloor,
+  compareClassifications,
 } from "@/lib/auth/classification";
 
 /**
@@ -194,7 +195,19 @@ describe("scenarios d'exfiltration fermes par le lot P1-A", () => {
     const levels = ["public", "internal", "confidential", "secret"] as const;
     for (const doc of levels) {
       for (const space of levels) {
-        expect(isClassificationAllowed(enforceClassificationFloor(doc, space), space)).toBe(true);
+        const result = enforceClassificationFloor(doc, space);
+
+        // La propriete qui compte : le resultat est TOUJOURS au moins aussi protege
+        // que le document d'origine. Elle seule attrape une implementation qui
+        // retournerait systematiquement la classification de l'espace, laquelle
+        // declasserait un document `secret` deplace vers un espace `public`.
+        expect(compareClassifications(result, doc)).toBeGreaterThanOrEqual(0);
+
+        // Et le plancher de l'espace est respecte.
+        expect(isClassificationAllowed(result, space)).toBe(true);
+
+        // Le relevement reste minimal : jamais plus haut que necessaire.
+        expect([doc, space]).toContain(result);
       }
     }
   });
