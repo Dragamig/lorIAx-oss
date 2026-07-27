@@ -295,7 +295,12 @@ export interface PresentationOverrides {
  * restitution peut donc etre corrigee a la signature, sans reprise de donnees.
  */
 export function presentationOverrides(storedMimeType: string): PresentationOverrides {
-  const base = storedMimeType.split(";")[0].trim().toLowerCase();
+  const parsed = parseStoredMimeType(storedMimeType);
+
+  // Chaine qui n'est pas un type/sous-type valide : rien a interpreter, on neutralise.
+  if (!parsed) return { contentType: NEUTRAL_TYPE, contentDisposition: "attachment" };
+
+  const { base, parameters } = parsed;
 
   if (ACTIVE_MIME.has(base)) {
     return { contentType: NEUTRAL_TYPE, contentDisposition: "attachment" };
@@ -307,14 +312,65 @@ export function presentationOverrides(storedMimeType: string): PresentationOverr
   const isMedia =
     base.startsWith("image/") || base.startsWith("video/") || base.startsWith("audio/");
   if (isMedia && !base.includes("svg") && !base.includes("xml")) {
-    return { contentType: storedMimeType, contentDisposition: "inline" };
+    return { contentType: base + parameters, contentDisposition: "inline" };
   }
 
   if (INLINE_SAFE_MIME.has(base)) {
-    return { contentType: storedMimeType, contentDisposition: "inline" };
+    return { contentType: base + parameters, contentDisposition: "inline" };
   }
 
   return { contentType: NEUTRAL_TYPE, contentDisposition: "attachment" };
+}
+
+/** Jeton RFC 7231 : la virgule et le point-virgule en sont exclus. */
+const MIME_TOKEN = /^[a-z0-9][a-z0-9!#$&^_.+-]*$/;
+
+/** Valeur de parametre sans guillemet, sans virgule, sans espace. */
+const MIME_PARAMETER_VALUE = /^[a-zA-Z0-9!#$&^_.+-]+$/;
+
+/**
+ * Analyse stricte du type stocke, prealable indispensable a toute decision.
+ *
+ * `presentationOverrides()` ne sert que les objets deposes AVANT le durcissement,
+ * dont le `mimeType` en base est la valeur declaree par le deposant, reprise telle
+ * quelle de `file.type` par l'ancienne route : c'est par construction une chaine
+ * controlee par un tiers. Une valeur comme `image/png,text/html` commence par
+ * `image/`, ne contient ni `svg` ni `xml`, passerait donc pour un media, et serait
+ * reposee telle quelle en en-tete par le stockage. Le navigateur decoupe l'en-tete
+ * sur les virgules et retient le dernier type valide, `text/html` : le document est
+ * rendu comme du HTML sur l'origine de stockage. La virgule survit au constructeur
+ * `File`, un attaquant pouvait donc faire enregistrer cette chaine.
+ *
+ * D'ou la regle : une chaine qui n'est pas exactement `type/sous-type` est refusee,
+ * et ce qui est restitue est RECOMPOSE a partir des morceaux valides, jamais repris
+ * de l'entree. Seuls `charset` et `codecs` sont conserves, les seuls parametres qui
+ * changent le rendu d'un contenu inerte.
+ */
+function parseStoredMimeType(
+  storedMimeType: string
+): { base: string; parameters: string } | null {
+  const segments = storedMimeType.split(";");
+  const base = segments[0].trim().toLowerCase();
+
+  const parts = base.split("/");
+  if (parts.length !== 2) return null;
+  if (!MIME_TOKEN.test(parts[0]) || !MIME_TOKEN.test(parts[1])) return null;
+
+  const kept: string[] = [];
+  for (const segment of segments.slice(1)) {
+    const separator = segment.indexOf("=");
+    if (separator < 0) continue;
+
+    const name = segment.slice(0, separator).trim().toLowerCase();
+    const value = segment.slice(separator + 1).trim();
+
+    if (name !== "charset" && name !== "codecs") continue;
+    if (!MIME_PARAMETER_VALUE.test(value)) continue;
+
+    kept.push(`${name}=${value}`);
+  }
+
+  return { base, parameters: kept.length > 0 ? `; ${kept.join("; ")}` : "" };
 }
 
 /**

@@ -4,7 +4,10 @@ import { users, spaces } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { getSessionUser } from "@/lib/auth/get-user";
 import { hasGlobalRole } from "@/lib/auth/rbac";
-import { invalidateUserSessions } from "@/lib/auth/token-revocation";
+import {
+  invalidateUserSessions,
+  clearTokenInvalidationCache,
+} from "@/lib/auth/token-revocation";
 import bcrypt from "bcryptjs";
 import slugify from "slugify";
 import { sendEmail } from "@/lib/email/send";
@@ -219,6 +222,11 @@ export async function DELETE(request: NextRequest) {
   }
 
   await db.delete(users).where(eq(users.id, id));
+
+  // H10 : la ligne disparait, `isTokenRevoked` rejettera donc toute session du
+  // compte. Le cache de revocation garde une entree « ce compte existe » pendant
+  // quelques secondes, on la purge pour que le rejet soit immediat.
+  clearTokenInvalidationCache(id);
 
   return NextResponse.json({ success: true });
 }

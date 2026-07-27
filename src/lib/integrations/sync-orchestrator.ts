@@ -427,12 +427,23 @@ export async function syncBidirectional(mappingId: string): Promise<SyncResult> 
   const pullResult = await syncPull(mappingId);
   const pushResult = await syncPush(mappingId);
 
-  return {
+  const merged: SyncResult = {
     rowsCreated: pullResult.rowsCreated + pushResult.rowsCreated,
     rowsUpdated: pullResult.rowsUpdated + pushResult.rowsUpdated,
     rowsDeleted: pullResult.rowsDeleted + pushResult.rowsDeleted,
     errors: [...pullResult.errors, ...pushResult.errors],
   };
+
+  // Le push s'ouvre en remettant `syncError` a null et le referme avec le resume de
+  // ses seules erreurs : si seul le pull a abandonne un fichier, la colonne finissait
+  // vide et la pastille ne s'allumait pas. Le cumul des deux sens est donc reecrit
+  // ici, apres coup. Les deux journaux gardent chacun leur propre statut.
+  await db
+    .update(externalDatabaseMappings)
+    .set({ syncError: summarizeErrors(merged.errors), updatedAt: new Date() })
+    .where(eq(externalDatabaseMappings.id, mappingId));
+
+  return merged;
 }
 
 // ─── Récupérer le schéma externe ─────────────────────────────────────────────

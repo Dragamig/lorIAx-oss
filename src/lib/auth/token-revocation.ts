@@ -19,8 +19,20 @@ import { eq } from "drizzle-orm";
 const CACHE_TTL_MS = 5_000;
 const CACHE_MAX = 5_000;
 
+/**
+ * Etat de revocation d'un compte.
+ *
+ * `exists: false` est un etat a part entiere, et non l'absence de borne : un compte
+ * supprime doit rejeter TOUTES ses sessions, pas les laisser vivre jusqu'a
+ * l'expiration du JWT. C'est le scenario du depart d'un salarie, donc le cas d'usage
+ * numero un d'une revocation de session.
+ */
+type RevocationState =
+  | { exists: false }
+  | { exists: true; invalidatedAt: number | null };
+
 interface CacheEntry {
-  value: number | null;
+  value: RevocationState;
   expiresAt: number;
 }
 
@@ -33,10 +45,10 @@ export function clearTokenInvalidationCache(userId?: string): void {
 }
 
 /**
- * Timestamp (ms) before which any JWT issued for this user must be rejected,
- * or null when the user has never had their sessions revoked.
+ * Existence du compte, et borne (ms) avant laquelle tout JWT emis pour lui doit
+ * etre rejete.
  */
-export async function getTokenInvalidatedAt(userId: string): Promise<number | null> {
+export async function getRevocationState(userId: string): Promise<RevocationState> {
   const entry = cache.get(userId);
   if (entry && entry.expiresAt > Date.now()) return entry.value;
 
@@ -46,7 +58,12 @@ export async function getTokenInvalidatedAt(userId: string): Promise<number | nu
     .where(eq(users.id, userId))
     .limit(1);
 
-  const value = row?.tokenInvalidatedAt ? row.tokenInvalidatedAt.getTime() : null;
+  const value: RevocationState = row
+    ? {
+        exists: true,
+        invalidatedAt: row.tokenInvalidatedAt ? row.tokenInvalidatedAt.getTime() : null,
+      }
+    : { exists: false };
 
   if (cache.size >= CACHE_MAX) {
     const oldest = cache.keys().next().value;
@@ -76,16 +93,21 @@ export async function invalidateUserSessions(userId: string): Promise<void> {
 }
 
 /**
- * True when a JWT issued at `iatSeconds` (standard JWT claim, in seconds) predates
- * the revocation stamp of the user.
+ * Vrai quand le jeton doit etre rejete : compte supprime, ou jeton emis (claim JWT
+ * `iat`, en secondes) avant la borne de revocation du compte.
  */
 export async function isTokenRevoked(
   userId: string,
   iatSeconds: number | undefined
 ): Promise<boolean> {
-  const invalidatedAt = await getTokenInvalidatedAt(userId);
-  if (invalidatedAt === null) return false;
+  const state = await getRevocationState(userId);
+
+  // Compte supprime : plus aucune session ne doit etre honoree. Sans ce test, le
+  // JWT d'un compte supprime restait pleinement valide jusqu'a 24 h.
+  if (!state.exists) return true;
+
+  if (state.invalidatedAt === null) return false;
   if (typeof iatSeconds !== "number") return false;
 
-  return iatSeconds * 1000 < invalidatedAt;
+  return iatSeconds * 1000 < state.invalidatedAt;
 }

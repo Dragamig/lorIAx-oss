@@ -272,4 +272,44 @@ describe("presentationOverrides", () => {
   it("ne se laisse pas avoir par un type image fantaisiste portant du xml", () => {
     expect(presentationOverrides("image/svg-xml").contentDisposition).toBe("attachment");
   });
+
+  it("refuse un type a virgule, que le navigateur redecouperait en text/html", () => {
+    // Valeur enregistrable avant le durcissement : l'ancienne route reprenait
+    // `file.type` tel quel, et la virgule survit au constructeur `File`. Posee en
+    // en-tete, le navigateur retient le dernier type valide, donc `text/html`.
+    const result = presentationOverrides("image/png,text/html");
+
+    expect(result.contentType).toBe("application/octet-stream");
+    expect(result.contentDisposition).toBe("attachment");
+  });
+
+  it("ne restitue jamais la chaine stockee telle quelle", () => {
+    // Parametre inconnu et espaces parasites : ce qui sort est recompose a partir
+    // des morceaux valides, jamais repris de l'entree.
+    const result = presentationOverrides("  IMAGE/PNG ; boundary=zzz ");
+
+    expect(result.contentType).toBe("image/png");
+    expect(result.contentDisposition).toBe("inline");
+  });
+
+  it("conserve charset et codecs, les seuls parametres qui changent le rendu", () => {
+    expect(presentationOverrides("text/plain; charset=utf-8").contentType).toBe(
+      "text/plain; charset=utf-8"
+    );
+    expect(presentationOverrides("audio/ogg; codecs=opus").contentType).toBe(
+      "audio/ogg; codecs=opus"
+    );
+  });
+
+  it("refuse un charset porteur de guillemet ou de virgule", () => {
+    expect(presentationOverrides('text/plain; charset="utf-8,x"').contentType).toBe(
+      "text/plain"
+    );
+  });
+
+  it("refuse une chaine qui n'est pas un type sur sous-type", () => {
+    for (const value of ["", "image", "image/", "/png", "image/png/extra", "  "]) {
+      expect(presentationOverrides(value).contentDisposition).toBe("attachment");
+    }
+  });
 });

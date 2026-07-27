@@ -114,7 +114,13 @@ export function SyncConfigPanel({
         setError(syncErrors.join("\n"));
         toast.warning(
           `Synchronisation terminée avec ${syncErrors.length} avertissement(s)`,
-          { description: syncErrors.slice(0, 3).join("\n") }
+          {
+            description: (
+              <span className="whitespace-pre-line">
+                {syncErrors.slice(0, 3).join("\n")}
+              </span>
+            ),
+          }
         );
       } else {
         toast.success("Synchronisation terminée");
@@ -176,7 +182,9 @@ export function SyncConfigPanel({
       {error && (
         <div className="flex items-start gap-2 mb-3 p-2 rounded bg-destructive/10 text-destructive text-xs">
           <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-          {error}
+          {/* Les avertissements de synchronisation sont joints par retour a la ligne :
+              sans `whitespace-pre-line`, trois fichiers abandonnes s'affichent colles. */}
+          <span className="whitespace-pre-line">{error}</span>
         </div>
       )}
 
