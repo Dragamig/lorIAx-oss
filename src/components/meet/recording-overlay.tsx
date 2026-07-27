@@ -72,19 +72,35 @@ export function RecordingOverlay({ meetingId }: RecordingOverlayProps) {
     }
   }, [meetingId, starting, recording]);
 
-  // Check if already recording (e.g. page reload)
+  // Etat de l'enregistrement : au montage, puis par scrutation tant qu'il n'a pas
+  // demarre. Sans la scrutation, un participant deja connecte quand l'organisateur
+  // active la transcription n'apprenait jamais qu'il etait enregistre : le
+  // composant lui renvoyait null et aucune pastille ne s'affichait. C'est une
+  // question de consentement, pas d'ergonomie.
   useEffect(() => {
-    if (!meetingId) return;
-    fetch(`/api/meet/rooms/${meetingId}/status`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.egressId) {
-          setRecording(true);
-        }
-        setIsOrganizer(Boolean(data.isOrganizer));
-      })
-      .catch(() => {});
-  }, [meetingId]);
+    if (!meetingId || recording) return;
+
+    let cancelled = false;
+
+    const poll = () => {
+      fetch(`/api/meet/rooms/${meetingId}/status`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (cancelled) return;
+          if (data.egressId) setRecording(true);
+          setIsOrganizer(Boolean(data.isOrganizer));
+        })
+        .catch(() => {});
+    };
+
+    poll();
+    const interval = setInterval(poll, 5000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [meetingId, recording]);
 
   const formatTime = (s: number) => {
     const m = Math.floor(s / 60);

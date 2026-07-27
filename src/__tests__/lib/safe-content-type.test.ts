@@ -17,11 +17,27 @@ const SVG_BODY = Buffer.from(
   "utf-8"
 );
 
+/** SVG precede d'une declaration XML : file-type le detecte, en `xml`. */
+const XML_DECLARED_SVG = Buffer.from(
+  '<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
+  "utf-8"
+);
+
 /** Conteneur OLE2, ce que file-type v21 detecte pour tout Office historique. */
 const CFB_HEADER = Buffer.concat([
   Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]),
   Buffer.alloc(1600),
 ]);
+
+/** Conteneur Ogg portant de l'Opus : file-type le detecte en `opus`, pas en `ogg`. */
+function oggBuffer(codec: string): Buffer {
+  const b = Buffer.alloc(64);
+  b.write("OggS", 0, "ascii");
+  b.write(codec, 28, "ascii");
+  return b;
+}
+
+const OGG_OPUS = oggBuffer("OpusHead");
 
 describe("extensionOf", () => {
   it("normalise en minuscules", () => {
@@ -136,6 +152,16 @@ describe("resolveSafeStorageType", () => {
     if (result.ok) return;
     expect(result.reason).toBe("mismatch");
   });
+
+  it("accepte un .ogg dont le codec fait sortir file-type en .opus", async () => {
+    // Sans normalisation, ce fichier legitime etait refuse en 400 avec
+    // « extension .ogg mais contenu detecte comme .opus ».
+    const result = await resolveSafeStorageType("ogg", OGG_OPUS);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.contentType).toBe("audio/ogg; codecs=opus");
+  });
 });
 
 describe("resolveDownloadedStorageType", () => {
@@ -144,13 +170,13 @@ describe("resolveDownloadedStorageType", () => {
 
     expect(result.ext).toBe("png");
     expect(result.contentType).toBe("image/png");
-    expect(result.neutralized).toBe(false);
+    expect(result.neutralizedReason).toBeUndefined();
   });
 
   it("ne perd jamais un fichier non typable : il est stocke inerte", async () => {
     const result = await resolveDownloadedStorageType("Piece jointe", SVG_BODY);
 
-    expect(result.neutralized).toBe(true);
+    expect(result.neutralizedReason).toBeDefined();
     expect(result.ext).toBe("bin");
     expect(result.contentType).toBe("application/octet-stream");
     expect(result.contentDisposition).toBe("attachment");
@@ -159,9 +185,28 @@ describe("resolveDownloadedStorageType", () => {
   it("neutralise un SVG servi par un tiers meme quand le nom l'annonce", async () => {
     const result = await resolveDownloadedStorageType("logo.svg", SVG_BODY);
 
-    expect(result.neutralized).toBe(true);
+    expect(result.neutralizedReason).toBeDefined();
     expect(result.contentType).toBe("application/octet-stream");
     expect(result.contentDisposition).toBe("attachment");
+  });
+
+  it("neutralise un document actif positivement detecte", async () => {
+    const result = await resolveDownloadedStorageType("schema.svg", XML_DECLARED_SVG);
+
+    expect(result.neutralizedReason).toBe("active");
+    expect(result.contentType).toBe("application/octet-stream");
+    expect(result.contentDisposition).toBe("attachment");
+  });
+
+  it("conserve un media identifie par ses octets, meme hors liste de televersement", async () => {
+    // Un memo vocal Ogg/Opus : file-type l'identifie avec certitude, aucune raison
+    // de le degrader en binaire opaque illisible.
+    const result = await resolveDownloadedStorageType("Memo vocal", OGG_OPUS);
+
+    expect(result.neutralizedReason).toBeUndefined();
+    expect(result.ext).toBe("opus");
+    expect(result.contentType).toBe("audio/ogg; codecs=opus");
+    expect(result.contentDisposition).toBeUndefined();
   });
 
   it("nomme un Office historique a l'aide du nom quand les octets ne disent que CFB", async () => {
@@ -169,7 +214,7 @@ describe("resolveDownloadedStorageType", () => {
 
     expect(result.ext).toBe("doc");
     expect(result.contentType).toBe("application/msword");
-    expect(result.neutralized).toBe(false);
+    expect(result.neutralizedReason).toBeUndefined();
   });
 
   it("conserve un type textuel inerte quand les octets ne disent rien", async () => {
@@ -209,5 +254,22 @@ describe("presentationOverrides", () => {
     const result = presentationOverrides("text/plain; charset=utf-8");
 
     expect(result.contentDisposition).toBe("inline");
+  });
+
+  it("laisse jouer les conteneurs media quel que soit le codec", () => {
+    for (const mime of [
+      "video/x-matroska",
+      "video/x-msvideo",
+      "video/mpeg",
+      "video/3gpp",
+      "audio/amr",
+      "audio/ogg; codecs=opus",
+    ]) {
+      expect(presentationOverrides(mime).contentDisposition).toBe("inline");
+    }
+  });
+
+  it("ne se laisse pas avoir par un type image fantaisiste portant du xml", () => {
+    expect(presentationOverrides("image/svg-xml").contentDisposition).toBe("attachment");
   });
 });

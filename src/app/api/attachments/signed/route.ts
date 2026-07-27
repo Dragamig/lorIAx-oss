@@ -5,6 +5,18 @@ import { resolveReadableAttachment } from "@/lib/storage/attachment-access";
 import { presentationOverrides } from "@/lib/storage/safe-content-type";
 
 /**
+ * En-tête `Content-Disposition` complet, nom de fichier compris.
+ *
+ * Sans le paramètre `filename`, le téléchargement hérite du nom UUID de la clé S3
+ * plutôt que du nom réel. Le nom est donné deux fois, en ASCII assaini puis en
+ * `filename*` encodé RFC 5987, pour rester lisible quel que soit le navigateur.
+ */
+function contentDispositionHeader(disposition: string, filename: string): string {
+  const fallback = filename.replace(/[^\x20-\x7E]/g, "_").replace(/["\\]/g, "_");
+  return `${disposition}; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
+}
+
+/**
  * Génère une URL signée Garage S3 pour un fichier attachment.
  * GET /api/attachments/signed?key={clé S3}
  */
@@ -43,7 +55,10 @@ export async function GET(req: NextRequest) {
     // sont égales par construction, l'invariant devient structurel.
     const url = await getFileUrl(access.attachment.storageKey, 900, {
       responseContentType: presentation.contentType,
-      responseContentDisposition: presentation.contentDisposition,
+      responseContentDisposition: contentDispositionHeader(
+        presentation.contentDisposition,
+        access.attachment.filename
+      ),
     });
     return NextResponse.json({ url });
   } catch {

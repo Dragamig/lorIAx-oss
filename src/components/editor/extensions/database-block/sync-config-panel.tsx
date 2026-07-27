@@ -104,7 +104,22 @@ export function SyncConfigPanel({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur de sync");
-      toast.success("Synchronisation terminée");
+
+      // Une synchronisation peut aboutir en ayant abandonné des fichiers en route.
+      // Comme le tableau des pièces jointes écrase la cellule, un abandon fait
+      // disparaître le fichier : le taire derrière un bandeau vert reviendrait à
+      // masquer une perte de données.
+      const syncErrors: string[] = data.result?.errors ?? [];
+      if (syncErrors.length > 0) {
+        setError(syncErrors.join("\n"));
+        toast.warning(
+          `Synchronisation terminée avec ${syncErrors.length} avertissement(s)`,
+          { description: syncErrors.slice(0, 3).join("\n") }
+        );
+      } else {
+        toast.success("Synchronisation terminée");
+      }
+
       await loadMappings();
       onRefresh();
     } catch (err) {
@@ -227,8 +242,17 @@ export function SyncConfigPanel({
                 <div className="mt-1 space-y-0.5">
                   {m.logs.slice(0, 3).map((log) => (
                     <div key={log.id} className="text-[10px] text-muted-foreground flex items-center gap-1">
-                      <span className={log.status === "success" ? "text-green-600" : log.status === "error" ? "text-destructive" : "text-amber-600"}>
-                        {log.status === "success" ? "OK" : log.status === "error" ? "Err" : "..."}
+                      <span
+                        className={log.status === "success" ? "text-green-600" : log.status === "error" ? "text-destructive" : "text-amber-600"}
+                        title={log.errorMessage ?? undefined}
+                      >
+                        {log.status === "success"
+                          ? "OK"
+                          : log.status === "error"
+                            ? "Err"
+                            : log.status === "partial"
+                              ? "Part."
+                              : "..."}
                       </span>
                       <span>{log.direction}</span>
                       <span>+{log.rowsCreated} ~{log.rowsUpdated} -{log.rowsDeleted}</span>

@@ -73,5 +73,5 @@ export interface SyncMapping {
   lastSyncAt: string | null;
   lastSyncDirection: string | null;
   columnMapping: unknown;
-  logs: { id: string; direction: string; status: string; rowsCreated: number; rowsUpdated: number; rowsDeleted: number; startedAt: string }[];
+  logs: { id: string; direction: string; status: string; errorMessage: string | null; rowsCreated: number; rowsUpdated: number; rowsDeleted: number; startedAt: string }[];
 }

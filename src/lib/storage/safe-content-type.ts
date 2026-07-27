@@ -30,6 +30,7 @@ export const ALLOWED_UPLOAD_EXTENSIONS = new Set([
   // disparaitre des pieces jointes de la cellule sans le dire.
   "heic", "heif", "avif", "tif", "tiff",
   "mp4", "webm", "mp3", "wav", "ogg", "mov", "m4a", "m4v", "aac", "flac",
+  "opus", "oga", "ogv", "ogx", "3gp", "3gpp", "amr", "mkv", "avi", "mpg", "mpeg",
   "zip", "tar", "gz", "rar", "7z",
 ]);
 
@@ -68,7 +69,24 @@ const EXTENSION_ALIASES: Record<string, string> = {
   jpg: "jpeg",
   tiff: "tif",
   heif: "heic",
+  // Un conteneur Ogg est detecte d'apres son codec : Opus sort en `opus`, FLAC en
+  // `oga`, Theora en `ogv`, le conteneur generique en `ogx`. Sans ces alias, un
+  // `.ogg` parfaitement legitime etait refuse en « extension .ogg mais contenu
+  // detecte comme .opus », alors que `ogg` figure dans la liste blanche d'origine.
+  opus: "ogg",
+  oga: "ogg",
+  ogv: "ogg",
+  ogx: "ogg",
+  mpeg: "mpg",
+  "3gpp": "3gp",
 };
+
+/**
+ * Types que le navigateur peut executer s'il les rend en ligne. Ce sont les seuls
+ * a neutraliser sur le chemin des telechargements tiers : `file-type` ne detecte
+ * qu'`xml` parmi eux, les trois autres sont la par precaution.
+ */
+const ACTIVE_DETECTED_EXTENSIONS = new Set(["xml", "svg", "html", "xhtml"]);
 
 /**
  * Formats livres dans un conteneur generique, que `file-type` v21 ne sait pas
@@ -165,8 +183,13 @@ export interface DownloadedStorageType {
   ext: string;
   contentType: string;
   contentDisposition?: string;
-  /** Vrai quand les octets n'ont pas pu etre types et que l'objet est neutralise. */
-  neutralized: boolean;
+  /**
+   * Renseigne quand le type reel n'a pas pu etre conserve : l'objet est stocke en
+   * binaire opaque. `active` = format executable au rendu, `unrecognized` = octets
+   * non typables. L'appelant DOIT le remonter a l'utilisateur, une degradation
+   * silencieuse est ce que ce module existe pour eviter.
+   */
+  neutralizedReason?: "active" | "unrecognized";
 }
 
 /**
@@ -180,6 +203,12 @@ export interface DownloadedStorageType {
  * Cette fonction ne refuse jamais : un contenu non typable est stocke en binaire
  * opaque plutot que rejete. Refuser reviendrait a vider silencieusement la cellule
  * de la ligne synchronisee, alors que la neutralisation suffit a fermer le vecteur.
+ *
+ * La decision sur les octets reconnus est une liste de REFUS et non une liste
+ * d'autorisation : `file-type` a positivement identifie le format, et le seul type
+ * actif qu'il sache detecter est `xml`. Calquer une liste blanche sur les extensions
+ * de televersement degradait en binaire opaque des medias parfaitement inoffensifs
+ * (3gp, amr, mkv, avi, mpg, variantes Ogg), sans rien fermer de plus.
  */
 export async function resolveDownloadedStorageType(
   filenameHint: string,
@@ -191,62 +220,63 @@ export async function resolveDownloadedStorageType(
   if (detected) {
     const detectedExt = canonicalExtension(detected.ext);
 
-    // Conteneur generique : l'indice de nom permet de nommer le format reel
-    if (CONTAINER_FAMILIES[detectedExt]?.has(hintExt)) {
+    if (ACTIVE_DETECTED_EXTENSIONS.has(detectedExt)) {
       return {
-        ext: hintExt,
-        contentType: CONTAINER_MEMBER_MIME[hintExt] ?? NEUTRAL_TYPE,
-        neutralized: false,
+        ext: "bin",
+        contentType: NEUTRAL_TYPE,
+        contentDisposition: "attachment",
+        neutralizedReason: "active",
       };
     }
 
-    if (
-      ALLOWED_UPLOAD_EXTENSIONS.has(detectedExt) &&
-      !NEUTRALIZED_EXTENSIONS.has(detectedExt)
-    ) {
-      return { ext: detectedExt, contentType: detected.mime, neutralized: false };
+    // Conteneur generique : l'indice de nom permet de nommer le format reel
+    if (CONTAINER_FAMILIES[detectedExt]?.has(hintExt)) {
+      const contentType = CONTAINER_MEMBER_MIME[hintExt] ?? NEUTRAL_TYPE;
+      return { ext: hintExt, contentType, contentDisposition: storedDisposition(contentType) };
     }
 
-    // Format binaire hors liste blanche : conserve, mais inerte.
+    // Format positivement identifie : son type reel est conserve.
     return {
-      ext: detectedExt || "bin",
-      contentType: NEUTRAL_TYPE,
-      contentDisposition: "attachment",
-      neutralized: true,
+      ext: detected.ext,
+      contentType: detected.mime,
+      contentDisposition: storedDisposition(detected.mime),
     };
   }
 
   // Aucun octet magique : seuls les formats textuels inertes gardent leur type.
   if (TEXT_EXTENSIONS.has(hintExt) && !NEUTRALIZED_EXTENSIONS.has(hintExt)) {
-    return {
-      ext: hintExt,
-      contentType: TEXT_CONTENT_TYPES[hintExt] ?? NEUTRAL_TYPE,
-      neutralized: false,
-    };
+    const contentType = TEXT_CONTENT_TYPES[hintExt] ?? NEUTRAL_TYPE;
+    return { ext: hintExt, contentType, contentDisposition: storedDisposition(contentType) };
   }
 
   return {
     ext: "bin",
     contentType: NEUTRAL_TYPE,
     contentDisposition: "attachment",
-    neutralized: true,
+    neutralizedReason: "unrecognized",
   };
 }
 
 /**
- * Types que le navigateur peut rendre en ligne sans jamais executer de script dans
- * l'origine de stockage. Tout ce qui n'y figure pas est restitue en binaire opaque
- * et en piece jointe.
+ * Types que le navigateur execute s'il les rend en ligne. Ils priment sur toute
+ * autre regle : `image/svg+xml` est une image ET un document actif.
  */
+const ACTIVE_MIME = new Set([
+  "image/svg+xml",
+  "text/html",
+  "application/xhtml+xml",
+  "text/xml",
+  "application/xml",
+  "text/xsl",
+  "application/xslt+xml",
+]);
+
+/** Types inertes non media que le navigateur peut afficher sans risque. */
 const INLINE_SAFE_MIME = new Set([
-  "image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp",
-  "image/x-icon", "image/vnd.microsoft.icon", "image/heic", "image/avif",
-  "image/tiff",
-  "video/mp4", "video/webm", "video/quicktime",
-  "audio/mpeg", "audio/wav", "audio/ogg", "audio/x-m4a", "audio/mp4",
-  "audio/aac", "audio/flac", "audio/x-flac",
   "application/pdf",
-  "text/plain", "text/csv", "application/json",
+  "text/plain",
+  "text/csv",
+  "application/json",
 ]);
 
 export interface PresentationOverrides {
@@ -267,9 +297,33 @@ export interface PresentationOverrides {
 export function presentationOverrides(storedMimeType: string): PresentationOverrides {
   const base = storedMimeType.split(";")[0].trim().toLowerCase();
 
+  if (ACTIVE_MIME.has(base)) {
+    return { contentType: NEUTRAL_TYPE, contentDisposition: "attachment" };
+  }
+
+  // Conteneurs media : non scriptables, quel que soit le codec. Le garde-fou sur
+  // `svg` et `xml` couvre une famille `image/` fantaisiste heritee d'un depot
+  // ancien, ou le type etait declare par le deposant.
+  const isMedia =
+    base.startsWith("image/") || base.startsWith("video/") || base.startsWith("audio/");
+  if (isMedia && !base.includes("svg") && !base.includes("xml")) {
+    return { contentType: storedMimeType, contentDisposition: "inline" };
+  }
+
   if (INLINE_SAFE_MIME.has(base)) {
     return { contentType: storedMimeType, contentDisposition: "inline" };
   }
 
   return { contentType: NEUTRAL_TYPE, contentDisposition: "attachment" };
+}
+
+/**
+ * Disposition a POSER SUR L'OBJET au depot, en filet de securite : la restitution
+ * impose deja sa propre disposition, mais un futur chemin de signature qui
+ * oublierait `presentationOverrides()` retomberait sur celle-ci.
+ */
+function storedDisposition(contentType: string): string | undefined {
+  return presentationOverrides(contentType).contentDisposition === "attachment"
+    ? "attachment"
+    : undefined;
 }

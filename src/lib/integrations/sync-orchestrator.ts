@@ -35,6 +35,20 @@ function decryptCredentials(credentialsEnc: string): string {
   }
 }
 
+/**
+ * Résumé des incidents non bloquants d'une synchronisation, ou `null` s'il n'y en a
+ * pas. Retourné tel quel dans `syncLogs.errorMessage` et `syncError`, colonnes que
+ * l'interface affiche : un abandon silencieux ferait disparaître une pièce jointe
+ * derrière un statut « OK ».
+ */
+function summarizeErrors(errors: string[]): string | null {
+  if (errors.length === 0) return null;
+
+  const shown = errors.slice(0, 5).join(" ; ");
+  const rest = errors.length - 5;
+  return rest > 0 ? `${shown} ; et ${rest} autre(s)` : shown;
+}
+
 function getProvider(name: string): ExternalProvider {
   if (name === "airtable") return airtableProvider;
   if (name === "notion") return notionProvider;
@@ -184,11 +198,16 @@ export async function syncPull(mappingId: string): Promise<SyncResult> {
       result.rowsDeleted++;
     }
 
-    // Succès
+    // Fin de parcours. Un fichier abandonné en cours de route écrase la cellule de
+    // sa ligne : la synchronisation ne peut pas se déclarer en succès sans le dire,
+    // sinon la pièce jointe disparaît et le journal affiche « OK ».
+    const partialMessage = summarizeErrors(result.errors);
+
     await db
       .update(syncLogs)
       .set({
-        status: "success",
+        status: partialMessage ? "partial" : "success",
+        errorMessage: partialMessage,
         rowsCreated: result.rowsCreated,
         rowsUpdated: result.rowsUpdated,
         rowsDeleted: result.rowsDeleted,
@@ -202,7 +221,7 @@ export async function syncPull(mappingId: string): Promise<SyncResult> {
         isSyncing: false,
         lastSyncAt: new Date(),
         lastSyncDirection: "pull",
-        syncError: null,
+        syncError: partialMessage,
         updatedAt: new Date(),
       })
       .where(eq(externalDatabaseMappings.id, mappingId));
@@ -358,11 +377,15 @@ export async function syncPush(mappingId: string): Promise<SyncResult> {
       }
     }
 
-    // Succès
+    // Fin de parcours, même règle que le pull : les incidents non bloquants sont
+    // persistés plutôt que balayés par un statut « success ».
+    const partialMessage = summarizeErrors(result.errors);
+
     await db
       .update(syncLogs)
       .set({
-        status: "success",
+        status: partialMessage ? "partial" : "success",
+        errorMessage: partialMessage,
         rowsCreated: result.rowsCreated,
         rowsUpdated: result.rowsUpdated,
         rowsDeleted: result.rowsDeleted,
@@ -376,7 +399,7 @@ export async function syncPush(mappingId: string): Promise<SyncResult> {
         isSyncing: false,
         lastSyncAt: new Date(),
         lastSyncDirection: "push",
-        syncError: null,
+        syncError: partialMessage,
         updatedAt: new Date(),
       })
       .where(eq(externalDatabaseMappings.id, mappingId));
@@ -519,13 +542,20 @@ async function downloadAndReupload(
       // souvent depourvu d'extension. Un contenu non typable est stocke inerte
       // plutot que refuse : refuser reviendrait a vider la cellule de la ligne
       // synchronisee, la neutralisation suffit a fermer le vecteur.
-      const { ext, contentType, contentDisposition, neutralized } =
+      const { ext, contentType, contentDisposition, neutralizedReason } =
         await resolveDownloadedStorageType(file.filename, buffer);
 
-      if (neutralized) {
+      if (neutralizedReason) {
+        const motif =
+          neutralizedReason === "active"
+            ? "format exécutable neutralisé"
+            : "type de contenu non reconnu";
+        errors.push(
+          `Fichier « ${file.filename} » conservé en binaire non prévisualisable (${motif})`
+        );
         logger.info(
-          { filename: file.filename },
-          "[sync] Fichier externe stocke en binaire opaque : type de contenu non reconnu"
+          { filename: file.filename, reason: neutralizedReason },
+          "[sync] Fichier externe stocké en binaire opaque"
         );
       }
 
