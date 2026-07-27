@@ -3,6 +3,7 @@ import { documents, spaces } from "@/lib/db/schema";
 import { eq, and, gt, asc, isNull } from "drizzle-orm";
 import { authenticateApiRequest, requireScope } from "@/lib/api/auth-api";
 import { apiSuccess, apiError } from "@/lib/api/response";
+import { checkSpaceViewAccess } from "@/lib/auth/check-access";
 
 /**
  * GET /api/v1/spaces/:slug/documents — List documents in a space.
@@ -27,6 +28,13 @@ export async function GET(
 
   if (!space) {
     return apiError("Espace introuvable", 404);
+  }
+
+  // Le scope `documents:read` autorise l'appel, il ne dit rien de l'espace vise :
+  // le controle de permission s'ajoute au controle de scope, il ne le remplace pas.
+  const canView = await checkSpaceViewAccess(auth.user, space.id);
+  if (!canView) {
+    return apiError("Accès refusé", 403);
   }
 
   const { searchParams } = new URL(request.url);

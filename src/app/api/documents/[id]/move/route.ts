@@ -3,8 +3,13 @@ import { db } from "@/lib/db";
 import { documents, spaces } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { getSessionUser } from "@/lib/auth/get-user";
-import { getSpacePermission } from "@/lib/auth/check-access";
+import {
+  checkDocumentViewAccess,
+  checkSpaceEditAccess,
+} from "@/lib/auth/check-access";
+import { isClassificationAllowed } from "@/lib/auth/classification";
 import { z } from "zod";
+import type { ClassificationLevel } from "@/types";
 
 const moveSchema = z
   .object({
@@ -33,9 +38,19 @@ export async function POST(
   const [doc] = await db.select().from(documents).where(eq(documents.id, id)).limit(1);
   if (!doc) return NextResponse.json({ error: "Document introuvable" }, { status: 404 });
 
-  // Check write permission on source space
-  const sourcePerm = await getSpacePermission(user.id, doc.spaceId);
-  if (!sourcePerm || sourcePerm === "viewer") {
+  // Deplacer un document `secret` vers un espace que l'on possede donne la lecture :
+  // checkDocumentViewAccess court-circuite en `true` pour le proprietaire de l'espace.
+  // Le droit de lecture sur le document deplace est donc exige, en plus du droit
+  // d'ecriture sur l'espace source.
+  const canViewSource = await checkDocumentViewAccess(user, doc.spaceId, doc.id);
+  if (!canViewSource) {
+    return NextResponse.json({ error: "Accès refusé (document source)" }, { status: 403 });
+  }
+
+  // Le droit d'ecriture reste evalue au niveau de l'espace source, comme avant : sortir
+  // un document d'un espace engage l'espace, pas seulement le document.
+  const canEditSource = await checkSpaceEditAccess(user, doc.spaceId);
+  if (!canEditSource) {
     return NextResponse.json({ error: "Accès refusé (espace source)" }, { status: 403 });
   }
 
@@ -49,14 +64,26 @@ export async function POST(
     if (!targetSpace) return NextResponse.json({ error: "Espace cible introuvable" }, { status: 404 });
 
     // Check write permission on target space
-    const targetPerm = await getSpacePermission(user.id, targetSpace.id);
-    if (!targetPerm || targetPerm === "viewer") {
+    const canEditTarget = await checkSpaceEditAccess(user, targetSpace.id);
+    if (!canEditTarget) {
       return NextResponse.json({ error: "Accès refusé (espace cible)" }, { status: 403 });
     }
 
+    // Le document ne peut pas atterrir sous le plancher de classification de l'espace
+    // cible : deplacer n'est pas un moyen de declasser.
+    const docClassification = (doc.classification || "internal") as ClassificationLevel;
+    const targetSpaceClassification = (targetSpace.classification || "internal") as ClassificationLevel;
+    const nextClassification = isClassificationAllowed(docClassification, targetSpaceClassification)
+      ? docClassification
+      : targetSpaceClassification;
+
     await db
       .update(documents)
-      .set({ spaceId: targetSpace.id, parentId: null })
+      .set({
+        spaceId: targetSpace.id,
+        parentId: null,
+        classification: nextClassification,
+      })
       .where(eq(documents.id, id));
 
     return NextResponse.json({ ok: true, spaceSlug: targetSpace.slug });

@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { userDatabases, userDatabaseColumns } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { getSessionUser } from "@/lib/auth/get-user";
-import { getSpacePermission } from "@/lib/auth/check-access";
+import { getSpacePermission, checkSpaceViewAccess } from "@/lib/auth/check-access";
 import { z } from "zod";
 
 export async function GET(request: NextRequest) {
@@ -16,6 +16,14 @@ export async function GET(request: NextRequest) {
       { error: "spaceId requis" },
       { status: 400 }
     );
+  }
+
+  // Une base est rattachee a un espace : lister les bases d'un espace exige le droit
+  // de lecture sur cet espace. Sans ce controle, `?spaceId=` suffisait a enumerer les
+  // bases de tous les espaces.
+  const canView = await checkSpaceViewAccess(user, spaceId);
+  if (!canView) {
+    return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
   }
 
   const result = await db

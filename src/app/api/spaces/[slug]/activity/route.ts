@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { spaces, activityLog, users } from "@/lib/db/schema";
 import { eq, desc, and, or, sql } from "drizzle-orm";
 import { getSessionUser } from "@/lib/auth/get-user";
+import { checkSpaceViewAccess } from "@/lib/auth/check-access";
 
 export async function GET(
   request: NextRequest,
@@ -20,6 +21,13 @@ export async function GET(
 
   if (!space) {
     return NextResponse.json({ error: "Espace introuvable" }, { status: 404 });
+  }
+
+  // Le journal d'activite expose les titres des documents de l'espace (metadata.title) :
+  // il exige le meme droit de lecture que l'arborescence de l'espace.
+  const canView = await checkSpaceViewAccess(user, space.id);
+  if (!canView) {
+    return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
   }
 
   const limit = parseInt(request.nextUrl.searchParams.get("limit") || "50");

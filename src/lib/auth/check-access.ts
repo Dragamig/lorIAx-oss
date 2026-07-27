@@ -6,8 +6,15 @@ import {
   documentPermissions,
   teamMembers,
 } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
-import { canViewDocument, canEditDocument, canViewByClassification, canAdminSpace, hasGlobalRole } from "@/lib/auth/rbac";
+import { eq, and, or, inArray } from "drizzle-orm";
+import {
+  canViewDocument,
+  canEditDocument,
+  canViewByClassification,
+  canAdminSpace,
+  hasGlobalRole,
+  hasPermissionLevel,
+} from "@/lib/auth/rbac";
 import { users } from "@/lib/db/schema";
 import type { SessionUser, PermissionLevel, ClassificationLevel } from "@/types";
 
@@ -236,6 +243,107 @@ export async function checkDocumentDeclassifyAccess(
 
   const spacePerm = await getSpacePermission(user.id, docSpaceId);
   return spacePerm === "admin";
+}
+
+/**
+ * Team IDs the user belongs to.
+ */
+async function getUserTeamIds(userId: string): Promise<string[]> {
+  const rows = await db
+    .select({ teamId: teamMembers.teamId })
+    .from(teamMembers)
+    .where(eq(teamMembers.userId, userId));
+  return rows.map((r) => r.teamId);
+}
+
+/**
+ * Check if a user may read the content of a space (document tree, activity,
+ * databases attached to the space).
+ *
+ * This mirrors, one space at a time, the visibility rule already applied by the
+ * space listing (GET /api/spaces) : a space is reachable when the user owns it,
+ * holds an explicit permission on it (directly or through one of their teams),
+ * belongs to the owning team, or when the space is an organization space.
+ * Spaces classified `secret` stay restricted to their owner, to users holding an
+ * explicit permission, and to global admins.
+ *
+ * Without this check the per space routes were reachable by slug or id alone,
+ * which turned any authenticated account into a reader of every space.
+ */
+export async function checkSpaceViewAccess(
+  user: SessionUser,
+  spaceId: string
+): Promise<boolean> {
+  if (isGlobalAdmin(user)) return true;
+
+  const [space] = await db
+    .select({
+      type: spaces.type,
+      classification: spaces.classification,
+      ownerUserId: spaces.ownerUserId,
+      ownerTeamId: spaces.ownerTeamId,
+    })
+    .from(spaces)
+    .where(eq(spaces.id, spaceId))
+    .limit(1);
+
+  if (!space) return false;
+  if (space.ownerUserId === user.id) return true;
+
+  const teamIds = await getUserTeamIds(user.id);
+
+  const [explicitPerm] = await db
+    .select({ level: spacePermissions.level })
+    .from(spacePermissions)
+    .where(
+      and(
+        eq(spacePermissions.spaceId, spaceId),
+        teamIds.length > 0
+          ? or(
+              eq(spacePermissions.userId, user.id),
+              inArray(spacePermissions.teamId, teamIds)
+            )
+          : eq(spacePermissions.userId, user.id)
+      )
+    )
+    .limit(1);
+
+  if (explicitPerm) return true;
+
+  // Un espace `secret` n'est jamais atteint par appartenance implicite.
+  if (space.classification === "secret") return false;
+
+  if (space.type === "organization") return true;
+  if (space.ownerTeamId && teamIds.includes(space.ownerTeamId)) return true;
+
+  return false;
+}
+
+/**
+ * Check if a user may create or modify content inside a space.
+ *
+ * Same rule as the routes that already guarded themselves (`!perm || perm === "viewer"`),
+ * plus space ownership, which `checkDocumentEditAccess` already grants at the document
+ * level. Membership of a team that merely owns the space is not enough : writing needs
+ * an explicit `editor` or `admin` permission.
+ */
+export async function checkSpaceEditAccess(
+  user: SessionUser,
+  spaceId: string
+): Promise<boolean> {
+  if (isGlobalAdmin(user)) return true;
+
+  const [space] = await db
+    .select({ ownerUserId: spaces.ownerUserId })
+    .from(spaces)
+    .where(eq(spaces.id, spaceId))
+    .limit(1);
+
+  if (!space) return false;
+  if (space.ownerUserId === user.id) return true;
+
+  const perm = await getSpacePermission(user.id, spaceId);
+  return !!perm && hasPermissionLevel(perm, "editor");
 }
 
 /**

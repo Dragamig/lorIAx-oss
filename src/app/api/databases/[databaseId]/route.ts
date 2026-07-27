@@ -7,7 +7,7 @@ import {
 } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { getSessionUser } from "@/lib/auth/get-user";
-import { getSpacePermission } from "@/lib/auth/check-access";
+import { getSpacePermission, checkSpaceViewAccess } from "@/lib/auth/check-access";
 import { z } from "zod";
 
 async function getDatabase(databaseId: string) {
@@ -30,6 +30,13 @@ export async function GET(
   const database = await getDatabase(databaseId);
   if (!database) {
     return NextResponse.json({ error: "Base introuvable" }, { status: 404 });
+  }
+
+  // Le PATCH et le DELETE verifiaient l'espace, pas le GET : l'identifiant de base
+  // suffisait a lire toutes les colonnes et toutes les lignes.
+  const canView = await checkSpaceViewAccess(user, database.spaceId);
+  if (!canView) {
+    return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
   }
 
   const [columns, rows] = await Promise.all([

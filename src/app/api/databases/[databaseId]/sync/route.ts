@@ -13,6 +13,7 @@ import {
   syncBidirectional,
   fetchExternalSchema,
 } from "@/lib/integrations/sync-orchestrator";
+import { checkSpaceViewAccess, checkSpaceEditAccess } from "@/lib/auth/check-access";
 
 type RouteParams = { params: Promise<{ databaseId: string }> };
 
@@ -33,6 +34,13 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     .where(eq(userDatabases.id, databaseId))
     .limit(1);
   if (!database) return NextResponse.json({ error: "Base introuvable" }, { status: 404 });
+
+  // La configuration de synchronisation decrit la destination externe de la base :
+  // sa lecture exige le droit de lecture sur l'espace qui porte la base.
+  const canView = await checkSpaceViewAccess(user, database.spaceId);
+  if (!canView) {
+    return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+  }
 
   // Récupérer les mappings
   const mappings = await db
@@ -81,6 +89,15 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     .where(eq(userDatabases.id, databaseId))
     .limit(1);
   if (!database) return NextResponse.json({ error: "Base introuvable" }, { status: 404 });
+
+  // Toutes les actions de cette route sont des ecritures : `configure` pointe la base
+  // vers une destination externe choisie par l'appelant, et `push` y envoie le contenu.
+  // La combinaison des deux exfiltre une base entiere, on exige donc au moins le niveau
+  // d'edition sur l'espace, comme les routes rows et columns.
+  const canEdit = await checkSpaceEditAccess(user, database.spaceId);
+  if (!canEdit) {
+    return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+  }
 
   // ─── Configurer une nouvelle synchronisation ─────────────────────
   if (action === "configure") {
@@ -219,6 +236,19 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
 
   if (!mappingId) {
     return NextResponse.json({ error: "mappingId requis" }, { status: 400 });
+  }
+
+  // Meme famille que le POST : supprimer une configuration est une ecriture.
+  const [database] = await db
+    .select()
+    .from(userDatabases)
+    .where(eq(userDatabases.id, databaseId))
+    .limit(1);
+  if (!database) return NextResponse.json({ error: "Base introuvable" }, { status: 404 });
+
+  const canEdit = await checkSpaceEditAccess(user, database.spaceId);
+  if (!canEdit) {
+    return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
   }
 
   const deleted = await db

@@ -33,15 +33,22 @@ export async function GET(request: NextRequest) {
     return apiError("Dates invalides");
   }
 
-  // Get accessible calendar IDs
-  const accessibleIds = calendarId
-    ? [calendarId]
-    : await getAccessibleCalendarIds({
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        globalRole: user.globalRole,
-      });
+  // Get accessible calendar IDs.
+  // `?calendarId=` ne peut que restreindre l'ensemble accessible, jamais l'elargir :
+  // pris tel quel, il court-circuitait getAccessibleCalendarIds et exposait les
+  // evenements de n'importe quel calendrier a toute cle API `calendars:read`.
+  const allowedIds = await getAccessibleCalendarIds({
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    globalRole: user.globalRole,
+  });
+
+  if (calendarId && !allowedIds.includes(calendarId)) {
+    return apiError("Accès refusé au calendrier", 403);
+  }
+
+  const accessibleIds = calendarId ? [calendarId] : allowedIds;
 
   if (accessibleIds.length === 0) {
     return apiSuccess([]);

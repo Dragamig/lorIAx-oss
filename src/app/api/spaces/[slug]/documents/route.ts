@@ -16,7 +16,8 @@ import { writeDocument } from "@/lib/storage/filesystem";
 import { commitFile } from "@/lib/git/repository";
 import slugify from "slugify";
 import { logActivity } from "@/lib/activity";
-import { getSpacePermission } from "@/lib/auth/check-access";
+import { checkSpaceViewAccess, checkSpaceEditAccess } from "@/lib/auth/check-access";
+import { isClassificationAllowed } from "@/lib/auth/classification";
 import { z } from "zod";
 import { getBuiltinTemplateById } from "@/lib/templates/builtin";
 import { templateContentToYjsState } from "@/lib/editor/template-to-yjs";
@@ -39,6 +40,13 @@ export async function GET(
     .limit(1);
 
   if (!space) return NextResponse.json([], { status: 404 });
+
+  // L'arborescence expose les titres et les etiquettes de tous les documents de
+  // l'espace : elle exige le droit de lecture sur l'espace. Le slug seul ne suffit pas.
+  const canView = await checkSpaceViewAccess(user, space.id);
+  if (!canView) {
+    return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+  }
 
   // Recuperer les documents racine (sans parent)
   const docs = await db
@@ -151,8 +159,8 @@ export async function POST(
 
   if (!space) return NextResponse.json({ error: "Espace introuvable" }, { status: 404 });
 
-  const perm = await getSpacePermission(user.id, space.id);
-  if (!perm || perm === "viewer") {
+  const canEdit = await checkSpaceEditAccess(user, space.id);
+  if (!canEdit) {
     return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
   }
 
@@ -164,6 +172,16 @@ export async function POST(
 
   const { title, parentId, isFolder = false, templateId, visibility, classification } = parsed.data;
   let { content = "" } = parsed.data;
+
+  // Le plafond de classification etait verifie au PATCH mais pas a la creation :
+  // on pouvait deposer un document `public` dans un espace `confidential`.
+  const spaceClassification = (space.classification || "internal") as ClassificationLevel;
+  if (classification && !isClassificationAllowed(classification, spaceClassification)) {
+    return NextResponse.json(
+      { error: `Classification « ${classification} » non autorisée dans cet espace (niveau minimum : ${spaceClassification})` },
+      { status: 400 }
+    );
+  }
 
   // Résoudre le contenu complet du template
   type TemplateContentData = { markdown?: string; database?: { name: string; columns: Array<{ name: string; type: string; config?: Record<string, unknown> }> } };

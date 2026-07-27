@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { documents, spaces } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { readDocument } from "@/lib/storage/filesystem";
+import { checkDocumentViewAccess } from "@/lib/auth/check-access";
 
 function isAIConfigured(): boolean {
   const provider = getDefaultProvider();
@@ -42,6 +43,14 @@ export async function POST(request: NextRequest) {
 
   if (!doc) {
     return NextResponse.json({ error: "Document non trouve" }, { status: 404 });
+  }
+
+  // Resumer un document, c'est en restituer le contenu : le meme droit de lecture que
+  // GET /api/documents/[id] est exige. Sans ce controle, tout compte authentifie qui
+  // connait un identifiant se fait resumer un document `secret`.
+  const canView = await checkDocumentViewAccess(user, doc.spaceId, doc.id);
+  if (!canView) {
+    return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
   }
 
   // Lire le contenu

@@ -3,6 +3,8 @@ import { documents, spaces } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { authenticateApiRequest, requireScope } from "@/lib/api/auth-api";
 import { apiSuccess, apiError } from "@/lib/api/response";
+import { checkSpaceEditAccess } from "@/lib/auth/check-access";
+import { isClassificationAllowed } from "@/lib/auth/classification";
 import { logActivity } from "@/lib/activity";
 import { writeDocument } from "@/lib/storage/filesystem";
 import { commitFile } from "@/lib/git/repository";
@@ -48,6 +50,24 @@ export async function POST(request: Request) {
 
   if (!space) {
     return apiError("Espace introuvable", 404);
+  }
+
+  // `spaceId` vient du corps de la requete et n'etait controle par personne : toute cle
+  // API `documents:write` pouvait deposer un document dans n'importe quel espace.
+  // Le scope autorise l'appel, la permission d'espace autorise la cible.
+  const canEdit = await checkSpaceEditAccess(auth.user, space.id);
+  if (!canEdit) {
+    return apiError("Accès refusé", 403);
+  }
+
+  // Meme plafond de classification qu'au PATCH : un espace `confidential` n'accepte pas
+  // la creation d'un document `public`.
+  const spaceClassification = (space.classification || "internal") as ClassificationLevel;
+  if (classification && !isClassificationAllowed(classification, spaceClassification)) {
+    return apiError(
+      `Classification « ${classification} » non autorisée dans cet espace (niveau minimum : ${spaceClassification})`,
+      400
+    );
   }
 
   const slug = slugify(title, { lower: true, strict: true });
