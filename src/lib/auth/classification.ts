@@ -73,6 +73,19 @@ export function isClassificationAllowed(
 }
 
 /**
+ * Indique si le passage de `from` vers `to` abaisse le niveau de protection du document
+ * (déclassification). Une déclassification élargit le cercle des lecteurs : c'est une
+ * opération sensible, réservée à l'auteur, aux administrateurs de l'espace et aux
+ * administrateurs globaux (voir checkDocumentDeclassifyAccess).
+ */
+export function isDeclassification(
+  from: ClassificationLevel,
+  to: ClassificationLevel
+): boolean {
+  return CLASSIFICATION_HIERARCHY[to] < CLASSIFICATION_HIERARCHY[from];
+}
+
+/**
  * Retourne les niveaux de classification autorisés pour un document dans un espace donné.
  */
 export function getAllowedDocClassifications(

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   isClassificationAllowed,
+  isDeclassification,
   getAllowedDocClassifications,
   canShareExternally,
   getClassificationLevel,
@@ -32,6 +33,22 @@ describe("isClassificationAllowed", () => {
 
   it("un document confidential est autorisé dans un espace confidential", () => {
     expect(isClassificationAllowed("confidential", "confidential")).toBe(true);
+  });
+});
+
+describe("isDeclassification", () => {
+  it("abaisser le niveau est une déclassification", () => {
+    expect(isDeclassification("secret", "internal")).toBe(true);
+    expect(isDeclassification("secret", "public")).toBe(true);
+    expect(isDeclassification("confidential", "internal")).toBe(true);
+    expect(isDeclassification("internal", "public")).toBe(true);
+  });
+
+  it("élever le niveau ou le laisser inchangé n'est pas une déclassification", () => {
+    expect(isDeclassification("internal", "secret")).toBe(false);
+    expect(isDeclassification("public", "internal")).toBe(false);
+    expect(isDeclassification("secret", "secret")).toBe(false);
+    expect(isDeclassification("public", "public")).toBe(false);
   });
 });
 

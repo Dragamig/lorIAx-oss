@@ -3,14 +3,19 @@ import { db } from "@/lib/db";
 import { documents, spaces, documentLinks } from "@/lib/db/schema";
 import { eq, inArray } from "drizzle-orm";
 import { getSessionUser } from "@/lib/auth/get-user";
-import { checkDocumentViewAccess, checkDocumentEditAccess } from "@/lib/auth/check-access";
+import {
+  checkDocumentViewAccess,
+  checkDocumentEditAccess,
+  checkDocumentDeclassifyAccess,
+} from "@/lib/auth/check-access";
+import { documentMetadataColumns } from "@/lib/db/projections";
 import { readDocument, writeDocument } from "@/lib/storage/filesystem";
 import { commitFile } from "@/lib/git/repository";
 import { parseWikiLinks } from "@/lib/graph/links";
 import { indexDocument } from "@/lib/ai/embeddings";
 import { logActivity } from "@/lib/activity";
 import { createNotifications } from "@/lib/notifications";
-import { isClassificationAllowed } from "@/lib/auth/classification";
+import { isClassificationAllowed, isDeclassification } from "@/lib/auth/classification";
 import type { ClassificationLevel } from "@/types";
 import { z } from "zod";
 import logger from "@/lib/logger";
@@ -25,7 +30,7 @@ export async function GET(
   const { id } = await params;
 
   const [doc] = await db
-    .select()
+    .select({ ...documentMetadataColumns, contentText: documents.contentText })
     .from(documents)
     .where(eq(documents.id, id))
     .limit(1);
@@ -129,6 +134,32 @@ export async function PATCH(
     }
   }
 
+  // Changer la classification est un acte de securite, pas une simple edition.
+  // Sans ce garde-fou, un utilisateur qui peut ecrire mais pas lire (document `secret`
+  // dont il n'est ni auteur ni admin d'espace) declasse le document en `internal`,
+  // puis le relit par le GET : la projection de la reponse PATCH ne ferait que rendre
+  // l'exfiltration deux fois plus longue.
+  const currentClassification = (doc.classification || "internal") as ClassificationLevel;
+  if (classification && classification !== currentClassification) {
+    const canReadBeforeReclassifying = await checkDocumentViewAccess(user, doc.spaceId, doc.id);
+    if (!canReadBeforeReclassifying) {
+      return NextResponse.json(
+        { error: "Accès refusé : modifier la classification exige le droit de lecture sur le document" },
+        { status: 403 }
+      );
+    }
+
+    if (isDeclassification(currentClassification, classification)) {
+      const canDeclassify = await checkDocumentDeclassifyAccess(user, doc.spaceId, doc.id);
+      if (!canDeclassify) {
+        return NextResponse.json(
+          { error: "Accès refusé : seuls l'auteur, les administrateurs de l'espace et les administrateurs globaux peuvent abaisser la classification d'un document" },
+          { status: 403 }
+        );
+      }
+    }
+  }
+
   // Sauvegarder le contenu sur le filesystem et git
   if (content !== undefined && space && !doc.isFolder) {
     await writeDocument(space.gitRepoPath, doc.filePath, content);
@@ -181,34 +212,14 @@ export async function PATCH(
   if (icon !== undefined) updateData.icon = icon;
   if (properties !== undefined) updateData.properties = properties;
 
-  // Projection explicite : `contentText` est volontairement exclu de la reponse.
-  // Un `.returning()` nu renverrait le contenu complet du document, ce qui permet a un
-  // utilisateur autorise a ecrire mais pas a lire (document `secret` par exemple)
-  // d'exfiltrer le contenu via un simple PATCH.
+  // Projection explicite : `contentText` est volontairement exclu de la reponse
+  // (voir documentMetadataColumns). Un `.returning()` nu renverrait le contenu complet
+  // du document a un utilisateur autorise a ecrire mais pas a lire.
   const [updated] = await db
     .update(documents)
     .set(updateData)
     .where(eq(documents.id, id))
-    .returning({
-      id: documents.id,
-      spaceId: documents.spaceId,
-      parentId: documents.parentId,
-      title: documents.title,
-      slug: documents.slug,
-      filePath: documents.filePath,
-      visibility: documents.visibility,
-      classification: documents.classification,
-      isFolder: documents.isFolder,
-      templateId: documents.templateId,
-      createdBy: documents.createdBy,
-      lockedBy: documents.lockedBy,
-      lockedAt: documents.lockedAt,
-      icon: documents.icon,
-      position: documents.position,
-      properties: documents.properties,
-      createdAt: documents.createdAt,
-      updatedAt: documents.updatedAt,
-    });
+    .returning(documentMetadataColumns);
 
   // Indexer les embeddings en arrière-plan (non bloquant)
   if (content !== undefined) {

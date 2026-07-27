@@ -203,6 +203,42 @@ export async function checkDocumentEditAccess(
 }
 
 /**
+ * Check if a user is allowed to lower the classification level of a document.
+ *
+ * Declassifying widens the set of readers, it is therefore restricted to the same
+ * population that may read a `secret` document (see canViewByClassification) : the
+ * document author and the space admins, plus the space owner and global admins.
+ * Without this check, a user holding only an `editor` space permission could PATCH a
+ * `secret` document down to `internal` and then read its content through the GET route.
+ */
+export async function checkDocumentDeclassifyAccess(
+  user: SessionUser,
+  docSpaceId: string,
+  docId: string
+): Promise<boolean> {
+  if (isGlobalAdmin(user)) return true;
+
+  const [space] = await db
+    .select({ ownerUserId: spaces.ownerUserId })
+    .from(spaces)
+    .where(eq(spaces.id, docSpaceId))
+    .limit(1);
+
+  if (space?.ownerUserId === user.id) return true;
+
+  const [doc] = await db
+    .select({ createdBy: documents.createdBy })
+    .from(documents)
+    .where(eq(documents.id, docId))
+    .limit(1);
+
+  if (doc?.createdBy === user.id) return true;
+
+  const spacePerm = await getSpacePermission(user.id, docSpaceId);
+  return spacePerm === "admin";
+}
+
+/**
  * Get the list of space IDs the user has access to (at least viewer).
  * Includes spaces owned by the user + spaces with explicit permissions.
  */

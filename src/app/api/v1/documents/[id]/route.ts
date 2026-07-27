@@ -6,7 +6,11 @@ import { apiSuccess, apiError } from "@/lib/api/response";
 import {
   checkDocumentViewAccess,
   checkDocumentEditAccess,
+  checkDocumentDeclassifyAccess,
 } from "@/lib/auth/check-access";
+import { isClassificationAllowed, isDeclassification } from "@/lib/auth/classification";
+import { documentMetadataColumns } from "@/lib/db/projections";
+import type { ClassificationLevel } from "@/types";
 import { logActivity } from "@/lib/activity";
 import { writeDocument } from "@/lib/storage/filesystem";
 import { commitFile } from "@/lib/git/repository";
@@ -111,6 +115,56 @@ export async function PATCH(
     return apiError("Accès refusé", 403);
   }
 
+  // Meme regle que la route REST : changer la classification est un acte de securite.
+  // Le plafond de l'espace est verifie, la reclassification exige le droit de lecture,
+  // et l'abaissement du niveau est reserve a l'auteur, aux administrateurs de l'espace
+  // et aux administrateurs globaux. Sans cela, une cle d'API `documents:write` declasse
+  // un document `secret` puis le lit.
+  const nextClassification = parsed.data.classification as ClassificationLevel | undefined;
+  const currentClassification = (doc.classification || "internal") as ClassificationLevel;
+
+  if (nextClassification !== undefined && nextClassification !== currentClassification) {
+    const [docSpace] = await db
+      .select({ classification: spaces.classification })
+      .from(spaces)
+      .where(eq(spaces.id, doc.spaceId))
+      .limit(1);
+
+    const spaceClassification = (docSpace?.classification || "internal") as ClassificationLevel;
+    if (!isClassificationAllowed(nextClassification, spaceClassification)) {
+      return apiError(
+        `Classification « ${nextClassification} » non autorisée dans cet espace (niveau minimum : ${spaceClassification})`,
+        400
+      );
+    }
+
+    const canReadBeforeReclassifying = await checkDocumentViewAccess(
+      auth.user,
+      doc.spaceId,
+      doc.id
+    );
+    if (!canReadBeforeReclassifying) {
+      return apiError(
+        "Accès refusé : modifier la classification exige le droit de lecture sur le document",
+        403
+      );
+    }
+
+    if (isDeclassification(currentClassification, nextClassification)) {
+      const canDeclassify = await checkDocumentDeclassifyAccess(
+        auth.user,
+        doc.spaceId,
+        doc.id
+      );
+      if (!canDeclassify) {
+        return apiError(
+          "Accès refusé : seuls l'auteur, les administrateurs de l'espace et les administrateurs globaux peuvent abaisser la classification d'un document",
+          403
+        );
+      }
+    }
+  }
+
   const updateData: Record<string, unknown> = { updatedAt: new Date() };
   if (parsed.data.title !== undefined) updateData.title = parsed.data.title;
   if (parsed.data.visibility !== undefined) updateData.visibility = parsed.data.visibility;
@@ -138,11 +192,14 @@ export async function PATCH(
     }
   }
 
+  // Projection explicite : `contentText` est exclu de la reponse de l'API publique
+  // (voir documentMetadataColumns), un `.returning()` nu le renvoyait tel quel via
+  // apiSuccess a toute cle disposant du scope documents:write.
   const [updated] = await db
     .update(documents)
     .set(updateData)
     .where(eq(documents.id, id))
-    .returning();
+    .returning(documentMetadataColumns);
 
   logActivity({
     userId: auth.user.id,
