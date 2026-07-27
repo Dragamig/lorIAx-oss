@@ -4,6 +4,7 @@ import { users, passwordResetTokens } from "@/lib/db/schema";
 import { eq, and, isNull, gt } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { checkRateLimit, RATE_LIMITS, getClientIp } from "@/lib/rate-limit";
+import { invalidateUserSessions } from "@/lib/auth/token-revocation";
 import { z } from "zod";
 import logger from "@/lib/logger";
 
@@ -62,6 +63,11 @@ export async function POST(request: Request) {
       .update(users)
       .set({ passwordHash, updatedAt: new Date() })
       .where(eq(users.id, resetToken.userId));
+
+    // H10 : Révoquer toutes les sessions ouvertes avec l'ancien mot de passe.
+    // C'est le but même d'une réinitialisation : un compte compromis ne doit pas
+    // rester accessible pendant les 24 h de validité du JWT.
+    await invalidateUserSessions(resetToken.userId);
 
     // Mark token as used
     await db

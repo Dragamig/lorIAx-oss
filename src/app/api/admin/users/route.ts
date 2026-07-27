@@ -4,6 +4,7 @@ import { users, spaces } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { getSessionUser } from "@/lib/auth/get-user";
 import { hasGlobalRole } from "@/lib/auth/rbac";
+import { invalidateUserSessions } from "@/lib/auth/token-revocation";
 import bcrypt from "bcryptjs";
 import slugify from "slugify";
 import { sendEmail } from "@/lib/email/send";
@@ -177,7 +178,24 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "Aucune modification" }, { status: 400 });
   }
 
+  const [before] = await db
+    .select({ globalRole: users.globalRole })
+    .from(users)
+    .where(eq(users.id, id))
+    .limit(1);
+
+  if (!before) {
+    return NextResponse.json({ error: "Utilisateur introuvable" }, { status: 404 });
+  }
+
   await db.update(users).set(updates).where(eq(users.id, id));
+
+  // H10 : Un changement de rôle global doit couper les sessions en cours : sinon
+  // un compte rétrogradé conserve ses droits jusqu'à l'expiration du JWT (24 h),
+  // le rôle étant porté par le token et non relu à chaque requête.
+  if (updates.globalRole && updates.globalRole !== before.globalRole) {
+    await invalidateUserSessions(id);
+  }
 
   return NextResponse.json({ success: true });
 }

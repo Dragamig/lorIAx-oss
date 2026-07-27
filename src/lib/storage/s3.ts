@@ -18,10 +18,20 @@ const s3Client = new S3Client({
 
 const BUCKET = process.env.S3_BUCKET || "loriax-files";
 
+export interface UploadOptions {
+  /**
+   * Content-Disposition stored on the object. Set it to "attachment" for formats the
+   * browser could otherwise execute on the storage origin (SVG, XML), so that even a
+   * presigned URL opened directly triggers a download instead of a render.
+   */
+  contentDisposition?: string;
+}
+
 export async function uploadFile(
   key: string,
   body: Buffer | Uint8Array,
-  contentType: string
+  contentType: string,
+  options: UploadOptions = {}
 ): Promise<string> {
   await s3Client.send(
     new PutObjectCommand({
@@ -29,6 +39,7 @@ export async function uploadFile(
       Key: key,
       Body: body,
       ContentType: contentType,
+      ContentDisposition: options.contentDisposition,
     })
   );
   return key;

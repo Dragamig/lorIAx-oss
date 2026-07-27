@@ -15,10 +15,32 @@ const ALLOWED_EXTENSIONS = new Set([
   "zip", "tar", "gz",
 ]);
 
-// Extensions texte que file-type ne peut pas détecter (pas de magic bytes)
+// Extensions texte que file-type ne peut pas détecter (pas de magic bytes).
+// H9 : `svg` a été retiré de cette liste : le SVG est un document actif (script,
+// handlers, xlink), le laisser ici lui faisait sauter tout contrôle de contenu.
 const TEXT_EXTENSIONS = new Set([
-  "txt", "csv", "json", "xml", "yaml", "yml", "md", "svg",
+  "txt", "csv", "json", "xml", "yaml", "yml", "md",
 ]);
+
+/**
+ * H9 : Formats textuels que le navigateur peut exécuter s'il les rend en ligne
+ * (SVG : balise script ; XML : feuille XSLT). Ils restent acceptés par le produit
+ * mais sont stockés en binaire opaque : `application/octet-stream` +
+ * `Content-Disposition: attachment` sur l'objet S3 lui-même, de sorte qu'une URL
+ * signée ouverte directement sur l'origine de stockage déclenche un téléchargement
+ * au lieu d'un rendu. Aucun XSS stocké n'est donc possible sur cette origine.
+ */
+const NEUTRALIZED_EXTENSIONS = new Set(["svg", "xml"]);
+
+/** Content-Type sûr imposé par le serveur pour les extensions sans magic bytes. */
+const TEXT_CONTENT_TYPES: Record<string, string> = {
+  txt: "text/plain; charset=utf-8",
+  csv: "text/csv; charset=utf-8",
+  md: "text/plain; charset=utf-8",
+  yaml: "text/plain; charset=utf-8",
+  yml: "text/plain; charset=utf-8",
+  json: "application/json; charset=utf-8",
+};
 
 /**
  * SEC-06 — Sanitise le nom de fichier pour empêcher path traversal et
@@ -77,8 +99,18 @@ export async function POST(request: NextRequest) {
 
   const buffer = Buffer.from(await file.arrayBuffer());
 
-  // SEC-05 — Vérification des magic bytes pour les fichiers binaires
-  if (!TEXT_EXTENSIONS.has(ext)) {
+  // H9 : Le Content-Type est décidé par le serveur, jamais repris de `file.type`
+  // fourni par le client : c'est lui que S3 renverra ensuite sur son origine.
+  let contentType: string;
+  let contentDisposition: string | undefined;
+
+  if (NEUTRALIZED_EXTENSIONS.has(ext)) {
+    contentType = "application/octet-stream";
+    contentDisposition = "attachment";
+  } else if (TEXT_EXTENSIONS.has(ext)) {
+    contentType = TEXT_CONTENT_TYPES[ext] ?? "application/octet-stream";
+  } else {
+    // SEC-05 : Vérification des magic bytes pour les fichiers binaires
     const detectedType = await fileTypeFromBuffer(buffer);
 
     if (!detectedType) {
@@ -102,13 +134,16 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    // Type MIME issu des octets réels, pas de la déclaration du client
+    contentType = detectedType.mime;
   }
 
   // SEC-06 — Sanitiser le nom de fichier
   const safeName = sanitizeFilename(file.name);
   const key = `${spaceId}/${randomUUID()}.${ext}`;
 
-  await uploadFile(key, buffer, file.type);
+  await uploadFile(key, buffer, contentType, { contentDisposition });
 
   const [attachment] = await db
     .insert(attachments)
@@ -116,7 +151,7 @@ export async function POST(request: NextRequest) {
       documentId: documentId || undefined,
       spaceId,
       filename: safeName,
-      mimeType: file.type,
+      mimeType: contentType,
       sizeBytes: file.size,
       storageKey: key,
       uploadedBy: user.id,
@@ -125,5 +160,10 @@ export async function POST(request: NextRequest) {
 
   const url = await getFileUrl(key);
 
-  return NextResponse.json({ ...attachment, url }, { status: 201 });
+  // `key` et `size` sont les noms attendus par les cellules attachment de
+  // l'éditeur (AttachmentMeta) ; les colonnes SQL s'appellent storageKey/sizeBytes.
+  return NextResponse.json(
+    { ...attachment, key: attachment.storageKey, size: attachment.sizeBytes, url },
+    { status: 201 }
+  );
 }

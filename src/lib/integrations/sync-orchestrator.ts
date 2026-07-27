@@ -6,6 +6,8 @@ import {
   syncLogs,
   userDatabaseColumns,
   userDatabaseRows,
+  userDatabases,
+  attachments,
 } from "@/lib/db/schema";
 import type { ExternalProvider, ExternalRow, ColumnMapping, SyncResult } from "./base";
 import { contentHash } from "./base";
@@ -90,6 +92,18 @@ export async function syncPull(mappingId: string): Promise<SyncResult> {
     // Index des colonnes LorIAx par id (utilisé pour le re-upload attachment)
     const loriaxColsById = new Map(loriaxCols.map((c) => [c.id, c]));
 
+    // Espace et propriétaire de la base cible : nécessaires pour enregistrer les
+    // fichiers re-uploadés dans la table `attachments` (contrôle d'accès H8).
+    // L'ancien appel passait l'id de la base comme spaceId, ce qui ne correspondait
+    // à aucun espace réel.
+    const [targetDatabase] = await db
+      .select({ spaceId: userDatabases.spaceId, createdBy: userDatabases.createdBy })
+      .from(userDatabases)
+      .where(eq(userDatabases.id, mapping.userDatabaseId))
+      .limit(1);
+
+    if (!targetDatabase) throw new Error("Base de données cible introuvable");
+
     // Traiter chaque ligne externe
     for (const extRow of externalRows) {
       try {
@@ -104,7 +118,8 @@ export async function syncPull(mappingId: string): Promise<SyncResult> {
           if (!Array.isArray(rawFiles) || rawFiles.length === 0) continue;
           cells[colMapping.loriaxColumnId] = await downloadAndReupload(
             rawFiles as { url: string; filename: string }[],
-            mapping.userDatabaseId
+            targetDatabase.spaceId,
+            targetDatabase.createdBy
           );
         }
 
@@ -449,10 +464,17 @@ function mapLoriaxToExternal(
   return result;
 }
 
-/** Télécharge des fichiers externes et les re-uploade vers Garage S3 */
+/**
+ * Télécharge des fichiers externes et les re-uploade vers Garage S3.
+ *
+ * H8 : Chaque objet stocké est également enregistré dans la table `attachments` :
+ * c'est elle qui porte désormais le contrôle d'accès des routes de lecture, une clé
+ * absente de la table n'est plus servie.
+ */
 async function downloadAndReupload(
   files: { url: string; filename: string; expiry?: string }[],
-  spaceId: string
+  spaceId: string,
+  uploadedBy: string
 ): Promise<{ key: string; filename: string; mimeType: string; size: number }[]> {
   const MAX_SIZE = 20 * 1024 * 1024; // 20 Mo
   const results: { key: string; filename: string; mimeType: string; size: number }[] = [];
@@ -478,6 +500,16 @@ async function downloadAndReupload(
       const key = `${spaceId}/sync-${randomUUID()}.${ext}`;
 
       await uploadFile(key, buffer, mimeType);
+
+      await db.insert(attachments).values({
+        spaceId,
+        filename: file.filename.slice(0, 500),
+        mimeType: mimeType.slice(0, 255),
+        sizeBytes: buffer.length,
+        storageKey: key,
+        uploadedBy,
+      });
+
       results.push({ key, filename: file.filename, mimeType, size: buffer.length });
     } catch (err) {
       // Erreur sur un fichier (cible refusee, trop volumineuse, injoignable) :

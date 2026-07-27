@@ -9,6 +9,12 @@ import {
   handleDeleteEvent,
   handleOptions,
 } from "@/lib/calendar/caldav-server";
+import {
+  checkRateLimit,
+  peekRateLimit,
+  getClientIp,
+  RATE_LIMITS,
+} from "@/lib/rate-limit";
 
 function isCaldavEnabled(): boolean {
   return process.env.CALDAV_ENABLED === "true";
@@ -50,9 +56,23 @@ async function handleRequest(
     return new NextResponse(null, { status: result.status, headers: result.headers });
   }
 
+  // H11 : L'authentification Basic est rejouée à chaque requête CalDAV : sans
+  // limitation, le point d'entrée est un oracle de force brute sur les mots de passe.
+  // Seuls les échecs sont comptés (peek avant, consommation après), donc un client
+  // légitime, qui s'authentifie correctement, n'est jamais freiné.
+  const ip = getClientIp(request);
+  const rateLimitKey = `caldav-auth:${ip}`;
+  if (!peekRateLimit(rateLimitKey, RATE_LIMITS.caldavAuth).success) {
+    return new NextResponse("Too Many Requests", {
+      status: 429,
+      headers: { "Retry-After": "900" },
+    });
+  }
+
   // Authenticate
   const user = await authenticateCalDAV(request);
   if (!user) {
+    checkRateLimit(rateLimitKey, RATE_LIMITS.caldavAuth);
     return new NextResponse("Unauthorized", {
       status: 401,
       headers: { "WWW-Authenticate": 'Basic realm="LorIAx CalDAV"' },

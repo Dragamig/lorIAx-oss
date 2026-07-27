@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/get-user";
-import { getMeeting, updateMeetingStatus } from "@/lib/meet/rooms";
+import { getMeeting, updateMeetingStatus, canAccessMeeting } from "@/lib/meet/rooms";
 import { startRecording } from "@/lib/meet/egress";
 import logger from "@/lib/logger";
 
@@ -20,6 +20,12 @@ export async function POST(
 
   if (!meeting) {
     return NextResponse.json({ error: "Réunion introuvable" }, { status: 404 });
+  }
+
+  // H12 : Contrôle d'accès identique aux cinq routes voisines de /meet/rooms/[id]
+  const allowed = await canAccessMeeting(user.id, meeting);
+  if (!allowed) {
+    return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
   }
 
   // Already recording

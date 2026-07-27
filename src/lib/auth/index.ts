@@ -8,6 +8,7 @@ import bcrypt from "bcryptjs";
 import type { SessionUser } from "@/types";
 import { ldapAuthenticate, getLdapConfig } from "./ldap";
 import { syncLdapUser } from "./ldap-sync";
+import { isTokenRevoked } from "./token-revocation";
 import logger from "@/lib/logger";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
@@ -112,9 +113,17 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         }
       }
 
-      // Invalider si le token a été révoqué côté serveur
-      if (token.tokenInvalidatedAt && token.iat) {
-        if ((token.tokenInvalidatedAt as number) > (token.iat as number)) {
+      // H10 : Invalider si le token a été révoqué côté serveur.
+      // L'ancienne version comparait `token.tokenInvalidatedAt`, une revendication
+      // que le JWT n'a jamais portée : le test était donc toujours faux et la
+      // révocation inopérante. La borne est relue en base, comme le fait déjà
+      // l'authentification WebSocket (`src/lib/collab/auth-ws.ts`).
+      // Le cas `user` présent est la connexion elle-même : le token n'a pas encore
+      // d'`iat`, et une connexion réussie ne doit jamais être révoquée.
+      if (!user) {
+        const userId = token.id as string | undefined;
+        if (userId && (await isTokenRevoked(userId, token.iat as number | undefined))) {
+          logger.warn({ userId }, "Session révoquée (token émis avant un changement d'identifiants ou de rôle)");
           return null;
         }
       }

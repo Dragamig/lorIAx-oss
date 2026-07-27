@@ -131,6 +131,33 @@ export function checkRateLimit(
 }
 
 /**
+ * Read the state of a limiter without consuming a slot.
+ *
+ * Used when only the failures of an operation should be counted (CalDAV Basic Auth):
+ * the counter is consumed with checkRateLimit() after a failed attempt, and peeked
+ * at the start of the next request to decide whether to serve it at all. A legitimate
+ * client, which always authenticates successfully, never consumes a slot.
+ * In-memory backend only, like checkRateLimit().
+ */
+export function peekRateLimit(
+  identifier: string,
+  config: RateLimitConfig
+): RateLimitResult {
+  const now = Date.now();
+  const entry = memoryStore.get(identifier);
+
+  if (!entry || entry.resetAt <= now) {
+    return { success: true, remaining: config.maxRequests, resetAt: now + config.windowMs };
+  }
+
+  return {
+    success: entry.count < config.maxRequests,
+    remaining: Math.max(0, config.maxRequests - entry.count),
+    resetAt: entry.resetAt,
+  };
+}
+
+/**
  * Async rate limit check — preferred when Redis is configured.
  */
 export async function checkRateLimitAsync(
@@ -160,6 +187,15 @@ export const RATE_LIMITS = {
   routing: { maxRequests: 30, windowMs: 60 * 1000 },
   /** Meet: 20 requests per minute */
   meet: { maxRequests: 20, windowMs: 60 * 1000 },
+  /**
+   * CalDAV: 20 *failed* authentications per IP per 15 minutes.
+   * A CalDAV client re-authenticates on every request, so counting every attempt
+   * would break legitimate synchronisation. Only failures are counted, which leaves
+   * a legitimate client untouched while capping password guessing at 80 attempts
+   * per hour. The margin of 20 absorbs the burst of failures a client produces
+   * between a password change and its reconfiguration.
+   */
+  caldavAuth: { maxRequests: 20, windowMs: 15 * 60 * 1000 },
 } as const;
 
 /**
