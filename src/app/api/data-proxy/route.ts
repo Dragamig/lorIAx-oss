@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/get-user";
 import { validateExternalUrl } from "@/lib/security/url-validator";
+import { SafeFetchError, isBlockedTargetError, safeFetch } from "@/lib/security/safe-fetch";
+
+export const runtime = "nodejs";
 
 /**
  * POST /api/data-proxy
@@ -28,9 +31,10 @@ export async function POST(req: NextRequest) {
 
   try {
     if (type === "rest-api") {
-      const res = await fetch(url, {
+      // URL fournie par l'utilisateur : aucune dérogation réseau privé.
+      const res = await safeFetch(url, {
         headers: { Accept: "application/json" },
-        signal: AbortSignal.timeout(15000),
+        timeoutMs: 15000,
       });
       if (!res.ok) {
         return NextResponse.json(
@@ -78,8 +82,8 @@ export async function POST(req: NextRequest) {
       const sheetGid = gid || "0";
 
       const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${sheetGid}`;
-      const res = await fetch(csvUrl, {
-        signal: AbortSignal.timeout(15000),
+      const res = await safeFetch(csvUrl, {
+        timeoutMs: 15000,
       });
 
       if (!res.ok) {
@@ -95,6 +99,12 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ error: "Type de source non supporté" }, { status: 400 });
   } catch (err: unknown) {
+    if (isBlockedTargetError(err)) {
+      return NextResponse.json({ error: err.message }, { status: 400 });
+    }
+    if (err instanceof SafeFetchError && err.code === "timeout") {
+      return NextResponse.json({ error: "Délai d'attente dépassé (15s)" }, { status: 504 });
+    }
     if (err instanceof Error && err.name === "TimeoutError") {
       return NextResponse.json({ error: "Délai d'attente dépassé (15s)" }, { status: 504 });
     }

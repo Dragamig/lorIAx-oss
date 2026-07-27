@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/get-user";
 import { hasGlobalRole } from "@/lib/auth/rbac";
+import { safeFetch } from "@/lib/security/safe-fetch";
+
+export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
   const user = await getSessionUser();
@@ -30,12 +33,19 @@ export async function POST(request: NextRequest) {
     headers["Authorization"] = `Bearer ${apiKey}`;
   }
 
+  // Cette route sert à configurer un fournisseur IA, y compris auto-hébergé
+  // (Ollama, LM Studio, vLLM sur le réseau interne). Elle est réservée aux
+  // administrateurs globaux et l'URL est celle que l'admin s'apprête à
+  // enregistrer comme configuration serveur, d'où allowPrivate.
+  const ALLOW_PRIVATE = true;
+
   // 1. Try OpenAI-compatible /v1/models
   try {
     const url = `${effectiveBaseUrl.replace(/\/+$/, "")}/v1/models`;
-    const res = await fetch(url, {
+    const res = await safeFetch(url, {
       headers,
-      signal: AbortSignal.timeout(10_000),
+      timeoutMs: 10_000,
+      allowPrivate: ALLOW_PRIVATE,
     });
 
     if (res.ok) {
@@ -54,9 +64,10 @@ export async function POST(request: NextRequest) {
   // 2. Try Ollama-specific /api/tags
   try {
     const url = `${effectiveBaseUrl.replace(/\/+$/, "")}/api/tags`;
-    const res = await fetch(url, {
+    const res = await safeFetch(url, {
       headers,
-      signal: AbortSignal.timeout(10_000),
+      timeoutMs: 10_000,
+      allowPrivate: ALLOW_PRIVATE,
     });
 
     if (res.ok) {

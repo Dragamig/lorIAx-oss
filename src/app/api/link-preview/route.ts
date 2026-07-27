@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/get-user";
 import { validateExternalUrl } from "@/lib/security/url-validator";
+import { SafeFetchError, isBlockedTargetError, safeFetch } from "@/lib/security/safe-fetch";
 import { checkRateLimit, RATE_LIMITS, getClientIp } from "@/lib/rate-limit";
 import logger from "@/lib/logger";
+
+export const runtime = "nodejs";
 
 /** Strip HTML tags and decode common entities to prevent stored XSS via metadata. */
 function stripHtml(value: string | undefined | null): string | undefined {
@@ -76,19 +79,16 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // Fetch with timeout (5s)
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
-
-    const response = await fetch(parsedUrl.href, {
-      signal: controller.signal,
+    // URL fournie par l'utilisateur : aucune dérogation réseau privé.
+    // Les redirections sont suivies par safeFetch, chaque saut étant revalidé.
+    const response = await safeFetch(parsedUrl.href, {
+      timeoutMs: 5000,
+      maxBytes: 2 * 1024 * 1024,
       headers: {
         "User-Agent": "LorIAx-Bot/1.0 (Link Preview)",
         Accept: "text/html, application/xhtml+xml",
       },
     });
-
-    clearTimeout(timeout);
 
     if (!response.ok) {
       return NextResponse.json(
@@ -143,7 +143,19 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(result);
   } catch (err: unknown) {
-    if (err instanceof Error && err.name === "AbortError") {
+    if (isBlockedTargetError(err)) {
+      return NextResponse.json({ error: err.message }, { status: 400 });
+    }
+    if (
+      err instanceof SafeFetchError &&
+      (err.code === "response_too_large" || err.code === "too_many_redirects")
+    ) {
+      return NextResponse.json({ error: err.message }, { status: 422 });
+    }
+    if (
+      (err instanceof SafeFetchError && err.code === "timeout") ||
+      (err instanceof Error && err.name === "AbortError")
+    ) {
       return NextResponse.json(
         { error: "Délai d'attente dépassé (5s)" },
         { status: 408 }

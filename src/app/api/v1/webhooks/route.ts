@@ -5,6 +5,7 @@ import { authenticateApiRequest, requireScope } from "@/lib/api/auth-api";
 import { apiSuccess, apiError } from "@/lib/api/response";
 import { z } from "zod";
 import { randomBytes } from "crypto";
+import { validateExternalUrl } from "@/lib/security/url-validator";
 
 const WEBHOOK_EVENTS = [
   "document.created",
@@ -71,6 +72,13 @@ export async function POST(request: Request) {
   const parsed = createSchema.safeParse(body);
   if (!parsed.success) {
     return apiError("Données invalides", 400);
+  }
+
+  // Defense in depth: refuse an internal target at configuration time.
+  // The dispatcher re-validates every delivery (DNS included).
+  const urlError = validateExternalUrl(parsed.data.url);
+  if (urlError) {
+    return apiError(urlError, 400);
   }
 
   // Limit: 20 webhooks per user

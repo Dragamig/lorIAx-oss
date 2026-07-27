@@ -4,6 +4,14 @@ import { hasGlobalRole } from "@/lib/auth/rbac";
 import { db } from "@/lib/db";
 import { systemSettings } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+import { safeFetch } from "@/lib/security/safe-fetch";
+
+export const runtime = "nodejs";
+
+// L'URL provient exclusivement de la configuration serveur (system_settings
+// ou OLLAMA_BASE_URL), jamais de la requête. Ollama tourne par défaut sur
+// localhost:11434 en auto-hébergement : la dérogation est indispensable.
+const ALLOW_PRIVATE = true;
 
 async function getOllamaUrl(): Promise<string> {
   try {
@@ -25,7 +33,10 @@ export async function GET() {
 
   try {
     const ollamaUrl = await getOllamaUrl();
-    const res = await fetch(`${ollamaUrl}/api/tags`, { signal: AbortSignal.timeout(10000) });
+    const res = await safeFetch(`${ollamaUrl.replace(/\/+$/, "")}/api/tags`, {
+      timeoutMs: 10000,
+      allowPrivate: ALLOW_PRIVATE,
+    });
     if (!res.ok) {
       return NextResponse.json({ error: "Ollama non disponible" }, { status: 502 });
     }
@@ -53,11 +64,12 @@ export async function POST(request: NextRequest) {
     }
 
     const ollamaUrl = await getOllamaUrl();
-    const res = await fetch(`${ollamaUrl}/api/pull`, {
+    const res = await safeFetch(`${ollamaUrl.replace(/\/+$/, "")}/api/pull`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: modelName, stream: false }),
-      signal: AbortSignal.timeout(600000), // 10 min for large models
+      timeoutMs: 600000, // 10 min for large models
+      allowPrivate: ALLOW_PRIVATE,
     });
 
     if (!res.ok) {

@@ -1,6 +1,7 @@
 import { createHmac, randomUUID } from "crypto";
 import { db } from "@/lib/db";
 import logger from "@/lib/logger";
+import { safeFetch } from "@/lib/security/safe-fetch";
 import { webhooks, webhookDeliveries, users } from "@/lib/db/schema";
 import { eq, and, sql } from "drizzle-orm";
 
@@ -112,10 +113,9 @@ async function deliverWebhook(
   let responseBody: string | null = null;
 
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10_000);
-
-    const response = await fetch(webhook.url, {
+    // URL saisie par un utilisateur : aucune dérogation réseau privé, et
+    // aucune redirection suivie (un 3xx est compté comme un échec de livraison).
+    const response = await safeFetch(webhook.url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -125,10 +125,11 @@ async function deliverWebhook(
         "User-Agent": "LorIAx-Webhook/1.0",
       },
       body: payloadStr,
-      signal: controller.signal,
+      timeoutMs: 10_000,
+      maxBytes: 1024 * 1024,
+      followRedirects: false,
     });
 
-    clearTimeout(timeout);
     statusCode = response.status;
     responseBody = await response.text().catch(() => null);
 

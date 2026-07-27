@@ -4,6 +4,16 @@ import { hasGlobalRole } from "@/lib/auth/rbac";
 import { db } from "@/lib/db";
 import { systemSettings } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+import { safeFetch } from "@/lib/security/safe-fetch";
+
+export const runtime = "nodejs";
+
+// Toutes les URL sondées ici proviennent exclusivement de la configuration
+// serveur (table system_settings ou variables d'environnement). Sonder des
+// services internes est précisément la fonction de cette route en
+// auto-hébergement (LiveKit, Whisper, Voxtral, Ollama, l'app elle-même),
+// d'où la dérogation réseau privé.
+const ALLOW_PRIVATE = true;
 
 type ServiceStatus = "up" | "down" | "starting" | "disabled" | "configured" | "unconfigured";
 
@@ -33,7 +43,7 @@ export async function GET() {
     const url = (lk.livekitUrl as string) || process.env.LIVEKIT_URL || "ws://localhost:7880";
     const httpUrl = url.replace(/^wss?:\/\//, "http://");
     const start = Date.now();
-    const res = await fetch(httpUrl, { signal: AbortSignal.timeout(5000) });
+    const res = await safeFetch(httpUrl, { timeoutMs: 5000, allowPrivate: ALLOW_PRIVATE });
     results.livekit = { status: res.ok ? "up" : "down", latency: Date.now() - start };
   } catch {
     results.livekit = { status: "down" };
@@ -44,7 +54,9 @@ export async function GET() {
     const w = await getSetting("whisper");
     const url = (w.whisperApiUrl as string) || process.env.WHISPER_API_URL || "http://localhost:9000";
     const start = Date.now();
-    const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(5000) }).catch(() => null);
+    const res = await safeFetch(`${url}/health`, { timeoutMs: 5000, allowPrivate: ALLOW_PRIVATE }).catch(
+      () => null
+    );
     results.whisper = { status: res?.ok ? "up" : "down", latency: Date.now() - start };
   } catch {
     results.whisper = { status: "down" };
@@ -55,7 +67,7 @@ export async function GET() {
     const v = await getSetting("voxtral");
     const url = (v.voxtralApiUrl as string) || process.env.VOXTRAL_API_URL || "http://localhost:9001";
     const start = Date.now();
-    const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(5000) });
+    const res = await safeFetch(`${url}/health`, { timeoutMs: 5000, allowPrivate: ALLOW_PRIVATE });
     if (res.ok) {
       const data = await res.json();
       results.voxtral = { status: "up", latency: Date.now() - start, modelStatus: data.status };
@@ -73,7 +85,7 @@ export async function GET() {
     const o = await getSetting("ollama");
     const url = (o.ollamaBaseUrl as string) || process.env.OLLAMA_BASE_URL || "http://localhost:11434";
     const start = Date.now();
-    const res = await fetch(`${url}/api/tags`, { signal: AbortSignal.timeout(5000) });
+    const res = await safeFetch(`${url}/api/tags`, { timeoutMs: 5000, allowPrivate: ALLOW_PRIVATE });
     if (res.ok) {
       const data = await res.json();
       const models = (data.models || []).map((m: Record<string, unknown>) => m.name as string);
@@ -93,7 +105,10 @@ export async function GET() {
     } else {
       const appUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
       const start = Date.now();
-      const res = await fetch(`${appUrl}/api/health`, { signal: AbortSignal.timeout(3000) });
+      const res = await safeFetch(`${appUrl}/api/health`, {
+        timeoutMs: 3000,
+        allowPrivate: ALLOW_PRIVATE,
+      });
       results.collab = { status: res.ok ? "up" : "down", latency: Date.now() - start };
     }
   } catch {

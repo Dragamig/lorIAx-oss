@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/get-user";
 import { checkRateLimit, getClientIp, RATE_LIMITS } from "@/lib/rate-limit";
-import { validateExternalUrl } from "@/lib/security/url-validator";
+import { SafeFetchError, isBlockedTargetError, safeFetch } from "@/lib/security/safe-fetch";
+
+export const runtime = "nodejs";
 
 const DEFAULT_OSRM_URL = "https://router.project-osrm.org";
 const VALID_PROFILES = ["driving", "cycling", "foot"] as const;
@@ -62,25 +64,38 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Determine OSRM URL
+  // L'URL de base provient exclusivement de la configuration serveur
+  // (variable d'env ROUTING_API_URL), jamais de la requête : seules les
+  // coordonnées numériques déjà validées entrent dans le chemin.
+  // Une instance OSRM auto-hébergée sur le réseau privé est un cas d'usage
+  // documenté (.env.example), d'où allowPrivate ci-dessous.
   const routingUrl = process.env.ROUTING_API_URL || DEFAULT_OSRM_URL;
 
-  // SSRF validation for custom URLs only
-  if (process.env.ROUTING_API_URL) {
-    const urlError = validateExternalUrl(process.env.ROUTING_API_URL);
-    if (urlError) {
-      return NextResponse.json({ error: `URL de routage invalide : ${urlError}` }, { status: 400 });
-    }
+  let parsedRoutingUrl: URL | null = null;
+  try {
+    parsedRoutingUrl = new URL(routingUrl);
+  } catch {
+    parsedRoutingUrl = null;
+  }
+  if (
+    !parsedRoutingUrl ||
+    (parsedRoutingUrl.protocol !== "http:" && parsedRoutingUrl.protocol !== "https:")
+  ) {
+    return NextResponse.json(
+      { error: "URL de routage invalide : configuration serveur incorrecte" },
+      { status: 500 }
+    );
   }
 
   // Build OSRM request: coordinates as "lng,lat;lng,lat;..."
   const coordsStr = coordinates.map((c: number[]) => `${c[0]},${c[1]}`).join(";");
-  const osrmUrl = `${routingUrl}/route/v1/${profile}/${coordsStr}?geometries=geojson&overview=full`;
+  const osrmUrl = `${routingUrl.replace(/\/+$/, "")}/route/v1/${profile}/${coordsStr}?geometries=geojson&overview=full`;
 
   try {
-    const res = await fetch(osrmUrl, {
+    const res = await safeFetch(osrmUrl, {
       headers: { "User-Agent": "LorIAx/1.0" },
-      signal: AbortSignal.timeout(15000),
+      timeoutMs: 15000,
+      allowPrivate: true,
     });
 
     if (!res.ok) {
@@ -112,7 +127,16 @@ export async function POST(req: NextRequest) {
       duration: route.duration, // seconds
     });
   } catch (err: unknown) {
-    if (err instanceof Error && err.name === "TimeoutError") {
+    if (isBlockedTargetError(err)) {
+      return NextResponse.json(
+        { error: `URL de routage invalide : ${err.message}` },
+        { status: 500 }
+      );
+    }
+    if (
+      (err instanceof SafeFetchError && err.code === "timeout") ||
+      (err instanceof Error && err.name === "TimeoutError")
+    ) {
       return NextResponse.json({ error: "Délai d'attente dépassé (15s)" }, { status: 504 });
     }
     const message = err instanceof Error ? err.message : "Erreur de calcul d'itinéraire";

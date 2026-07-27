@@ -4,6 +4,7 @@ import { eq, and, desc } from "drizzle-orm";
 import { authenticateApiRequest, requireScope } from "@/lib/api/auth-api";
 import { apiSuccess, apiError } from "@/lib/api/response";
 import { z } from "zod";
+import { validateExternalUrl } from "@/lib/security/url-validator";
 
 const WEBHOOK_EVENTS = [
   "document.created",
@@ -84,6 +85,12 @@ export async function PATCH(
   const body = await request.json();
   const parsed = updateSchema.safeParse(body);
   if (!parsed.success) return apiError("Données invalides", 400);
+
+  if (parsed.data.url !== undefined) {
+    // Defense in depth: refuse an internal target at configuration time.
+    const urlError = validateExternalUrl(parsed.data.url);
+    if (urlError) return apiError(urlError, 400);
+  }
 
   const updateData: Record<string, unknown> = { updatedAt: new Date() };
   if (parsed.data.url !== undefined) updateData.url = parsed.data.url;
