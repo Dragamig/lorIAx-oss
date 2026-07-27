@@ -34,6 +34,7 @@ interface InstallTokenRecord {
 /** Anti-flood : le jeton n'est réaffiché dans les journaux qu'une fois par minute. */
 const TOKEN_LOG_INTERVAL_MS = 60 * 1000;
 let lastTokenLogAt = 0;
+let lastConfigErrorLogAt = 0;
 
 /** Longueur minimale d'un jeton fourni par l'exploitant. */
 const MIN_CONFIGURED_TOKEN_LENGTH = 16;
@@ -51,10 +52,16 @@ function getConfiguredInstallToken(): string | null {
   if (!raw) return null;
 
   if (raw.length < MIN_CONFIGURED_TOKEN_LENGTH) {
-    logger.error(
-      "[setup] SETUP_INSTALL_TOKEN ignore : %d caracteres minimum requis",
-      MIN_CONFIGURED_TOKEN_LENGTH
-    );
+    // Cette fonction est appelée à chaque requête portant un cookie : sans
+    // limite, une variable mal renseignée noierait les journaux.
+    const now = Date.now();
+    if (now - lastConfigErrorLogAt >= TOKEN_LOG_INTERVAL_MS) {
+      lastConfigErrorLogAt = now;
+      logger.error(
+        "[setup] SETUP_INSTALL_TOKEN ignoré : %d caractères minimum requis",
+        MIN_CONFIGURED_TOKEN_LENGTH
+      );
+    }
     return null;
   }
 
@@ -94,7 +101,7 @@ function logInstallToken(token: string, created: boolean): void {
   lastTokenLogAt = now;
 
   logger.warn(
-    "[setup] Jeton d'installation de cette instance, a saisir dans l'assistant de configuration : %s",
+    "[setup] Jeton d'installation de cette instance, à saisir dans l'assistant de configuration : %s",
     token
   );
 }

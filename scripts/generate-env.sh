@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================
-# LorIAx — Generateur de variables d'environnement (production)
+# LorIAx : generateur de variables d'environnement (production)
 # Usage : bash scripts/generate-env.sh
 #         bash scripts/generate-env.sh > .env
 # ============================================================
@@ -16,7 +16,7 @@ SETUP_INSTALL_TOKEN=$(openssl rand -base64 32)
 
 cat <<EOF
 # ===========================================
-# LorIAx — Variables d'environnement (prod)
+# LorIAx : variables d'environnement (prod)
 # Genere le $(date +%Y-%m-%d)
 # ===========================================
 

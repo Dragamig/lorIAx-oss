@@ -210,12 +210,24 @@ npm run dev:full
 ```bash
 git clone https://github.com/Flavien-Dragamig/lorIAx-oss.git
 cd lorIAx-oss
-bash scripts/generate-env.sh > .env.local   # secrets générés (voir Configuration)
+cp .env.example .env.local
 npm install
 docker compose up -d postgres garage garage-init   # dépendances (BDD + S3)
 npm run db:fresh                  # reset + migrations + comptes de démo + templates
 npm run dev
 ```
+
+`.env.example` est complet pour un poste de développement, à deux exceptions près :
+`NEXTAUTH_SECRET` et `ENCRYPTION_KEY` y sont **volontairement vides**, aucun secret
+n'étant versionné. L'application refuse de démarrer tant qu'ils ne sont pas renseignés :
+
+```bash
+openssl rand -base64 32    # une valeur pour NEXTAUTH_SECRET
+openssl rand -base64 32    # une autre pour ENCRYPTION_KEY
+```
+
+`npm run dev:full` s'en charge automatiquement, c'est le seul écart entre les deux
+chemins d'installation.
 
 Sans Docker, il faut fournir un PostgreSQL 16 avec les extensions `pgvector` et `pg_trgm`, et ajuster `DATABASE_URL` dans `.env.local`.
 
@@ -296,13 +308,23 @@ npm start    # Next.js + serveur WebSocket collaboration
 Stack tout-en-un : app + PostgreSQL (pgvector) + Garage (S3) + Ollama + backup planifié.
 
 ```bash
-bash scripts/generate-env.sh > .env.local   # secrets générés, puis ajuster les URLs
+bash scripts/generate-env.sh > .env.local   # secrets tirés, puis ajuster les URLs
+cp .env.local .env                          # voir la note ci-dessous
 docker compose up -d
 ```
 
-`.env.example` documente les variables mais ne contient **aucune** valeur de secret :
-`NEXTAUTH_SECRET` et `ENCRYPTION_KEY` y sont vides, et l'application refuse de démarrer
-tant qu'ils ne sont pas renseignés. `scripts/generate-env.sh` les tire pour vous.
+`scripts/generate-env.sh` tire `NEXTAUTH_SECRET`, `ENCRYPTION_KEY`,
+`POSTGRES_PASSWORD`, les identifiants S3 et `SETUP_INSTALL_TOKEN`. Il produit un fichier
+orienté production : relisez-le et complétez au minimum `NEXTAUTH_URL`, `S3_PUBLIC_URL`
+et `WS_URL`, qui pointent vers un domaine d'exemple, ainsi que `DATABASE_URL` si vous
+n'utilisez pas le PostgreSQL de la stack.
+
+> **Les deux fichiers sont nécessaires**, et ce n'est pas un doublon inutile :
+> `docker-compose.yml` lit `.env.local` comme `env_file` du conteneur applicatif, mais
+> Docker Compose n'interpole `${POSTGRES_PASSWORD}`, utilisé par les services `postgres`
+> et `app`, que depuis `.env` ou l'environnement du shell, jamais depuis un `env_file`.
+> Sans le `.env`, PostgreSQL démarrerait avec le mot de passe par défaut `loriax_secret`
+> alors que le port 5432 est publié.
 
 Variantes fournies à la racine :
 

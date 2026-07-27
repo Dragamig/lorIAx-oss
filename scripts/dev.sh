@@ -64,8 +64,10 @@ if [ ! -f .env.local ]; then
   ENC_KEY=$(openssl rand -base64 32 2>/dev/null || head -c 32 /dev/urandom | base64)
   S3_KEY_ID="GK$(node -e "process.stdout.write(require('crypto').randomBytes(12).toString('hex'))" 2>/dev/null || openssl rand -hex 12)"
   S3_KEY_SECRET=$(node -e "process.stdout.write(require('crypto').randomBytes(32).toString('hex'))" 2>/dev/null || openssl rand -hex 32)
-  sed -i "s|generate-a-random-secret-here|${SECRET}|" .env.local
-  sed -i "s|generate-a-32-byte-base64-key-here|${ENC_KEY}|" .env.local
+  # .env.example ne livre aucune valeur de secret : les lignes sont vides, on
+  # les remplit ici. Ancrage sur la ligne entiere pour ne rien ecraser d'autre.
+  sed -i "s|^NEXTAUTH_SECRET=$|NEXTAUTH_SECRET=${SECRET}|" .env.local
+  sed -i "s|^ENCRYPTION_KEY=$|ENCRYPTION_KEY=${ENC_KEY}|" .env.local
   sed -i "s|GK6c6f72696178000000000000|${S3_KEY_ID}|" .env.local
   sed -i "s|6c6f726961787365637265740000000000000000000000000000000000000000|${S3_KEY_SECRET}|" .env.local
   echo -e "  ${GREEN}✓${NC} .env.local cree (NEXTAUTH_SECRET, ENCRYPTION_KEY, S3 credentials generes)"
@@ -74,11 +76,17 @@ else
   echo -e "  ${GREEN}✓${NC} .env.local existe"
 fi
 
-# Générer ENCRYPTION_KEY si manquant ou par défaut
-if grep -qE '^ENCRYPTION_KEY=generate-' .env.local 2>/dev/null; then
+# Rattraper un .env.local preexistant dont les secrets sont restes vides
+if grep -qE '^ENCRYPTION_KEY=$' .env.local 2>/dev/null; then
   ENC_KEY=$(openssl rand -base64 32 2>/dev/null || head -c 32 /dev/urandom | base64)
-  sed -i "s|generate-a-32-byte-base64-key-here|${ENC_KEY}|" .env.local
+  sed -i "s|^ENCRYPTION_KEY=$|ENCRYPTION_KEY=${ENC_KEY}|" .env.local
   echo -e "  ${GREEN}✓${NC} ENCRYPTION_KEY genere"
+fi
+
+if grep -qE '^NEXTAUTH_SECRET=$' .env.local 2>/dev/null; then
+  SECRET=$(openssl rand -base64 32 2>/dev/null || head -c 32 /dev/urandom | base64)
+  sed -i "s|^NEXTAUTH_SECRET=$|NEXTAUTH_SECRET=${SECRET}|" .env.local
+  echo -e "  ${GREEN}✓${NC} NEXTAUTH_SECRET genere"
 fi
 
 # ----------------------------------------------------------

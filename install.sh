@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================
-# LorIAx : script d'installation auto-hebergee
+# LorIAx : script d'installation auto-hébergée
 # Usage : bash install.sh
 # ============================================================
 
@@ -66,7 +66,7 @@ SETUP_INSTALL_TOKEN=$(openssl rand -base64 32)
 # --- Création du .env ---
 
 if [ -f .env ]; then
-    warn ".env existant detecte, sauvegarde vers .env.backup"
+    warn ".env existant détecté, sauvegarde vers .env.backup"
     cp .env .env.backup
 fi
 
@@ -151,13 +151,13 @@ echo "  │                                                     │"
 echo "  │   Logs : docker compose -f docker-compose.client.yml logs -f  │"
 echo "  └─────────────────────────────────────────────────────┘"
 echo ""
-info "Aucun compte n'existe encore. Ouvrez ${APP_URL}/setup pour creer le"
-info "premier super administrateur. La cle d'installation demandee est :"
+info "Aucun compte n'existe encore. Ouvrez ${APP_URL}/setup pour créer le"
+info "premier super administrateur. La clé d'installation demandée est :"
 echo ""
 echo "    ${SETUP_INSTALL_TOKEN}"
 echo ""
-info "Elle est aussi dans le .env (SETUP_INSTALL_TOKEN) et cesse d'etre"
-info "acceptee des que la configuration est terminee."
+info "Elle est aussi dans le .env (SETUP_INSTALL_TOKEN) et cesse d'être"
+info "acceptée dès que la configuration est terminée."
 echo ""
-warn "Conservez le fichier .env en lieu sur, il contient vos secrets."
+warn "Conservez le fichier .env en lieu sûr, il contient vos secrets."
 echo ""

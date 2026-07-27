@@ -40,7 +40,7 @@ export function StepSummary({ data, onBack }: StepSummaryProps) {
       <div className="space-y-4">
         <div className="p-4 rounded-lg border border-border">
           <h3 className="font-medium mb-2">Organisation</h3>
-          <p className="text-sm">{data.identity.name || "Non renseigne"}</p>
+          <p className="text-sm">{data.identity.name || "Non renseigné"}</p>
           {data.identity.description && (
             <p className="text-sm text-muted-foreground">{data.identity.description}</p>
           )}
