@@ -147,7 +147,7 @@ Alternative : introduire un flag `setup_skipped` temporaire (session/cookie) qui
 
 ```bash
 # Voir l'état actuel
-cd /home/user/CascadeProjects/LorIAx/loriax-app
+# depuis la racine du dépôt
 git log --oneline -15
 
 # Vérifier les fichiers modifiés

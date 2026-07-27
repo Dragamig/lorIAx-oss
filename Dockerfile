@@ -44,7 +44,7 @@ COPY . .
 
 # Variables NEXT_PUBLIC_* : inlinées par Next.js dans les bundles client au
 # moment du build. Doivent donc être fournies en build-args (le `.env` runtime
-# de Dokploy arrive trop tard). Voir scripts/build-and-push.sh.
+# de la plateforme de déploiement arrive trop tard).
 ARG NEXT_PUBLIC_APP_URL
 ARG NEXT_PUBLIC_ROOT_DOMAIN
 ARG NEXT_PUBLIC_LICENSE_MANAGER_URL

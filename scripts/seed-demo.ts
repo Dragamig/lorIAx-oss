@@ -603,13 +603,13 @@ async function main() {
     { Compte: "Aurea Conseil",         Secteur: "Conseil",    "ARR (€ HT)": 24000, Statut: "Client",         Signature: "2026-02-14" },
     { Compte: "Brillance Industries",  Secteur: "Industrie",  "ARR (€ HT)": 38000, Statut: "Pilote",         Signature: "2026-04-02" },
     { Compte: "Clémence & Associés",   Secteur: "Conseil",    "ARR (€ HT)": 12000, Statut: "Client",         Signature: "2025-11-08" },
-    { Compte: "Mairie de Brest",       Secteur: "Public",     "ARR (€ HT)":  8000, Statut: "Démo",           Signature: "" },
-    { Compte: "CNRS Délégation IDF",   Secteur: "Recherche",  "ARR (€ HT)":  4000, Statut: "Client",         Signature: "2025-09-20" },
-    { Compte: "Hôpital Saint-Joseph",  Secteur: "Santé",      "ARR (€ HT)": 18000, Statut: "Pilote",         Signature: "2026-03-21" },
+    { Compte: "Mairie de Précigny",    Secteur: "Public",     "ARR (€ HT)":  8000, Statut: "Démo",           Signature: "" },
+    { Compte: "Institut Alcyone",      Secteur: "Recherche",  "ARR (€ HT)":  4000, Statut: "Client",         Signature: "2025-09-20" },
+    { Compte: "Hôpital de Précigny",   Secteur: "Santé",      "ARR (€ HT)": 18000, Statut: "Pilote",         Signature: "2026-03-21" },
     { Compte: "OptiLog SAS",           Secteur: "Industrie",  "ARR (€ HT)": 22000, Statut: "Renouvellement", Signature: "2024-05-10" },
     { Compte: "Cabinet Velours",       Secteur: "Conseil",    "ARR (€ HT)":  9000, Statut: "Prospect",       Signature: "" },
-    { Compte: "Région Auvergne",       Secteur: "Public",     "ARR (€ HT)": 32000, Statut: "Démo",           Signature: "" },
-    { Compte: "INRIA Sophia",          Secteur: "Recherche",  "ARR (€ HT)":  4000, Statut: "Client",         Signature: "2026-01-12" },
+    { Compte: "Pays de Roche-Majeur",  Secteur: "Public",     "ARR (€ HT)": 32000, Statut: "Démo",           Signature: "" },
+    { Compte: "Centre Méridien",       Secteur: "Recherche",  "ARR (€ HT)":  4000, Statut: "Client",         Signature: "2026-01-12" },
   ];
   for (let i = 0; i < rows.length; i++) {
     const cells: Record<string, string | number> = {};

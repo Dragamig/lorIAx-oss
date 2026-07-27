@@ -3,8 +3,8 @@
 #
 # Variante de docker-compose.prod.yml SANS build sur le VPS :
 # les images `app` et `app-migrate` sont pull depuis GHCR.
-# Le `next build` (gourmand en RAM) tourne en local — cf.
-# scripts/build-and-push.sh.
+# Le `next build` (gourmand en RAM) tourne en local, les images
+# sont ensuite poussées vers le registre.
 #
 # Usage Dokploy : Compose Path → loriax-app/docker-compose.registry.yml
 # Variable Dokploy (Environment) optionnelle :

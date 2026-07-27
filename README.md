@@ -23,8 +23,8 @@ LorIAx est une plateforme de **gestion de connaissances et de productivité coll
 | Éditeur collaboratif avec backlinks | Graphe de connaissances |
 |---|---|
 | ![Éditeur TipTap avec wiki-links et backlinks](docs/screenshots/editor.png) | ![Visualisation du graphe documentaire](docs/screenshots/graph.png) |
-| **Assistant IA contextuel (RAG)** | **Bases de données type Notion** |
-| ![Chat IA sur la base de connaissances](docs/screenshots/ai.png) | ![Bloc base de données avec vues Tableau / Kanban / Galerie](docs/screenshots/database.png) |
+| **Assistant IA contextuel (RAG)** | |
+| ![Chat IA sur la base de connaissances](docs/screenshots/ai.png) | |
 
 *Captures recadrées depuis une instance de démonstration. La barre latérale d'origine a été retirée pour ne montrer que des fonctionnalités présentes dans cette édition open source.*
 

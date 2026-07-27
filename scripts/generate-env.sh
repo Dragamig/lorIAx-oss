@@ -23,7 +23,7 @@ cat <<EOF
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 
 # --- Authentification ---
-NEXTAUTH_URL=https://loriax.dragamig.fr
+NEXTAUTH_URL=https://loriax.example.com
 NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
 
 # --- Chiffrement ---
@@ -37,8 +37,8 @@ S3_REGION=garage
 S3_USE_SSL=false
 
 # --- CSP / WebSocket ---
-S3_PUBLIC_URL=https://s3-loriax.dragamig.fr
-WS_URL=wss://loriax.dragamig.fr
+S3_PUBLIC_URL=https://s3-loriax.example.com
+WS_URL=wss://loriax.example.com
 
 # --- IA (decommenter et renseigner) ---
 # ANTHROPIC_API_KEY=
@@ -53,5 +53,5 @@ WS_URL=wss://loriax.dragamig.fr
 
 # --- CalDAV ---
 # CALDAV_ENABLED=false
-# CALDAV_BASE_URL=https://loriax.dragamig.fr
+# CALDAV_BASE_URL=https://loriax.example.com
 EOF
