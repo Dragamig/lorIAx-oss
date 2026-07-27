@@ -2,8 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/get-user";
 import { validateExternalUrl } from "@/lib/security/url-validator";
 import { SafeFetchError, isBlockedTargetError, safeFetch } from "@/lib/security/safe-fetch";
+import logger from "@/lib/logger";
 
 export const runtime = "nodejs";
+
+// Cette route alimente les blocs base de donnees et tableur : ingerer de gros
+// jeux JSON ou CSV est son metier. Le plafond porte sur les octets decompresses.
+const MAX_PAYLOAD_BYTES = 25 * 1024 * 1024;
 
 /**
  * POST /api/data-proxy
@@ -35,6 +40,7 @@ export async function POST(req: NextRequest) {
       const res = await safeFetch(url, {
         headers: { Accept: "application/json" },
         timeoutMs: 15000,
+        maxBytes: MAX_PAYLOAD_BYTES,
       });
       if (!res.ok) {
         return NextResponse.json(
@@ -84,6 +90,7 @@ export async function POST(req: NextRequest) {
       const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${sheetGid}`;
       const res = await safeFetch(csvUrl, {
         timeoutMs: 15000,
+        maxBytes: MAX_PAYLOAD_BYTES,
       });
 
       if (!res.ok) {
@@ -108,7 +115,16 @@ export async function POST(req: NextRequest) {
     if (err instanceof Error && err.name === "TimeoutError") {
       return NextResponse.json({ error: "Délai d'attente dépassé (15s)" }, { status: 504 });
     }
-    const message = err instanceof Error ? err.message : "Erreur de récupération";
-    return NextResponse.json({ error: message }, { status: 502 });
+    if (err instanceof SafeFetchError && err.code === "response_too_large") {
+      return NextResponse.json(
+        { error: "Réponse trop volumineuse (limite 25 Mo)" },
+        { status: 502 }
+      );
+    }
+    // Le message brut d'une erreur reseau expose l'adresse resolue et le port
+    // ("connect ECONNREFUSED 93.184.216.34:22"), ce qui transformerait cette
+    // route en scanner de ports. Detail journalise cote serveur uniquement.
+    logger.warn({ err, type }, "[data-proxy] Echec de recuperation");
+    return NextResponse.json({ error: "Erreur de récupération" }, { status: 502 });
   }
 }

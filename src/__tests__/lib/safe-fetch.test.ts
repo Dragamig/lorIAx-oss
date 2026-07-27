@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from "vitest";
 import http from "node:http";
+import zlib from "node:zlib";
 import type { AddressInfo } from "node:net";
 
 // node:dns is mocked so the tests never touch the real resolver: every scenario
@@ -19,7 +20,7 @@ vi.mock("@/lib/security/url-validator", async (importOriginal) => {
     isPrivateIp: (address: string) =>
       address === "127.0.0.1" ? false : actual.isPrivateIp(address),
     isPrivateHostname: (hostname: string) =>
-      hostname === "local.test" || hostname === "127.0.0.1"
+      hostname === "local.test" || hostname === "other.test" || hostname === "127.0.0.1"
         ? false
         : actual.isPrivateHostname(hostname),
   };
@@ -40,11 +41,21 @@ type Handler = (req: http.IncomingMessage, res: http.ServerResponse) => void;
 let server: http.Server;
 let port: number;
 let handler: Handler;
-let lastRequest: { host?: string; url?: string; method?: string } | null = null;
+let lastRequest: {
+  host?: string;
+  url?: string;
+  method?: string;
+  headers: http.IncomingHttpHeaders;
+} | null = null;
 
 beforeAll(async () => {
   server = http.createServer((req, res) => {
-    lastRequest = { host: req.headers.host, url: req.url, method: req.method };
+    lastRequest = {
+      host: req.headers.host,
+      url: req.url,
+      method: req.method,
+      headers: req.headers,
+    };
     handler(req, res);
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -137,7 +148,7 @@ describe("resolvePinnedAddresses", () => {
   });
 });
 
-describe("safeFetch — protocoles", () => {
+describe("safeFetch, protocoles", () => {
   it("refuse les protocoles non http(s)", async () => {
     await expect(safeFetch("file:///etc/passwd")).rejects.toMatchObject({
       code: "blocked_protocol",
@@ -152,7 +163,7 @@ describe("safeFetch — protocoles", () => {
   });
 });
 
-describe("safeFetch — requêtes", () => {
+describe("safeFetch, requêtes", () => {
   it("effectue la requête et conserve l'en-tête Host d'origine", async () => {
     const res = await safeFetch(localUrl("/data"));
     expect(res.status).toBe(200);
@@ -199,7 +210,7 @@ describe("safeFetch — requêtes", () => {
   });
 });
 
-describe("safeFetch — redirections", () => {
+describe("safeFetch, redirections", () => {
   it("refuse une redirection vers une adresse privée (H2)", async () => {
     handler = (_req, res) => {
       res.writeHead(302, { Location: "http://169.254.169.254/latest/meta-data/" });
@@ -277,5 +288,106 @@ describe("safeFetch — redirections", () => {
       body: JSON.stringify({ a: 1 }),
     });
     await expect(res.text()).resolves.toBe("method=GET");
+  });
+});
+
+describe("safeFetch, compression et flux", () => {
+  it("décompresse une réponse gzip", async () => {
+    handler = (_req, res) => {
+      res.writeHead(200, { "Content-Type": "text/plain", "Content-Encoding": "gzip" });
+      res.end(zlib.gzipSync(Buffer.from("contenu compressé")));
+    };
+    const res = await safeFetch(localUrl("/gz"));
+    await expect(res.text()).resolves.toBe("contenu compressé");
+    // Le corps rendu est décompressé : l'en-tête ne doit plus le décrire.
+    expect(res.headers.get("content-encoding")).toBeNull();
+  });
+
+  it("annonce accept-encoding et échoue sur un encodage inconnu", async () => {
+    handler = (_req, res) => {
+      res.writeHead(200, { "Content-Encoding": "exotic-9000" });
+      res.end("données illisibles");
+    };
+    await expect(safeFetch(localUrl("/weird"))).rejects.toMatchObject({
+      code: "unsupported_encoding",
+    });
+    expect(lastRequest?.headers["accept-encoding"]).toContain("gzip");
+  });
+
+  it("applique le plafond aux octets décompressés (bombe de compression)", async () => {
+    handler = (_req, res) => {
+      res.writeHead(200, { "Content-Encoding": "gzip" });
+      res.end(zlib.gzipSync(Buffer.alloc(2 * 1024 * 1024, 0x41)));
+    };
+    await expect(safeFetch(localUrl("/bomb"), { maxBytes: 64 * 1024 })).rejects.toMatchObject({
+      code: "response_too_large",
+    });
+  });
+
+  it("expire sur un corps qui s'écoule sans fin sous le plafond de taille", async () => {
+    handler = (_req, res) => {
+      res.writeHead(200, { "Content-Type": "text/plain" });
+      const timer = setInterval(() => res.write("."), 20);
+      res.on("close", () => clearInterval(timer));
+    };
+    await expect(
+      safeFetch(localUrl("/dribble"), { timeoutMs: 250, maxBytes: 10 * 1024 * 1024 })
+    ).rejects.toMatchObject({ code: "timeout" });
+  });
+
+  it("conserve la casse des en-têtes sortants", async () => {
+    await safeFetch(localUrl("/case"), {
+      headers: { "X-LorIAx-Signature": "sha256=abc" },
+    });
+    expect(lastRequest?.headers["x-loriax-signature"]).toBe("sha256=abc");
+  });
+
+  it("transforme les identifiants de l'URL en en-tête Authorization", async () => {
+    await safeFetch(`http://user:p%40ss@local.test:${port}/creds`);
+    expect(lastRequest?.headers.authorization).toBe(
+      `Basic ${Buffer.from("user:p@ss").toString("base64")}`
+    );
+  });
+});
+
+describe("safeFetch, redirection inter-origine", () => {
+  it("retire Authorization et Cookie au changement d'origine", async () => {
+    const seen: http.IncomingHttpHeaders[] = [];
+    handler = (req, res) => {
+      seen.push(req.headers);
+      if (req.url === "/start") {
+        res.writeHead(302, { Location: `http://other.test:${port}/end` });
+        res.end();
+        return;
+      }
+      res.writeHead(200);
+      res.end("fin");
+    };
+    const res = await safeFetch(localUrl("/start"), {
+      headers: { Authorization: "Bearer secret", Cookie: "session=abc" },
+    });
+    expect(res.status).toBe(200);
+    expect(seen).toHaveLength(2);
+    expect(seen[0].authorization).toBe("Bearer secret");
+    expect(seen[0].cookie).toBe("session=abc");
+    expect(seen[1].authorization).toBeUndefined();
+    expect(seen[1].cookie).toBeUndefined();
+    expect(seen[1].host).toBe(`other.test:${port}`);
+  });
+
+  it("conserve Authorization sur une redirection de même origine", async () => {
+    const seen: http.IncomingHttpHeaders[] = [];
+    handler = (req, res) => {
+      seen.push(req.headers);
+      if (req.url === "/same") {
+        res.writeHead(302, { Location: `http://local.test:${port}/same-end` });
+        res.end();
+        return;
+      }
+      res.writeHead(200);
+      res.end("fin");
+    };
+    await safeFetch(localUrl("/same"), { headers: { Authorization: "Bearer secret" } });
+    expect(seen[1].authorization).toBe("Bearer secret");
   });
 });

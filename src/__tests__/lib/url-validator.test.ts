@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isPrivateUrl, validateExternalUrl } from "@/lib/security/url-validator";
+import { isPrivateIp, isPrivateUrl, validateExternalUrl } from "@/lib/security/url-validator";
 
 describe("isPrivateUrl", () => {
   it("détecte les adresses loopback", () => {
@@ -111,6 +111,14 @@ describe("isPrivateUrl", () => {
     expect(isPrivateUrl(new URL("http://[2001::1]"))).toBe(true); // Teredo
   });
 
+  it("détecte les notations IPv4 non canoniques", () => {
+    // Formes décimale, octale et hexadécimale de 127.0.0.1
+    expect(isPrivateUrl(new URL("http://2130706433"))).toBe(true);
+    expect(isPrivateUrl(new URL("http://0177.0.0.1"))).toBe(true);
+    expect(isPrivateUrl(new URL("http://0x7f.0.0.1"))).toBe(true);
+    expect(isPrivateUrl(new URL("http://127.1"))).toBe(true);
+  });
+
   it("neutralise le point final et la casse du hostname", () => {
     expect(isPrivateUrl(new URL("http://localhost."))).toBe(true);
     expect(isPrivateUrl(new URL("http://MyService.LOCAL"))).toBe(true);
@@ -137,5 +145,26 @@ describe("validateExternalUrl", () => {
     const result = validateExternalUrl("http://192.168.1.1/admin");
     expect(result).not.toBeNull();
     expect(result).toContain("privées");
+  });
+});
+
+describe("isPrivateIp, appels directs sans passer par new URL", () => {
+  it("canonicalise les notations décimale, octale et hexadécimale", () => {
+    expect(isPrivateIp("2130706433")).toBe(true);
+    expect(isPrivateIp("0177.0.0.1")).toBe(true);
+    expect(isPrivateIp("0x7f000001")).toBe(true);
+    expect(isPrivateIp("127.1")).toBe(true);
+  });
+
+  it("classe correctement les formes canoniques", () => {
+    expect(isPrivateIp("10.0.0.5")).toBe(true);
+    expect(isPrivateIp("::ffff:169.254.169.254")).toBe(true);
+    expect(isPrivateIp("8.8.8.8")).toBe(false);
+    expect(isPrivateIp("example.com")).toBe(false);
+  });
+
+  it("échoue en fermeture sur une valeur non analysable", () => {
+    expect(isPrivateIp("")).toBe(true);
+    expect(isPrivateIp("999.999.999.999")).toBe(true);
   });
 });

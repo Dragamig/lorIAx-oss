@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
     // Les redirections sont suivies par safeFetch, chaque saut étant revalidé.
     const response = await safeFetch(parsedUrl.href, {
       timeoutMs: 5000,
-      maxBytes: 2 * 1024 * 1024,
+      maxBytes: 8 * 1024 * 1024,
       headers: {
         "User-Agent": "LorIAx-Bot/1.0 (Link Preview)",
         Accept: "text/html, application/xhtml+xml",

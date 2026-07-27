@@ -7,6 +7,8 @@ import { z } from "zod";
 import { randomBytes } from "crypto";
 import { validateExternalUrl } from "@/lib/security/url-validator";
 
+export const runtime = "nodejs";
+
 const WEBHOOK_EVENTS = [
   "document.created",
   "document.updated",

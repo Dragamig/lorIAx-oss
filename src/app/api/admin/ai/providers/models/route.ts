@@ -33,11 +33,20 @@ export async function POST(request: NextRequest) {
     headers["Authorization"] = `Bearer ${apiKey}`;
   }
 
-  // Cette route sert à configurer un fournisseur IA, y compris auto-hébergé
-  // (Ollama, LM Studio, vLLM sur le réseau interne). Elle est réservée aux
-  // administrateurs globaux et l'URL est celle que l'admin s'apprête à
-  // enregistrer comme configuration serveur, d'où allowPrivate.
-  const ALLOW_PRIVATE = true;
+  // L'URL sondée ici vient du corps de la requête : c'est une entrée
+  // utilisateur, même si l'utilisateur est administrateur. La dérogation réseau
+  // privé n'est donc accordée que si les DEUX conditions sont réunies :
+  //   1. l'appelant est super_admin, c'est-à-dire l'exploitant de l'instance
+  //      (le rôle admin est un administrateur côté client sur une instance
+  //      multi-organisations, il ne doit pas pouvoir sonder le réseau de
+  //      l'hébergeur) ;
+  //   2. l'exploitant n'a pas désactivé la dérogation via
+  //      AI_PROVIDER_ALLOW_PRIVATE=false.
+  // Sans dérogation, la détection de modèles reste possible sur toute cible
+  // publique ; seul un fournisseur auto-hébergé sur adresse privée est refusé.
+  const allowPrivate =
+    hasGlobalRole(user.globalRole, "super_admin") &&
+    process.env.AI_PROVIDER_ALLOW_PRIVATE !== "false";
 
   // 1. Try OpenAI-compatible /v1/models
   try {
@@ -45,7 +54,7 @@ export async function POST(request: NextRequest) {
     const res = await safeFetch(url, {
       headers,
       timeoutMs: 10_000,
-      allowPrivate: ALLOW_PRIVATE,
+      allowPrivate,
     });
 
     if (res.ok) {
@@ -67,7 +76,7 @@ export async function POST(request: NextRequest) {
     const res = await safeFetch(url, {
       headers,
       timeoutMs: 10_000,
-      allowPrivate: ALLOW_PRIVATE,
+      allowPrivate,
     });
 
     if (res.ok) {

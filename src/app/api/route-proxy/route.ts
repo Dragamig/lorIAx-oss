@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/get-user";
 import { checkRateLimit, getClientIp, RATE_LIMITS } from "@/lib/rate-limit";
 import { SafeFetchError, isBlockedTargetError, safeFetch } from "@/lib/security/safe-fetch";
+import logger from "@/lib/logger";
 
 export const runtime = "nodejs";
 
@@ -95,7 +96,9 @@ export async function POST(req: NextRequest) {
     const res = await safeFetch(osrmUrl, {
       headers: { "User-Agent": "LorIAx/1.0" },
       timeoutMs: 15000,
-      allowPrivate: true,
+      // Derogation uniquement quand l'exploitant a configure sa propre
+      // instance : la cible par defaut est l'OSRM public, qui n'en a pas besoin.
+      allowPrivate: Boolean(process.env.ROUTING_API_URL),
     });
 
     if (!res.ok) {
@@ -139,7 +142,12 @@ export async function POST(req: NextRequest) {
     ) {
       return NextResponse.json({ error: "Délai d'attente dépassé (15s)" }, { status: 504 });
     }
-    const message = err instanceof Error ? err.message : "Erreur de calcul d'itinéraire";
-    return NextResponse.json({ error: message }, { status: 502 });
+    // Message brut jamais renvoye au client : il exposerait l'adresse et le
+    // port de la cible resolue.
+    logger.warn({ err }, "[route-proxy] Echec de calcul d'itineraire");
+    return NextResponse.json(
+      { error: "Erreur de calcul d'itinéraire" },
+      { status: 502 }
+    );
   }
 }

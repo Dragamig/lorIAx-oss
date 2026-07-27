@@ -14,19 +14,23 @@
  *  - redirects are never followed by the transport (node:http does not follow
  *    them). They are followed by this module, revalidating every hop in full,
  *    with a hop cap;
- *  - a global deadline and a response size cap are always enforced.
+ *  - a global deadline and a decompressed response size cap are always enforced;
+ *  - compressed responses are decompressed here (node:zlib). An encoding we
+ *    cannot decode fails loudly instead of handing back an unreadable body.
  *
  * `allowPrivate: true` is an explicit opt-out reserved for destinations whose
  * URL comes from server configuration (env vars or `system_settings`), never
  * from end-user input. Self-hosted deployments legitimately target Ollama,
  * Whisper or LiveKit on a private address.
  *
- * Server-only module (imports node:http / node:https / node:dns).
+ * Server-only module (imports node:http / node:https / node:dns / node:zlib).
  */
 
 import http from "node:http";
 import https from "node:https";
 import net from "node:net";
+import zlib from "node:zlib";
+import type { Readable } from "node:stream";
 import type dns from "node:dns";
 import { lookup } from "node:dns/promises";
 
@@ -44,6 +48,7 @@ export type SafeFetchErrorCode =
   | "dns_failure"
   | "too_many_redirects"
   | "response_too_large"
+  | "unsupported_encoding"
   | "timeout"
   | "network";
 
@@ -76,11 +81,11 @@ export interface SafeFetchOptions {
   signal?: AbortSignal;
   /** Global deadline covering every redirect hop. Default 10s. */
   timeoutMs?: number;
-  /** Maximum number of response bytes buffered. Default 5 MiB. */
+  /** Maximum number of DECOMPRESSED response bytes buffered. Default 5 MiB. */
   maxBytes?: number;
-  /** Maximum number of redirects followed. Default 3. */
+  /** Maximum number of redirects followed. Default 5. */
   maxRedirects?: number;
-  /** Return the 3xx response instead of following it. Default false. */
+  /** Return the 3xx response instead of following it. Default true (follow). */
   followRedirects?: boolean;
   /**
    * Allow private/internal destinations. Reserved for URLs coming exclusively
@@ -96,11 +101,15 @@ export interface PinnedAddress {
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_BYTES = 5 * 1024 * 1024;
-const DEFAULT_MAX_REDIRECTS = 3;
+// fetch() allows 20 hops. 5 covers the usual http -> https -> www -> canonical
+// chains without turning the helper into a redirect crawler.
+const DEFAULT_MAX_REDIRECTS = 5;
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 const NULL_BODY_STATUSES = new Set([101, 204, 205, 304]);
-const HOP_BY_HOP_RESPONSE_HEADERS = new Set([
+// content-encoding and content-length are dropped because the body handed back
+// is already decompressed: keeping them would describe bytes that no longer exist.
+const STRIPPED_RESPONSE_HEADERS = new Set([
   "connection",
   "content-encoding",
   "content-length",
@@ -112,6 +121,37 @@ const HOP_BY_HOP_RESPONSE_HEADERS = new Set([
   "transfer-encoding",
   "upgrade",
 ]);
+
+interface HeaderEntry {
+  /** Original casing, preserved so receivers see X-LorIAx-Signature untouched. */
+  name: string;
+  value: string;
+}
+
+type HeaderBag = Map<string, HeaderEntry>;
+
+function makeHeaderBag(headers: Record<string, string>): HeaderBag {
+  const bag: HeaderBag = new Map();
+  for (const [name, value] of Object.entries(headers)) {
+    if (value === undefined || value === null) continue;
+    bag.set(name.toLowerCase(), { name, value: String(value) });
+  }
+  return bag;
+}
+
+function setHeader(bag: HeaderBag, name: string, value: string): void {
+  const key = name.toLowerCase();
+  const existing = bag.get(key);
+  bag.set(key, { name: existing?.name ?? name, value });
+}
+
+function toOutgoingHeaders(bag: HeaderBag): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const entry of bag.values()) {
+    out[entry.name] = entry.value;
+  }
+  return out;
+}
 
 function toUrl(input: string | URL): URL {
   if (input instanceof URL) return input;
@@ -211,6 +251,41 @@ function pinnedLookup(addresses: PinnedAddress[]): net.LookupFunction {
   };
 }
 
+/**
+ * Pick a decompressor for the advertised content-encoding.
+ * Returns null for identity. Throws for an encoding we cannot decode: handing
+ * back an undecodable body with its content-encoding stripped would be a silent
+ * corruption, so this fails loudly instead.
+ */
+function createDecompressor(encoding: string | undefined): zlib.Gzip | null {
+  const normalized = (encoding ?? "").trim().toLowerCase();
+  if (!normalized || normalized === "identity") return null;
+
+  switch (normalized) {
+    case "gzip":
+    case "x-gzip":
+      return zlib.createGunzip() as unknown as zlib.Gzip;
+    case "deflate":
+      return zlib.createInflate() as unknown as zlib.Gzip;
+    case "br":
+      return zlib.createBrotliDecompress() as unknown as zlib.Gzip;
+    case "zstd": {
+      const factory = (zlib as unknown as { createZstdDecompress?: () => zlib.Gzip })
+        .createZstdDecompress;
+      if (typeof factory === "function") return factory();
+      throw new SafeFetchError(
+        `Encodage de réponse non supporté : ${normalized}`,
+        "unsupported_encoding"
+      );
+    }
+    default:
+      throw new SafeFetchError(
+        `Encodage de réponse non supporté : ${normalized}`,
+        "unsupported_encoding"
+      );
+  }
+}
+
 interface RawResponse {
   status: number;
   statusText: string;
@@ -268,23 +343,48 @@ function executeRequest(
     };
 
     const req = transport.request(requestOptions, (res) => {
+      let decompressor: zlib.Gzip | null;
+      try {
+        decompressor = createDecompressor(res.headers["content-encoding"]);
+      } catch (err) {
+        res.destroy();
+        req.destroy();
+        fail(err as Error);
+        return;
+      }
+
+      const abortStreams = () => {
+        decompressor?.destroy();
+        res.destroy();
+        req.destroy();
+      };
+
+      const source: Readable = decompressor ? res.pipe(decompressor) : res;
       const chunks: Buffer[] = [];
       let size = 0;
 
-      res.on("data", (chunk: Buffer) => {
+      source.on("data", (chunk: Buffer) => {
         size += chunk.length;
         if (size > options.maxBytes) {
-          res.destroy();
-          req.destroy();
+          abortStreams();
           fail(new SafeFetchError("Réponse trop volumineuse", "response_too_large"));
           return;
         }
         chunks.push(chunk);
       });
 
-      res.on("error", (err) => fail(err));
+      source.on("error", (err) => {
+        abortStreams();
+        fail(err);
+      });
+      if (decompressor) {
+        res.on("error", (err) => {
+          abortStreams();
+          fail(err);
+        });
+      }
 
-      res.on("end", () => {
+      source.on("end", () => {
         succeed({
           status: res.statusCode ?? 502,
           statusText: res.statusMessage ?? "",
@@ -303,19 +403,10 @@ function executeRequest(
   });
 }
 
-function normalizeHeaders(headers: Record<string, string>): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [key, value] of Object.entries(headers)) {
-    if (value === undefined || value === null) continue;
-    out[key.toLowerCase()] = String(value);
-  }
-  return out;
-}
-
 function buildResponse(raw: RawResponse, finalUrl: URL): Response {
   const headers = new Headers();
   for (const [key, value] of Object.entries(raw.headers)) {
-    if (HOP_BY_HOP_RESPONSE_HEADERS.has(key)) continue;
+    if (STRIPPED_RESPONSE_HEADERS.has(key)) continue;
     if (value === undefined) continue;
     if (Array.isArray(value)) {
       for (const item of value) headers.append(key, item);
@@ -357,8 +448,21 @@ function combineSignals(timeoutSignal: AbortSignal, userSignal?: AbortSignal): A
 }
 
 /**
+ * Credentials carried by the URL (http://user:pass@host) are turned into an
+ * explicit Basic header: node:http ignores them, so they would otherwise be
+ * dropped silently and the target would answer 401 without explanation.
+ */
+function applyUrlCredentials(bag: HeaderBag, target: URL): void {
+  if (!target.username && !target.password) return;
+  if (bag.has("authorization")) return;
+  const raw = `${decodeURIComponent(target.username)}:${decodeURIComponent(target.password)}`;
+  setHeader(bag, "Authorization", `Basic ${Buffer.from(raw).toString("base64")}`);
+}
+
+/**
  * Perform an outgoing HTTP(S) request with full SSRF protection.
- * Throws `SafeFetchError` for refused targets, timeouts and oversized bodies.
+ * Throws `SafeFetchError` for refused targets, timeouts, unsupported response
+ * encodings and oversized bodies.
  */
 export async function safeFetch(
   input: string | URL,
@@ -382,10 +486,9 @@ export async function safeFetch(
   let target = toUrl(input);
   let currentMethod = method.toUpperCase();
   let currentBody = body;
-  const currentHeaders = normalizeHeaders(headers);
-  // node:http does not decompress; ask for an identity body so the buffered
-  // bytes match the advertised content.
-  currentHeaders["accept-encoding"] = "identity";
+  const headerBag = makeHeaderBag(headers);
+  setHeader(headerBag, "Accept-Encoding", "gzip, deflate, br");
+  applyUrlCredentials(headerBag, target);
 
   for (let redirects = 0; ; redirects++) {
     assertSupportedProtocol(target);
@@ -393,16 +496,16 @@ export async function safeFetch(
 
     // Explicit length avoids chunked encoding, which some receivers reject.
     if (currentBody !== undefined && currentMethod !== "GET" && currentMethod !== "HEAD") {
-      currentHeaders["content-length"] = String(Buffer.byteLength(currentBody));
+      setHeader(headerBag, "Content-Length", String(Buffer.byteLength(currentBody)));
     } else {
-      delete currentHeaders["content-length"];
+      headerBag.delete("content-length");
     }
 
     let raw: RawResponse;
     try {
       raw = await executeRequest(target, addresses, {
         method: currentMethod,
-        headers: currentHeaders,
+        headers: toOutgoingHeaders(headerBag),
         body: currentBody,
         signal: abortSignal,
         maxBytes,
@@ -415,6 +518,9 @@ export async function safeFetch(
       if (signal?.aborted) {
         throw new SafeFetchError("Requête annulée", "timeout");
       }
+      // The raw Node message leaks the resolved address and port
+      // ("connect ECONNREFUSED 93.184.216.34:22"). Callers must never echo a
+      // "network" message back to an end user: log it server side instead.
       const message = err instanceof Error ? err.message : "Erreur réseau";
       throw new SafeFetchError(message, "network");
     }
@@ -443,14 +549,15 @@ export async function safeFetch(
     ) {
       currentMethod = "GET";
       currentBody = undefined;
-      delete currentHeaders["content-type"];
-      delete currentHeaders["content-length"];
+      headerBag.delete("content-type");
+      headerBag.delete("content-length");
     }
 
     if (next.origin !== target.origin) {
-      delete currentHeaders["authorization"];
-      delete currentHeaders["cookie"];
+      headerBag.delete("authorization");
+      headerBag.delete("cookie");
     }
+    applyUrlCredentials(headerBag, next);
 
     target = next;
   }

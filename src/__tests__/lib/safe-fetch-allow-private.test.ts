@@ -27,7 +27,7 @@ afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
 });
 
-describe("safeFetch — dérogation allowPrivate", () => {
+describe("safeFetch, dérogation allowPrivate", () => {
   it("joint un service local via son nom d'hôte localhost", async () => {
     const res = await safeFetch(`http://localhost:${port}/api/tags`, {
       allowPrivate: true,

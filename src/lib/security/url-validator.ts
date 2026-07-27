@@ -158,11 +158,40 @@ function isPrivateIpv6Bytes(b: Uint8Array): boolean {
 }
 
 /**
- * True when the given literal IP address belongs to a non-public range.
- * Returns false for anything that is not a valid IP literal.
+ * Canonicalize a host the way the WHATWG URL parser does, so that the
+ * non-dotted and non-decimal IPv4 notations cannot slip through: `2130706433`,
+ * `0177.0.0.1` and `0x7f.1` all become `127.0.0.1`. Callers that already went
+ * through `new URL()` get the same value back; direct callers get the same
+ * protection.
+ *
+ * Returns null when the value cannot be parsed as a host at all, which the
+ * predicates below treat as "refuse" (fail closed).
+ */
+function canonicalizeHost(hostname: string): string | null {
+  const host = normalizeHostname(hostname);
+  if (!host) return null;
+
+  // Already an IP literal: the URL parser would reject bare IPv6 anyway.
+  if (net.isIP(host) !== 0) return host;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(`http://${host}/`);
+  } catch {
+    return null;
+  }
+
+  return normalizeHostname(parsed.hostname) || null;
+}
+
+/**
+ * True when the given address belongs to a non-public range.
+ * Returns false for a value that parses as a host but is not an IP.
+ * Fails closed (true) for a value that cannot be parsed as a host at all.
  */
 export function isPrivateIp(address: string): boolean {
-  const host = normalizeHostname(address);
+  const host = canonicalizeHost(address);
+  if (host === null) return true;
 
   const v4 = parseIpv4(host);
   if (v4) return isPrivateIpv4Bytes(v4);
@@ -184,7 +213,7 @@ export function isIpLiteral(value: string): boolean {
  * for outgoing requests, which additionally validates every resolved address.
  */
 export function isPrivateHostname(hostname: string): boolean {
-  const host = normalizeHostname(hostname);
+  const host = canonicalizeHost(hostname);
   if (!host) return true;
 
   if (net.isIP(host) !== 0) return isPrivateIp(host);

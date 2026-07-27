@@ -15,6 +15,9 @@ export const runtime = "nodejs";
 // d'où la dérogation réseau privé.
 const ALLOW_PRIVATE = true;
 
+// Sondes de sante : jamais de redirection suivie, une sonde n'a pas a rebondir.
+const PROBE = { allowPrivate: ALLOW_PRIVATE, followRedirects: false } as const;
+
 type ServiceStatus = "up" | "down" | "starting" | "disabled" | "configured" | "unconfigured";
 
 interface ServiceResult {
@@ -43,7 +46,7 @@ export async function GET() {
     const url = (lk.livekitUrl as string) || process.env.LIVEKIT_URL || "ws://localhost:7880";
     const httpUrl = url.replace(/^wss?:\/\//, "http://");
     const start = Date.now();
-    const res = await safeFetch(httpUrl, { timeoutMs: 5000, allowPrivate: ALLOW_PRIVATE });
+    const res = await safeFetch(httpUrl, { timeoutMs: 5000, ...PROBE });
     results.livekit = { status: res.ok ? "up" : "down", latency: Date.now() - start };
   } catch {
     results.livekit = { status: "down" };
@@ -54,9 +57,7 @@ export async function GET() {
     const w = await getSetting("whisper");
     const url = (w.whisperApiUrl as string) || process.env.WHISPER_API_URL || "http://localhost:9000";
     const start = Date.now();
-    const res = await safeFetch(`${url}/health`, { timeoutMs: 5000, allowPrivate: ALLOW_PRIVATE }).catch(
-      () => null
-    );
+    const res = await safeFetch(`${url}/health`, { timeoutMs: 5000, ...PROBE }).catch(() => null);
     results.whisper = { status: res?.ok ? "up" : "down", latency: Date.now() - start };
   } catch {
     results.whisper = { status: "down" };
@@ -67,7 +68,7 @@ export async function GET() {
     const v = await getSetting("voxtral");
     const url = (v.voxtralApiUrl as string) || process.env.VOXTRAL_API_URL || "http://localhost:9001";
     const start = Date.now();
-    const res = await safeFetch(`${url}/health`, { timeoutMs: 5000, allowPrivate: ALLOW_PRIVATE });
+    const res = await safeFetch(`${url}/health`, { timeoutMs: 5000, ...PROBE });
     if (res.ok) {
       const data = await res.json();
       results.voxtral = { status: "up", latency: Date.now() - start, modelStatus: data.status };
@@ -85,7 +86,7 @@ export async function GET() {
     const o = await getSetting("ollama");
     const url = (o.ollamaBaseUrl as string) || process.env.OLLAMA_BASE_URL || "http://localhost:11434";
     const start = Date.now();
-    const res = await safeFetch(`${url}/api/tags`, { timeoutMs: 5000, allowPrivate: ALLOW_PRIVATE });
+    const res = await safeFetch(`${url}/api/tags`, { timeoutMs: 5000, ...PROBE });
     if (res.ok) {
       const data = await res.json();
       const models = (data.models || []).map((m: Record<string, unknown>) => m.name as string);
@@ -105,10 +106,7 @@ export async function GET() {
     } else {
       const appUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
       const start = Date.now();
-      const res = await safeFetch(`${appUrl}/api/health`, {
-        timeoutMs: 3000,
-        allowPrivate: ALLOW_PRIVATE,
-      });
+      const res = await safeFetch(`${appUrl}/api/health`, { timeoutMs: 3000, ...PROBE });
       results.collab = { status: res.ok ? "up" : "down", latency: Date.now() - start };
     }
   } catch {

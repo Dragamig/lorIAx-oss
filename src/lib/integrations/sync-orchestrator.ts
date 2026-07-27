@@ -13,6 +13,8 @@ import { airtableProvider } from "./airtable/client";
 import { notionProvider } from "./notion/client";
 import { decrypt } from "@/lib/crypto";
 import { uploadFile } from "@/lib/storage/s3";
+import { safeFetch } from "@/lib/security/safe-fetch";
+import logger from "@/lib/logger";
 import { randomUUID } from "crypto";
 
 /**
@@ -457,11 +459,19 @@ async function downloadAndReupload(
 
   for (const file of files) {
     try {
-      const res = await fetch(file.url, { signal: AbortSignal.timeout(30000) });
+      // L'URL vient de la base externe : pour une propriete Notion "files" de
+      // type "external", elle est saisie librement par l'utilisateur. Le corps
+      // recupere finit sur S3 puis rattache a une ligne LorIAx, donc restitue :
+      // c'est une lecture arbitraire du reseau, pas un SSRF aveugle. Aucune
+      // derogation reseau prive, et le plafond de taille est applique pendant
+      // le transfert et non apres coup.
+      const res = await safeFetch(file.url, {
+        timeoutMs: 30000,
+        maxBytes: MAX_SIZE,
+      });
       if (!res.ok) continue;
 
       const buffer = Buffer.from(await res.arrayBuffer());
-      if (buffer.length > MAX_SIZE) continue;
 
       const mimeType = res.headers.get("content-type") || "application/octet-stream";
       const ext = file.filename.includes(".") ? file.filename.split(".").pop() : "bin";
@@ -469,8 +479,10 @@ async function downloadAndReupload(
 
       await uploadFile(key, buffer, mimeType);
       results.push({ key, filename: file.filename, mimeType, size: buffer.length });
-    } catch {
-      // Erreur sur un fichier → on continue les autres
+    } catch (err) {
+      // Erreur sur un fichier (cible refusee, trop volumineuse, injoignable) :
+      // on journalise cote serveur et on continue les autres.
+      logger.warn({ err, filename: file.filename }, "[sync] Telechargement de fichier externe refuse");
     }
   }
 
