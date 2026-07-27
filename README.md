@@ -14,7 +14,7 @@
 
 ---
 
-LorIAx est une plateforme de **gestion de connaissances et de productivité collaborative**, conçue pour les organismes qui veulent un Notion-like souverain et auto-hébergeable. Édition WYSIWYG temps réel, IA multi-provider, calendrier, visio, whiteboard, mindmap et bases de données — le tout dans une seule app cohérente. Cette édition open source est extraite du produit commercial de Dragamig SAS, publiée sous licence MIT.
+LorIAx est une plateforme de **gestion de connaissances et de productivité collaborative**, conçue pour les organismes qui veulent un Notion-like souverain et auto-hébergeable. Édition WYSIWYG temps réel, IA multi-provider, calendrier, visio, whiteboard, mindmap et bases de données : le tout dans une seule app cohérente. Cette édition open source est extraite du produit commercial de Studio Dragamig, publiée sous licence MIT.
 
 > **Pour qui ?** Équipes, associations, collectivités, PME et services internes qui veulent un outil de productivité collaboratif **sans verrou cloud**, déployable sur leur propre infrastructure (VPS, on-premise, datacenter souverain).
 
@@ -45,9 +45,9 @@ LorIAx est une plateforme de **gestion de connaissances et de productivité coll
 
 ### IA multi-provider
 
-- Chat contextuel sur tes documents, résumés, traductions, génération de blocs.
+- Chat contextuel sur vos documents, résumés, traductions, génération de blocs.
 - Providers commutables : Claude, OpenAI, Mistral, Ollama (local).
-- RAG sémantique sur ta base via embeddings vectoriels.
+- RAG sémantique sur votre base via embeddings vectoriels.
 - Quotas par utilisateur / organisation, logs d'usage, prompts personnalisables.
 
 ### Graphe de connaissances
@@ -112,13 +112,13 @@ LorIAx est une plateforme de **gestion de connaissances et de productivité coll
 
 Trois plans d'exécution dans un seul process Node :
 
-1. **HTTP/REST** — Next.js App Router (routes UI + `/api/*`).
-2. **WebSocket collab** — Hocuspocus sur `/ws/collab`, sauvegarde des `Y.Doc` dans Postgres.
-3. **Workers** — schedulers croner (backups, télémétrie, purges).
+1. **HTTP/REST** : Next.js App Router (routes UI + `/api/*`).
+2. **WebSocket collab** : Hocuspocus sur `/ws/collab`, sauvegarde des `Y.Doc` dans Postgres.
+3. **Workers** : schedulers croner (backups, télémétrie, purges).
 
 ## Stack technique & dépendances OSS
 
-L'intégralité de la stack est libre. Chaque outil est listé avec sa licence d'origine, conformément à l'esprit OSS.
+La quasi-totalité de la stack est sous licence libre au sens OSI. Seule exception : `react-leaflet` est distribué sous licence Hippocratic 2.1, une licence source-available à clause éthique, non approuvée par l'OSI. Chaque outil est listé avec sa licence d'origine, conformément à l'esprit OSS.
 
 ### Frontend
 
@@ -135,13 +135,13 @@ L'intégralité de la stack est libre. Chaque outil est listé avec sa licence d
 | [Mind Elixir](https://mind-elixir.com) | 5 | MIT | Mindmaps |
 | [Univer](https://univer.ai) | 0.19 | Apache-2.0 | Tableur compatible Excel |
 | [Recharts](https://recharts.org) | 3 | MIT | Visualisations |
-| [Leaflet](https://leafletjs.com) + react-leaflet | 1.9 / 5 | BSD-2 / Hippocratic | Cartes |
+| [Leaflet](https://leafletjs.com) + react-leaflet | 1.9 / 5 | BSD-2 / Hippocratic 2.1 (non OSI) | Cartes |
 | [Lucide](https://lucide.dev) | 0.577 | ISC | Icônes |
 | [Sonner](https://sonner.emilkowal.ski) | 2 | MIT | Toasts |
 | [cmdk](https://cmdk.paco.me) | 1 | MIT | Command palette |
 | [@dnd-kit](https://dndkit.com) | 6 | MIT | Drag & drop |
 | [Serwist](https://serwist.pages.dev) | 9 | BSD-3 | Service Worker / PWA |
-| [VizHash GD](https://sebsauvage.net/wiki/doku.php?id=php:vizhash_gd_source) (portage TS) | — | Zlib / libre | Avatars visuels déterministes (algorithme original de [Seb Sauvage](https://sebsauvage.net)) |
+| [VizHash GD](https://sebsauvage.net/wiki/doku.php?id=php:vizhash_gd_source) (portage TS) | n/a | Zlib / libre | Avatars visuels déterministes (algorithme original de [Seb Sauvage](https://sebsauvage.net)) |
 
 ### Backend
 
@@ -152,7 +152,7 @@ L'intégralité de la stack est libre. Chaque outil est listé avec sa licence d
 | [pgvector](https://github.com/pgvector/pgvector) | PostgreSQL | Embeddings vectoriels |
 | [pg_trgm](https://www.postgresql.org/docs/current/pgtrgm.html) | PostgreSQL | Recherche fuzzy |
 | [NextAuth v5](https://authjs.dev) | ISC | Authentification |
-| [ldapjs](http://ldapjs.org) | MIT | Connecteur LDAP |
+| [ldapjs](https://github.com/ldapjs/node-ldapjs) | MIT | Connecteur LDAP |
 | [jose](https://github.com/panva/jose) | MIT | JWT / JWS / JWE |
 | [bcryptjs](https://github.com/dcodeIO/bcrypt.js) | MIT | Hash de mots de passe |
 | [Zod](https://zod.dev) | MIT | Validation runtime |
@@ -167,7 +167,7 @@ L'intégralité de la stack est libre. Chaque outil est listé avec sa licence d
 | [Sharp](https://sharp.pixelplumbing.com) | Apache-2.0 | Traitement d'images |
 | [FFmpeg](https://ffmpeg.org) (`@ffmpeg/ffmpeg`) | LGPL-2.1 | Traitement audio/vidéo |
 | [LiveKit](https://livekit.io) (server-sdk) | Apache-2.0 | Visio WebRTC |
-| [Whisper](https://github.com/openai/whisper) / [Voxtral](https://github.com/voxtral/voxtral) | MIT / Apache-2.0 | Transcription audio |
+| [Whisper](https://github.com/openai/whisper) / [Voxtral](https://mistral.ai/news/voxtral) | MIT / Apache-2.0 | Transcription audio |
 
 ### Qualité & tests
 
@@ -192,20 +192,32 @@ Liste exhaustive et licences dans [`NOTICE.md`](./NOTICE.md) et `package.json`.
 
 ### Prérequis
 
-- **Node.js ≥ 20** ([nvm](https://github.com/nvm-sh/nvm) recommandé — `.nvmrc` fourni)
-- **PostgreSQL 16** avec extensions `pgvector` et `pg_trgm`
-- (optionnel) **Docker ≥ 24** + Docker Compose v2 pour l'option tout-en-un
+- **Node.js ≥ 20** (Node 22 recommandé, `.nvmrc` fourni, [nvm](https://github.com/nvm-sh/nvm) conseillé)
+- **Docker ≥ 24** + Docker Compose v2 (fournit PostgreSQL, Garage S3 et Ollama en local)
 
-### Installation
+### Installation en une commande
 
 ```bash
 git clone https://github.com/Flavien-Dragamig/lorIAx-oss.git
 cd lorIAx-oss
-cp .env.example .env.local
+npm run dev:full
+```
+
+`npm run dev:full` fait tout : vérifie les prérequis, crée `.env.local` depuis `.env.example` (secrets générés automatiquement), installe les dépendances, démarre PostgreSQL + Garage + Ollama via Docker, applique le schéma, seed les comptes de dev et lance le serveur. Arrêt avec `npm run dev:stop`.
+
+### Installation manuelle (pas à pas)
+
+```bash
+git clone https://github.com/Flavien-Dragamig/lorIAx-oss.git
+cd lorIAx-oss
+cp .env.example .env.local        # puis renseigner NEXTAUTH_SECRET et ENCRYPTION_KEY
 npm install
-npm run db:fresh   # migrations + comptes de démo + templates
+docker compose up -d postgres garage garage-init   # dépendances (BDD + S3)
+npm run db:fresh                  # reset + migrations + comptes de démo + templates
 npm run dev
 ```
+
+Sans Docker, il faut fournir un PostgreSQL 16 avec les extensions `pgvector` et `pg_trgm`, et ajuster `DATABASE_URL` dans `.env.local`.
 
 App accessible sur **http://localhost:3000**.
 
@@ -218,7 +230,7 @@ Comptes de démo (à changer avant tout déploiement public) :
 
 ## Configuration
 
-Toutes les variables d'environnement sont documentées dans [`.env.example`](./.env.example) — c'est la source de vérité.
+Toutes les variables d'environnement sont documentées dans [`.env.example`](./.env.example), qui fait office de source de vérité.
 
 Sous-ensemble essentiel :
 
@@ -228,7 +240,7 @@ Sous-ensemble essentiel :
 | `NEXTAUTH_SECRET` | serveur | Secret de signature des sessions (`openssl rand -base64 32`) |
 | `NEXTAUTH_URL` | serveur | URL publique pour les redirections OAuth |
 | `NEXT_PUBLIC_APP_URL` | client+serveur | URL publique (emails, webhooks, QR codes) |
-| `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` | serveur | Stockage objet (optionnel — filesystem par défaut) |
+| `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` | serveur | Stockage objet (optionnel, filesystem par défaut) |
 | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `MISTRAL_API_KEY` / `OLLAMA_HOST` | serveur | Providers IA (optionnels, configurables aussi en runtime via l'admin) |
 | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | serveur | Visio (optionnel) |
 | `LDAP_URL`, `LDAP_BIND_DN`, `LDAP_BIND_CREDENTIALS`, `LDAP_SEARCH_BASE` | serveur | Annuaire (optionnel) |
@@ -261,7 +273,7 @@ Variantes fournies à la racine :
 | `docker-compose.prod.yml` | Production avec Traefik et healthchecks renforcés |
 | `docker-compose.livekit.yml` | Ajout de la stack LiveKit (visio) |
 | `docker-compose.registry.yml` | Pull depuis un registry privé (GHCR par défaut) |
-| `docker/docker-compose.dev.yml` | Dépendances seules (BDD + S3), pour itérer l'app en `npm run dev` |
+| `docker/docker-compose.dev.yml` | Overlay de `docker/docker-compose.yml` : dépendances seules (BDD + S3, ports exposés, app désactivée), pour itérer en `npm run dev`. Usage : `docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml up -d` |
 
 ### PaaS self-host (Dokploy, Coolify, Easypanel)
 
@@ -270,7 +282,7 @@ Le `Dockerfile` est compatible. Configurer :
 - **Build** : Dockerfile
 - **Port exposé** : `3000` (HTTP **et** WS upgrade sur `/ws/collab`)
 - **Variables** : voir `.env.example`
-- **Volumes** : `/app/workspaces` (documents) — migrations bundlées dans l'image
+- **Volumes** : `/app/workspaces` (documents), migrations bundlées dans l'image
 - **Healthcheck** : `GET /api/health`
 
 ### Reverse proxy
@@ -370,7 +382,7 @@ Bugs et propositions : [GitHub Issues](https://github.com/Flavien-Dragamig/lorIA
 
 ## Sécurité
 
-Pour signaler une vulnérabilité de manière responsable : `security@dragamig.fr`. Merci de **ne pas** ouvrir d'issue publique pour les failles non encore corrigées.
+La politique de divulgation responsable est décrite dans [`SECURITY.md`](./SECURITY.md). En résumé : signaler toute vulnérabilité à `security@dragamig.fr` et **ne pas** ouvrir d'issue publique pour les failles non encore corrigées.
 
 L'app applique par défaut : CSP avec nonce, protection SSRF sur les URLs entrantes, rate-limiting, classification de documents, et hash bcrypt des mots de passe.
 
@@ -396,10 +408,10 @@ L'usage de Claude (Anthropic) intervient en assistance à la conception, à la d
 - **[Drizzle Team](https://orm.drizzle.team)** pour l'ORM SQL le plus agréable de l'écosystème Node.
 - **[Andrew Kane](https://github.com/ankane)** pour pgvector.
 - Toute la communauté **shadcn/ui** et **Tailwind**.
-- Et l'ensemble des mainteneurs OSS listés dans [`NOTICE.md`](./NOTICE.md) — sans vous, ce projet n'existerait pas.
+- Et l'ensemble des mainteneurs OSS listés dans [`NOTICE.md`](./NOTICE.md) : sans vous, ce projet n'existerait pas.
 
 ## Licence
 
-[MIT](./LICENSE) — Copyright © 2026 Dragamig SAS.
+[MIT](./LICENSE), Copyright © 2026 Dragamig SAS (Studio Dragamig).
 
-Tu es libre d'utiliser, modifier, redistribuer et commercialiser ce logiciel, y compris dans un produit fermé, à condition de préserver la notice de copyright et de licence. Aucune garantie n'est fournie.
+Vous êtes libre d'utiliser, modifier, redistribuer et commercialiser ce logiciel, y compris dans un produit fermé, à condition de préserver la notice de copyright et de licence. Aucune garantie n'est fournie.

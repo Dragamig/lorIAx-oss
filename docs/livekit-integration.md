@@ -1,4 +1,4 @@
-# Intégration LiveKit — Visioconférence et transcription IA
+# Intégration LiveKit : visioconférence et transcription IA
 
 ## Architecture
 
@@ -50,17 +50,17 @@
 |----------|--------|-------------|
 | `LIVEKIT_ENABLED` | `false` | Activer l'intégration visioconférence |
 | `LIVEKIT_URL` | `ws://localhost:7880` | URL WebSocket du serveur LiveKit |
-| `LIVEKIT_API_KEY` | — | Clé API LiveKit (générée dans livekit.yaml) |
-| `LIVEKIT_API_SECRET` | — | Secret API LiveKit |
+| `LIVEKIT_API_KEY` | aucune | Clé API LiveKit (générée dans livekit.yaml) |
+| `LIVEKIT_API_SECRET` | aucun | Secret API LiveKit |
 | `LIVEKIT_EGRESS_PATH` | `/recordings` | Répertoire des enregistrements Egress |
 | `WHISPER_ENABLED` | `false` | Activer la transcription post-réunion |
 | `WHISPER_API_URL` | `http://localhost:9000` | URL du service Whisper |
 | `WHISPER_MODEL` | `base` | Modèle Whisper (tiny/base/small/medium/large) |
 | `WHISPER_LANGUAGE` | `fr` | Langue par défaut |
 | `WHISPER_DIARIZE` | `false` | Identification des locuteurs (pyannote.audio) |
-| `WHISPER_MIN_SPEAKERS` | — | Nombre minimum de locuteurs (optionnel) |
-| `WHISPER_MAX_SPEAKERS` | — | Nombre maximum de locuteurs (optionnel) |
-| `HF_TOKEN` | — | Token HuggingFace (requis pour la diarization) |
+| `WHISPER_MIN_SPEAKERS` | aucun | Nombre minimum de locuteurs (optionnel) |
+| `WHISPER_MAX_SPEAKERS` | aucun | Nombre maximum de locuteurs (optionnel) |
+| `HF_TOKEN` | aucun | Token HuggingFace (requis pour la diarization) |
 
 ## Routes API
 
@@ -154,7 +154,7 @@ Les tables sont inchangées par rapport à l'ancienne intégration :
 | `src/components/meet/livekit-room.tsx` | Composant React LiveKit (salle de réunion) |
 | `src/components/meet/meeting-card.tsx` | Carte de réunion (liste) |
 | `src/components/meet/meeting-status-badge.tsx` | Badge de statut |
-| `src/components/editor/extensions/meeting-block.tsx` | Extension TipTap bloc réunion |
+| `src/components/editor/extensions/meeting/meeting-block.tsx` | Extension TipTap bloc réunion |
 | `src/app/(app)/meet/page.tsx` | Page liste des réunions |
 | `src/app/(app)/meet/[roomName]/page.tsx` | Page réunion en cours |
 | `src/app/api/meet/token/route.ts` | API génération token |

@@ -1,14 +1,14 @@
-# Déploiement — LorIAx
+# Déploiement de LorIAx
 
 ## Prérequis
 
 - Docker et Docker Compose
-- Node.js 22+ (pour le développement)
+- Node.js 20 ou supérieur (Node 22 recommandé, `.nvmrc` fourni), pour le développement
 
 ## Développement local (méthode rapide)
 
 ```bash
-cd loriax-app
+cd lorIAx-oss
 npm run dev:full
 ```
 
@@ -17,7 +17,7 @@ Ce script unique fait tout :
 2. Crée `.env.local` depuis `.env.example` (avec NEXTAUTH_SECRET auto-généré)
 3. Crée le dossier `workspaces/`
 4. Installe les dépendances npm
-5. Démarre PostgreSQL + Garage S3 via Docker
+5. Démarre PostgreSQL + Garage S3 + Ollama via Docker
 6. Applique le schéma BDD (drizzle push)
 7. Seed les utilisateurs de dev (admin + user)
 8. Lance le serveur Next.js sur http://localhost:3000
@@ -91,7 +91,7 @@ docker compose logs -f
 
 ## Migrations
 
-### Sprint 51 — Audit sécurité et performance (mars 2026)
+### Sprint 51 : audit sécurité et performance (mars 2026)
 
 Trois migrations sont nécessaires après la mise à jour du code. Elles sont idempotentes (ré-exécutables sans risque).
 
@@ -138,7 +138,7 @@ docker compose exec app node scripts/migrate-encrypt-secrets.js
 
 #### 3. Index trigram pour la recherche courte
 
-Accélère les recherches de moins de 4 caractères (qui utilisent `ILIKE` au lieu du full-text search). Utilise `CREATE INDEX CONCURRENTLY` — pas de verrouillage de table.
+Accélère les recherches de moins de 4 caractères (qui utilisent `ILIKE` au lieu du full-text search). Utilise `CREATE INDEX CONCURRENTLY` : pas de verrouillage de table.
 
 ```bash
 # Via Docker
@@ -153,8 +153,7 @@ psql $DATABASE_URL -f scripts/migrate-trigram.sql
 | Variable | Défaut | Description |
 |----------|--------|-------------|
 | `TRUSTED_PROXY_COUNT` | `1` | Nombre de proxys de confiance devant l'app (pour le rate limiting) |
-| `REDIS_URL` | — | URL Redis/Valkey pour le rate limiting multi-instance (ex: `redis://valkey:6379`) |
-| `UNSPLASH_ACCESS_KEY` | — | Clé d'accès Unsplash (optionnel) — active l'onglet Unsplash dans le panneau Images du Studio. Obtenir sur [unsplash.com/developers](https://unsplash.com/developers). |
+| `REDIS_URL` | aucune | URL Redis/Valkey pour le rate limiting multi-instance (ex: `redis://valkey:6379`) |
 
 ---
 
@@ -166,10 +165,7 @@ psql $DATABASE_URL -f scripts/migrate-trigram.sql
 | pgbouncer | 6432 | Connection pooling PostgreSQL (prod uniquement) |
 | postgres | 5432 | Base de données PostgreSQL 16 + pgvector |
 | garage | 3900 | Stockage objet S3-compatible (Garage by Deuxfleurs) |
-| penpot-frontend | 9001 | Interface web Penpot (optionnel) |
-| penpot-backend | interne | API RPC Penpot (optionnel) |
-| penpot-exporter | interne | Export PDF/SVG/PNG (optionnel) |
-| penpot-valkey | interne | Cache Redis-compatible (optionnel) |
+| ollama | 11434 | LLM local (modèle par défaut du chat IA en dev) |
 | livekit | 7880 | Serveur SFU WebRTC LiveKit (optionnel) |
 | livekit-egress | interne | Enregistrement audio/vidéo (optionnel) |
 
@@ -208,12 +204,16 @@ curl http://localhost:3000/api/health
 
 Le Dockerfile inclut un `HEALTHCHECK` qui interroge cet endpoint toutes les 30s.
 
-## CI/CD (GitHub Actions)
+## CI/CD
 
-Le workflow `.github/workflows/ci.yml` exécute automatiquement :
+Ce dépôt ne fournit pas encore de workflows d'intégration continue (`.github/workflows/`). En attendant, les vérifications à lancer localement avant toute PR sont :
 
-1. **Sur chaque PR** : lint (ESLint) + typecheck (tsc) + build Next.js
-2. **Sur merge main** : build de l'image Docker (avec cache GitHub Actions)
+```bash
+npx tsc --noEmit
+npm run lint
+npm test
+npm run build
+```
 
 ## Backup
 
@@ -243,36 +243,7 @@ docker compose exec postgres pg_dump -U loriax -Fc loriax > backup.dump
 tar -czf workspaces-backup.tar.gz workspaces/
 ```
 
-## Penpot — Tableau blanc et prototypage (optionnel)
-
-L'intégration Penpot est activée via un overlay Docker Compose séparé.
-
-### Activation
-
-```bash
-# 1. Configurer les variables d'environnement
-cat >> .env.local << 'EOF'
-PENPOT_INTERNAL_URL=http://penpot-backend:6060
-PENPOT_SECRET_KEY=$(openssl rand -hex 32)
-EOF
-
-# 2. Lancer avec l'overlay Penpot
-docker compose -f docker-compose.yml -f docker-compose.penpot.yml up -d
-```
-
-### Désactivation
-
-Ne pas utiliser l'overlay — les blocs existants restent consultables en lecture seule (miniatures PNG/SVG).
-
-### Variables d'environnement Penpot
-
-| Variable | Défaut | Description |
-|----------|--------|-------------|
-| `PENPOT_INTERNAL_URL` | — | URL interne du backend Penpot (vide = désactivé) |
-| `PENPOT_SECRET_KEY` | — | Mot de passe du compte service `loriax-system@local` |
-| `PENPOT_PUBLIC_URI` | `http://localhost:9002` | URI publique de Penpot exposée dans le navigateur — utilisée pour construire les URLs de téléchargement des assets (définie dans `docker-compose.penpot.yml`) |
-
-## LiveKit + Whisper — Visioconférence (optionnel)
+## LiveKit + Whisper : visioconférence (optionnel)
 
 L'intégration visioconférence est activée via un override Docker Compose séparé.
 
@@ -319,21 +290,21 @@ Pour activer la diarization via pyannote.audio :
 |----------|--------|-------------|
 | `LIVEKIT_ENABLED` | `false` | Activer l'intégration visioconférence |
 | `LIVEKIT_URL` | `ws://localhost:7880` | URL WebSocket du serveur LiveKit |
-| `LIVEKIT_API_KEY` | — | Clé API LiveKit |
-| `LIVEKIT_API_SECRET` | — | Secret API LiveKit |
+| `LIVEKIT_API_KEY` | aucune | Clé API LiveKit |
+| `LIVEKIT_API_SECRET` | aucun | Secret API LiveKit |
 | `LIVEKIT_EGRESS_PATH` | `/recordings` | Répertoire des enregistrements Egress |
 | `WHISPER_ENABLED` | `false` | Activer la transcription |
 | `WHISPER_API_URL` | `http://localhost:9000` | URL du service Whisper |
 | `WHISPER_MODEL` | `base` | Modèle Whisper (tiny/base/small/medium/large) |
 | `WHISPER_LANGUAGE` | `fr` | Langue par défaut |
 | `WHISPER_DIARIZE` | `false` | Identification des locuteurs |
-| `HF_TOKEN` | — | Token HuggingFace (requis pour la diarization) |
+| `HF_TOKEN` | aucun | Token HuggingFace (requis pour la diarization) |
 
-> **Note** — La version open-source de LorIAx fonctionne sans gestion de licences. Un service propriétaire optionnel (gestion de licences commerciales + Stripe) existe côté Dragamig SAS pour le SaaS hébergé ; il n'est pas distribué dans ce dépôt. Les hooks de facturation dans le code (`src/lib/billing/*`) sont inactifs sans ce service.
+> **Note** : la version open source de LorIAx fonctionne sans gestion de licences. Un service propriétaire optionnel (gestion de licences commerciales + Stripe) existe côté Studio Dragamig pour le SaaS hébergé ; il n'est pas distribué dans ce dépôt. Les hooks de facturation dans le code (`src/lib/billing/*`) sont inactifs sans ce service.
 
 ## Vérification des migrations au démarrage (dev)
 
-En mode développement, `loriax-app` vérifie automatiquement l'existence des tables requises au démarrage via `src/instrumentation.ts`. Si des tables sont manquantes, un avertissement est affiché dans la console :
+En mode développement, LorIAx vérifie automatiquement l'existence des tables requises au démarrage via `src/instrumentation.ts`. Si des tables sont manquantes, un avertissement est affiché dans la console :
 
 ```
 [migrations] Tables manquantes : templates, system_settings. Lancez : npm run db:migrate

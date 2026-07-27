@@ -59,7 +59,7 @@ Le wizard se repropose à chaque connexion d'un super admin tant que `setup_comp
 
 ## Étapes du wizard
 
-### Étape 1 — Identité de l'organisation
+### Étape 1 : Identité de l'organisation
 
 | Champ | Obligatoire | Stockage |
 |-------|-------------|----------|
@@ -70,7 +70,7 @@ Le wizard se repropose à chaque connexion d'un super admin tant que `setup_comp
 
 API : `POST /api/setup/identity`
 
-### Étape 2 — Contexte métier (facultatif, skippable)
+### Étape 2 : Contexte métier (facultatif, skippable)
 
 | Champ | Description |
 |-------|-------------|
@@ -83,26 +83,26 @@ Stocké dans `system_settings` clé `org_context` (JSONB). Injecté dans le cont
 
 API : `POST /api/setup/context`
 
-### Étape 3 — Utilisateurs
+### Étape 3 : Utilisateurs
 
 **Création du super admin (obligatoire) :**
 - Nom, email, mot de passe
 
 **Ajout d'autres utilisateurs (3 modes) :**
 
-1. **Saisie manuelle** — nom, email, rôle, un par un
-2. **Import CSV** — upload du fichier (modèle téléchargeable `/templates/import-utilisateurs.csv`)
-3. **Connexion LDAP** — réutilise la configuration LDAP existante (champs Bind DN, URL, etc.)
+1. **Saisie manuelle** : nom, email, rôle, un par un
+2. **Import CSV** : upload du fichier (modèle téléchargeable `/templates/import-utilisateurs.csv`)
+3. **Connexion LDAP** : réutilise la configuration LDAP existante (champs Bind DN, URL, etc.)
 
 **Modèle CSV :**
 
 | Colonne | Obligatoire | Description | Valeur par défaut |
 |---------|-------------|-------------|-------------------|
-| `nom` | oui | Nom complet | — |
-| `email` | oui | Adresse email | — |
+| `nom` | oui | Nom complet | aucune |
+| `email` | oui | Adresse email | aucune |
 | `role` | non | Rôle global (`super_admin`, `admin`, `editor`, `viewer`) | `editor` |
 | `mot_de_passe` | non | Mot de passe initial | Généré aléatoirement |
-| `equipe` | non | Nom de l'équipe (créée automatiquement si inexistante) | — |
+| `equipe` | non | Nom de l'équipe (créée automatiquement si inexistante) | aucune |
 
 Règles :
 - Encodage UTF-8, séparateur virgule
@@ -113,7 +113,7 @@ Skippable après la création du super admin.
 
 API : `POST /api/setup/users`, `POST /api/setup/users/ldap`
 
-### Étape 4 — Espaces
+### Étape 4 : Espaces
 
 Espaces pré-remplis par défaut :
 
@@ -133,7 +133,7 @@ Possibilité d'ajouter de nouveaux espaces.
 
 API : `POST /api/setup/spaces`
 
-### Étape 5 — Autorisations
+### Étape 5 : Autorisations
 
 Matrice visuelle : espaces en lignes × utilisateurs en colonnes.
 
@@ -148,7 +148,7 @@ Skippable (gestion fine disponible plus tard dans l'admin).
 
 API : `POST /api/setup/permissions`
 
-### Écran final — Récapitulatif
+### Écran final : Récapitulatif
 
 Résumé de la configuration :
 - Nom et logo de l'organisation
@@ -162,8 +162,8 @@ Bouton « Lancer l'application » → `POST /api/setup/complete` → `setup_comp
 
 ### Routing
 
-- `/setup` — wizard pleine page (layout `(setup)`, sans sidebar)
-- `/api/setup/*` — route handlers pour chaque étape
+- `/setup` : wizard pleine page (layout `(setup)`, sans sidebar)
+- `/api/setup/*` : route handlers pour chaque étape
 
 ### Fichiers à créer
 

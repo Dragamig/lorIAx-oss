@@ -4,7 +4,7 @@ Toutes les modifications notables sont consignées dans ce fichier.
 
 Le format est inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), et le projet suit [Semantic Versioning](https://semver.org/lang/fr/).
 
-## [1.21.0] — 2026-05-22
+## [1.21.0] - 2026-05-22
 
 ### Ajouté
 

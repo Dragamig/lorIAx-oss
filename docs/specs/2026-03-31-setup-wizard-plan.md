@@ -1,4 +1,4 @@
-# Wizard de configuration initiale — Plan d'implémentation
+# Wizard de configuration initiale : Plan d'implémentation
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -38,7 +38,7 @@ public/templates/import-utilisateurs.csv      — (déjà créé) Modèle CSV
 
 ---
 
-## Task 1 : Middleware — Redirection setup
+## Task 1 : Middleware, redirection setup
 
 **Files:**
 - Modify: `src/middleware.ts`
@@ -82,7 +82,7 @@ git commit -m "feat(setup): autoriser les routes /setup dans le middleware"
 
 ---
 
-## Task 2 : Layout (app) — Redirection automatique vers /setup
+## Task 2 : Layout (app), redirection automatique vers /setup
 
 **Files:**
 - Modify: `src/app/(app)/layout.tsx`
@@ -348,7 +348,7 @@ git commit -m "feat(setup): layout, page wizard et stepper de progression"
 
 ---
 
-## Task 4 : API et composant — Purge des données de démo
+## Task 4 : API et composant, purge des données de démo
 
 **Files:**
 - Create: `src/lib/setup/purge.ts`
@@ -559,7 +559,7 @@ git commit -m "feat(setup): purge des données de démo + écran de bienvenue"
 
 ---
 
-## Task 5 : Étape 1 — Identité de l'organisation
+## Task 5 : Étape 1, identité de l'organisation
 
 **Files:**
 - Create: `src/app/api/setup/identity/route.ts`
@@ -743,7 +743,7 @@ git commit -m "feat(setup): étape identité de l'organisation"
 
 ---
 
-## Task 6 : Étape 2 — Contexte métier
+## Task 6 : Étape 2, contexte métier
 
 **Files:**
 - Create: `src/app/api/setup/context/route.ts`
@@ -1055,7 +1055,7 @@ git commit -m "feat(setup): parser CSV pour import utilisateurs"
 
 ---
 
-## Task 8 : Étape 3 — Utilisateurs (super admin + manuel + CSV + LDAP)
+## Task 8 : Étape 3, utilisateurs (super admin + manuel + CSV + LDAP)
 
 **Files:**
 - Create: `src/app/api/setup/users/route.ts`
@@ -1234,7 +1234,7 @@ Composant avec 3 sections :
    - LDAP : formulaire de configuration LDAP (URL, Bind DN, etc.)
 3. **Liste des utilisateurs** ajoutés, avec possibilité de supprimer
 
-Le composant est long — créer un fichier dédié avec les sous-composants inline. Appeler `POST /api/setup/users` au clic sur « Suivant » avec l'ensemble des utilisateurs (super admin inclus).
+Le composant est long : créer un fichier dédié avec les sous-composants inline. Appeler `POST /api/setup/users` au clic sur « Suivant » avec l'ensemble des utilisateurs (super admin inclus).
 
 Inclure un lien de téléchargement du modèle CSV (`/templates/import-utilisateurs.csv`).
 
@@ -1255,7 +1255,7 @@ git commit -m "feat(setup): étape utilisateurs (super admin + manuel + CSV + LD
 
 ---
 
-## Task 9 : Étape 4 — Espaces
+## Task 9 : Étape 4, espaces
 
 **Files:**
 - Create: `src/app/api/setup/spaces/route.ts`
@@ -1491,7 +1491,7 @@ git commit -m "feat(setup): étape espaces de travail pré-remplis"
 
 ---
 
-## Task 10 : Étape 5 — Autorisations
+## Task 10 : Étape 5, autorisations
 
 **Files:**
 - Create: `src/app/api/setup/permissions/route.ts`

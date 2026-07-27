@@ -1,4 +1,4 @@
-# Spec — Présence et statut utilisateurs
+# Spec : Présence et statut utilisateurs
 
 **Date** : 2026-05-08  
 **Sprint cible** : ~99  
@@ -113,7 +113,7 @@ Retourne le statut effectif de tous les membres des équipes de l'utilisateur co
 ```
 
 **Déduplication** : les membres apparaissant dans plusieurs équipes ne sont listés qu'une fois.  
-**Calcul disponibilité** : pour chaque slot horaire, `busy` si au moins un événement non-all-day le chevauche dans les calendriers personnels + équipe de l'user. `absent` si le jour est un samedi ou dimanche, OU si l'user a un événement all-day (`allDay = true`) couvrant ce jour — sinon `free`.  
+**Calcul disponibilité** : pour chaque slot horaire, `busy` si au moins un événement non-all-day le chevauche dans les calendriers personnels + équipe de l'user. `absent` si le jour est un samedi ou dimanche, OU si l'user a un événement all-day (`allDay = true`) couvrant ce jour, sinon `free`.  
 Calendriers interrogés via la table `calendar_events` (Drizzle), pas via le protocole CalDAV.
 
 ---
@@ -197,19 +197,19 @@ Changement statut manuel
 | Action | Fichier |
 |--------|---------|
 | Créer | `migrations/0015_user_status.sql` |
-| Créer | `src/lib/db/schema.ts` — table `userStatus` |
+| Créer | `src/lib/db/schema.ts` : table `userStatus` |
 | Créer | `src/app/api/me/status/route.ts` (GET + PATCH) |
 | Créer | `src/app/api/team/status/route.ts` (GET) |
-| Créer | `src/lib/presence/availability.ts` — calcul créneaux CalDAV |
+| Créer | `src/lib/presence/availability.ts` : calcul créneaux CalDAV |
 | Créer | `src/hooks/use-my-status.ts` |
 | Créer | `src/hooks/use-team-status.ts` |
 | Créer | `src/components/ui/presence-badge.tsx` |
 | Créer | `src/components/presence/team-panel.tsx` |
 | Créer | `src/components/presence/status-popover.tsx` |
-| Modifier | `src/components/sidebar/` — section membres actifs |
-| Modifier | `src/components/layout/header.tsx` — bouton Équipe |
-| Modifier | `scripts/seed-demo.ts` — statuts de démo |
-| Modifier | `loriax-app/docs/architecture.md` — ADR-060 |
+| Modifier | `src/components/sidebar/` : section membres actifs |
+| Modifier | `src/components/layout/header.tsx` : bouton Équipe |
+| Modifier | `scripts/seed-demo.ts` : statuts de démo |
+| Modifier | `loriax-app/docs/architecture.md` : ADR-060 |
 
 ---
 

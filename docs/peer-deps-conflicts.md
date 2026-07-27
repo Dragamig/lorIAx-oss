@@ -1,8 +1,8 @@
-# Audit des conflits peer dependencies — LorIAx App
+# Audit des conflits peer dependencies (LorIAx)
 
 ## Synthèse
 
-La dépendance npm rencontre 7 conflits de peer dependencies majeurs détectés avec `npm install --legacy-peer-deps=false`.
+Plusieurs conflits de peer dependencies sont détectés avec `npm install --legacy-peer-deps=false`. Le dépôt est configuré avec `legacy-peer-deps=true` (`.npmrc`), ce qui permet l'installation et le fonctionnement normal de toutes les commandes, y compris `npm run lint`.
 
 ## Conflits détectés
 
@@ -12,7 +12,7 @@ La dépendance npm rencontre 7 conflits de peer dependencies majeurs détectés 
 - Installé : `nodemailer@8.0.4` (requis par le projet)
 - Attendu par : `@auth/core@0.41.1` → `nodemailer@^7.0.7` (peerOptional)
 
-**Impact :** FAIBLE — Le projet utilise nodemailer 8.x, plus récent. @auth/core accepte aussi 7.x, compatible avec les APIs principales.
+**Impact :** FAIBLE. Le projet utilise nodemailer 8.x, plus récent. @auth/core accepte aussi 7.x, compatible avec les APIs principales.
 
 **État :** Ignoré (override forcé)
 
@@ -24,11 +24,11 @@ La dépendance npm rencontre 7 conflits de peer dependencies majeurs détectés 
 - Installés : `react@19.2.4`, `react-dom@19.2.4` (requis par le projet)
 - Attendus par : `@radix-ui/react-tabs@1.0.2` → `react@^16.8 || ^17.0 || ^18.0`
 
-**Impact :** MOYEN — React 19 n'est pas officiellement supporté par @radix-ui/react-tabs v1. Excalidraw dépend d'une version de Radix UI ancienne.
+**Impact :** MOYEN. React 19 n'est pas officiellement supporté par @radix-ui/react-tabs v1. Excalidraw dépend d'une version de Radix UI ancienne.
 
 **Référence :** Excalidraw v0.18.0 contient Radix UI 1.x, antérieur au support React 19.
 
-**État :** Ignoré (override forcé) — À surveiller lors de mises à jour d'Excalidraw.
+**État :** Ignoré (override forcé). À surveiller lors de mises à jour d'Excalidraw.
 
 ---
 
@@ -42,9 +42,9 @@ La dépendance npm rencontre 7 conflits de peer dependencies majeurs détectés 
   - `eslint-plugin-react@7.37.5` → `eslint@^3 || ^4 || ^5 || ^6 || ^7 || ^8 || ^9.7`
   - `eslint-plugin-react-hooks@7.0.1` → `eslint@^3.0.0 || ^4.0.0 || ^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0-0 || ^9.0.0`
 
-**Impact :** ÉLEVÉ — Les plugins ESLint n'ont pas déclaré la compatibilité ESLint 10. Cela cause l'erreur circulaire rencontrée dans `npm run lint` (voir [eslint.config.mjs](../eslint.config.mjs)).
+**Impact :** FAIBLE avec la configuration actuelle. Les plugins ESLint n'ont pas déclaré la compatibilité ESLint 10, ce qui bloquait `npm run lint` en installation stricte (erreur circulaire, voir [eslint.config.mjs](../eslint.config.mjs)).
 
-**État :** CRITIQUE — Bloque le linting. À résoudre lors d'une upgrade Next.js 16 ESLint ou utiliser `npm install --legacy-peer-deps` en permanence.
+**État :** RÉSOLU en pratique. Avec `legacy-peer-deps=true` (défini dans `.npmrc`), `npm run lint` s'exécute normalement (vérifié en 2026-07). Le conflit disparaîtra définitivement quand les plugins déclareront ESLint 10 dans leurs peer dependencies.
 
 ---
 
@@ -52,14 +52,15 @@ La dépendance npm rencontre 7 conflits de peer dependencies majeurs détectés 
 
 | Priorité | Conflit | Action | Sprint |
 |----------|---------|--------|--------|
-| CRITIQUE | ESLint 10 + plugins | Mettre à jour Next.js 16 ESLint config ou downgrade ESLint | Futur |
+| FAIBLE | ESLint 10 + plugins | Surveiller la déclaration ESLint 10 dans les plugins (contourné par `legacy-peer-deps`) | Surveillance |
 | MOYEN | React 19 + Excalidraw | Upgrader Excalidraw dès version supportant React 19 | Futur |
 | FAIBLE | Nodemailer 8 vs 7 | Surveiller @auth/core releases | Surveillance |
 
 ## Configuration actuelle
 
-- `npm install --legacy-peer-deps=true` en place (package.json)
+- `legacy-peer-deps=true` en place (`.npmrc`)
 - Les conflits sont ignorés mais génèrent des avertissements
+- `npm run lint`, `npm test` et `npm run build` fonctionnent avec cette configuration
 
 ## Références
 
@@ -69,4 +70,4 @@ La dépendance npm rencontre 7 conflits de peer dependencies majeurs détectés 
 
 ---
 
-**Audit :** Sprint 10 qualité & sécurité (2026-04-05)
+**Audit :** Sprint 10 qualité & sécurité (2026-04-05). **Mise à jour :** 2026-07-27, état du lint revérifié sur l'édition open source.

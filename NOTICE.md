@@ -1,4 +1,4 @@
-# NOTICE — Dépendances tierces
+# NOTICE : dépendances tierces
 
 LorIAx OSS embarque des bibliothèques tierces, distribuées sous leurs licences respectives. Cette liste recense les dépendances principales et leurs licences ; pour la liste exhaustive, voir `package.json` et l'outil de votre choix (`npm-license-checker`, `license-checker-rseidelsohn`).
 
@@ -40,7 +40,7 @@ LorIAx OSS embarque des bibliothèques tierces, distribuées sous leurs licences
 | @ffmpeg/ffmpeg, @ffmpeg/util | MIT |
 | ffmpeg-static, fluent-ffmpeg | MIT |
 | Fabric.js | MIT |
-| Leaflet, react-leaflet | BSD-2-Clause / Hippocratic |
+| Leaflet, react-leaflet | BSD-2-Clause / Hippocratic-2.1 (licence à clause éthique, non approuvée par l'OSI) |
 
 ## Visio, audio, IA
 
@@ -85,7 +85,7 @@ LorIAx OSS embarque des bibliothèques tierces, distribuées sous leurs licences
 
 ## Polices et icônes
 
-- **Lucide icons** — ISC.
+- **Lucide icons** : ISC.
 - Polices système par défaut (aucune police propriétaire bundled).
 
 ## Stockage objet recommandé
