@@ -14,8 +14,15 @@ import { OrganizationProvider } from "@/lib/org/organization-context";
 import { getSessionUser } from "@/lib/auth/get-user";
 import { hasGlobalRole } from "@/lib/auth/rbac";
 import { getLicenseForClient } from "@/lib/license/get-license-for-client";
+import type { SessionUser } from "@/types";
 
-async function checkSetupCompleted() {
+async function checkSetupCompleted(user: SessionUser | null) {
+  // Seul un super administrateur peut dérouler l'assistant : y envoyer les autres
+  // les enfermerait dans une boucle de redirection, l'assistant leur étant fermé.
+  if (!user || !hasGlobalRole(user.globalRole, "super_admin")) {
+    return;
+  }
+
   const [row] = await db
     .select()
     .from(systemSettings)
@@ -37,13 +44,13 @@ export default async function AppLayout({
 }: {
   children: React.ReactNode;
 }) {
-  await checkSetupCompleted();
+  const currentUser = await getSessionUser();
+  await checkSetupCompleted(currentUser);
   const licenseData = await getLicenseForClient();
 
   const h = await headers();
   const orgSlug = h.get("x-org-slug") ?? "default";
 
-  const currentUser = await getSessionUser();
   const [org] = currentUser
     ? await db.select().from(organizations).where(eq(organizations.slug, orgSlug)).limit(1)
     : [];

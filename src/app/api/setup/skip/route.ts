@@ -1,23 +1,51 @@
 // src/app/api/setup/skip/route.ts
 import { NextResponse } from "next/server";
 import {
-  clearWizardTicket,
-  guardSetupAccess,
+  clearInstallTokenCookie,
   hasAnyUser,
+  hasValidInstallToken,
+  isSetupCompleted,
   markSetupCompleted,
 } from "@/lib/setup/guards";
+import { getSessionUser } from "@/lib/auth/get-user";
+import { hasGlobalRole } from "@/lib/auth/rbac";
 
+/**
+ * « Plus tard » sur l'écran de configuration.
+ *
+ * Deux publics distincts, d'où une garde plus souple que guardSetupAccess() :
+ * tout utilisateur authentifié doit pouvoir écarter l'assistant et rejoindre
+ * l'application, alors que la fermeture définitive du wizard reste un acte
+ * d'administration.
+ */
 export async function POST() {
-  const access = await guardSetupAccess();
-  if (!access.allowed) return access.response;
+  if (await isSetupCompleted()) {
+    return NextResponse.json(
+      { error: "L'instance est déjà configurée" },
+      { status: 403 }
+    );
+  }
 
-  // « Plus tard » ferme le wizard pour de bon : sans cela, une instance seedée
-  // ou restaurée resterait indéfiniment ouverte, le drapeau n'étant écrit que
-  // par /api/setup/complete.
-  // Exception : sur une instance encore vierge (aucun compte), poser le drapeau
-  // condamnerait l'instance, plus de wizard et personne pour se connecter. On se
-  // contente alors du cookie de report à 24 h.
-  if (await hasAnyUser()) {
+  const installer = await hasValidInstallToken();
+  const user = await getSessionUser();
+
+  if (!installer && !user) {
+    return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
+  }
+
+  // Le drapeau ferme l'assistant pour de bon : sans cela, une instance seedée
+  // ou restaurée resterait indéfiniment en attente de configuration, le drapeau
+  // n'étant écrit que par /api/setup/complete.
+  // Deux réserves :
+  // - le poser est réservé à l'exploitant (jeton d'installation ou super_admin),
+  //   un simple lecteur ne fait que masquer l'écran pour lui-même ;
+  // - sur une instance sans aucun compte, le poser condamnerait l'instance,
+  //   plus d'assistant et personne pour se connecter.
+  const mayClose =
+    installer || (user != null && hasGlobalRole(user.globalRole, "super_admin"));
+  const closed = mayClose && (await hasAnyUser());
+
+  if (closed) {
     await markSetupCompleted();
   }
 
@@ -29,5 +57,8 @@ export async function POST() {
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
   });
-  return clearWizardTicket(response);
+
+  // Le cookie de jeton n'est effacé que si l'assistant est réellement clos,
+  // pour ne pas obliger l'exploitant à ressaisir son jeton s'il revient.
+  return closed ? clearInstallTokenCookie(response) : response;
 }

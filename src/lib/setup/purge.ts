@@ -3,7 +3,9 @@ import { sql } from "drizzle-orm";
 
 /**
  * Purge toutes les données de démo.
- * Conserve : ai_providers, ai_prompts, ai_prompt_versions, system_settings.setup_completed.
+ * Conserve : ai_providers, ai_prompts, ai_prompt_versions, et dans system_settings
+ * les clés setup_completed et setup_install_token (sans quoi l'exploitant en cours
+ * d'installation perdrait son accès à l'assistant juste après avoir purgé).
  * L'ordre respecte les contraintes FK (enfants d'abord).
  */
 export async function purgeAllData() {
@@ -72,9 +74,9 @@ export async function purgeAllData() {
     // 11. Utilisateurs
     await tx.execute(sql`DELETE FROM users`);
 
-    // 12. system_settings (sauf setup_completed)
+    // 12. system_settings (sauf l'état de l'assistant de configuration)
     await tx.execute(
-      sql`DELETE FROM system_settings WHERE key != 'setup_completed'`
+      sql`DELETE FROM system_settings WHERE key NOT IN ('setup_completed', 'setup_install_token')`
     );
   });
 }

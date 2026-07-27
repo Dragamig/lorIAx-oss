@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import {
-  clearWizardTicket,
+  clearInstallTokenCookie,
   guardSetupAccess,
   markSetupCompleted,
 } from "@/lib/setup/guards";
@@ -29,5 +29,5 @@ export async function POST() {
 
   await markSetupCompleted();
 
-  return clearWizardTicket(NextResponse.json({ success: true }));
+  return clearInstallTokenCookie(NextResponse.json({ success: true }));
 }

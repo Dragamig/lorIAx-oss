@@ -9,13 +9,25 @@ interface StepWelcomeProps {
   data: SetupData;
   onPurged: () => void;
   onNext: () => void;
-  onSkip: () => void;
+  onSkip: () => Promise<void>;
 }
 
 export function StepWelcome({ data, onPurged, onNext, onSkip }: StepWelcomeProps) {
   const [confirming, setConfirming] = useState(false);
   const [purging, setPurging] = useState(false);
+  const [skipping, setSkipping] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  async function handleSkip() {
+    setSkipping(true);
+    setError(null);
+    try {
+      await onSkip();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur inattendue");
+      setSkipping(false);
+    }
+  }
 
   async function handlePurge() {
     setPurging(true);
@@ -56,10 +68,23 @@ export function StepWelcome({ data, onPurged, onNext, onSkip }: StepWelcomeProps
             Configurer mon instance
             <ArrowRight className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground" onClick={onSkip}>
-            <Clock className="h-4 w-4" />
+          <Button
+            variant="ghost"
+            size="sm"
+            className="gap-2 text-muted-foreground"
+            disabled={skipping}
+            onClick={handleSkip}
+          >
+            {skipping ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Clock className="h-4 w-4" />
+            )}
             Plus tard
           </Button>
+          {error && (
+            <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+          )}
         </div>
       ) : (
         <div className="space-y-4 p-6 rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30">

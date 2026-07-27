@@ -228,6 +228,22 @@ Comptes de démo (à changer avant tout déploiement public) :
 | `admin@loriax.dev` | `admin123` | super_admin |
 | `user@loriax.dev` | `user123` | editor |
 
+### Première configuration : la clé d'installation
+
+L'assistant de configuration (`/setup`) crée le premier super administrateur : il n'est
+donc pas ouvert au premier visiteur venu. Sur une instance encore vide, il réclame une
+**clé d'installation** que le serveur écrit dans ses journaux la première fois que la
+page est ouverte :
+
+```
+[setup] Jeton d'installation de cette instance, a saisir dans l'assistant de configuration : <cle>
+```
+
+Récupérez-la dans la sortie du serveur (`docker compose logs app` en conteneur), collez-la
+dans l'assistant, puis déroulez les étapes. La clé est supprimée dès que la configuration
+est terminée ou reportée. Sur une instance déjà en service, aucune clé n'est nécessaire :
+il suffit d'être connecté avec un compte `super_admin`.
+
 ## Configuration
 
 Toutes les variables d'environnement sont documentées dans [`.env.example`](./.env.example), qui fait office de source de vérité.

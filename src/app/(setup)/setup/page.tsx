@@ -9,6 +9,7 @@ import { StepUsers } from "@/components/setup/step-users";
 import { StepSpaces } from "@/components/setup/step-spaces";
 import { StepPermissions } from "@/components/setup/step-permissions";
 import { StepSummary } from "@/components/setup/step-summary";
+import { SetupAccessGate } from "@/components/setup/setup-access-gate";
 
 export interface SetupData {
   purged: boolean;
@@ -68,8 +69,17 @@ export default function SetupPage() {
     setStep(next);
   }
 
+  async function skipSetup() {
+    const res = await fetch("/api/setup/skip", { method: "POST" });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || "Impossible de reporter la configuration");
+    }
+    window.location.href = "/";
+  }
+
   return (
-    <div>
+    <SetupAccessGate>
       <SetupStepper currentStep={step} />
 
       {step === "welcome" && (
@@ -77,10 +87,7 @@ export default function SetupPage() {
           data={data}
           onPurged={() => updateData({ purged: true })}
           onNext={() => nextStep("identity")}
-          onSkip={async () => {
-            await fetch("/api/setup/skip", { method: "POST" });
-            window.location.href = "/";
-          }}
+          onSkip={skipSetup}
         />
       )}
       {step === "identity" && (
@@ -127,6 +134,6 @@ export default function SetupPage() {
       {step === "summary" && (
         <StepSummary data={data} onBack={() => nextStep("permissions")} />
       )}
-    </div>
+    </SetupAccessGate>
   );
 }
