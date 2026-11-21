@@ -2,8 +2,6 @@
  * Helper de siloing strict — point d'entrée unique pour autoriser une route
  * d'API à toucher une ressource appartenant à une organisation.
  *
- * Voir docs/superpowers/specs/2026-05-26-espace-bases-design.md §4 R1.
- *
  * Règle d'or : aucune nouvelle route ne doit interroger une ressource sans
  * passer par ce helper d'abord, et toute ressource vient avec son seuil de
  * permission (`minPermission`), rendu obligatoire par le type.

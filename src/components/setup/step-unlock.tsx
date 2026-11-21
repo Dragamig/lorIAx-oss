@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, KeyRound } from "lucide-react";
+import { Loader2, KeyRound, Clock } from "lucide-react";
 import {
   clearSetupToken,
   isSetupAuthorized,
@@ -59,6 +59,25 @@ export function StepUnlock({ onUnlocked }: StepUnlockProps) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // « Plus tard » sans jeton : accepté par le serveur pour un super
+  // administrateur connecté (parité 1.21.1), refusé pour les autres.
+  async function handleLater() {
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/setup/skip", { method: "POST", credentials: "same-origin" });
+      if (!res.ok) {
+        throw new Error(
+          "Seul un super administrateur connecté peut reporter la configuration sans jeton."
+        );
+      }
+      window.location.href = "/";
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Report impossible");
+      setSubmitting(false);
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -140,6 +159,18 @@ export function StepUnlock({ onUnlocked }: StepUnlockProps) {
           ) : (
             "Déverrouiller"
           )}
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          className="w-full"
+          disabled={submitting}
+          onClick={handleLater}
+          title="Plus tard : reporter la configuration (super administrateur connecté)"
+          aria-label="Plus tard : reporter la configuration"
+        >
+          <Clock className="h-4 w-4 mr-2" />
+          Plus tard
         </Button>
       </form>
     </div>

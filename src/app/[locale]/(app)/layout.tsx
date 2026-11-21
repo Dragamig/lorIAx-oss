@@ -16,21 +16,30 @@ import { getSessionUser } from "@/lib/auth/get-user";
 import { hasGlobalRole } from "@/lib/auth/rbac";
 import { getHooks } from "@/lib/modules/hooks";
 import { getProgress } from "@/lib/onboarding/progress";
+import { shouldRedirectToSetup } from "@/lib/setup/redirect-rule";
+import type { SessionUser } from "@/types";
 import { TourProvider } from "@/components/onboarding/tour-context";
 
-async function checkSetupCompleted() {
+async function checkSetupCompleted(user: SessionUser | null) {
+  // Seul un super administrateur est redirigé (parité 1.21.1) : y envoyer les
+  // autres les enfermerait sur l'écran du jeton d'amorçage.
+  if (!user || !hasGlobalRole(user.globalRole, "super_admin")) return;
+
   const [row] = await db
     .select()
     .from(systemSettings)
     .where(eq(systemSettings.key, "setup_completed"))
     .limit(1);
 
-  if (!row || row.value !== true) {
-    // Si l'utilisateur a cliqué « Plus tard », ne pas reproposer pendant la session
-    const cookieStore = await cookies();
-    if (cookieStore.get("setup_skipped")) {
-      return;
-    }
+  const cookieStore = await cookies();
+  if (
+    shouldRedirectToSetup({
+      user,
+      completed: row?.value === true,
+      // Si l'utilisateur a cliqué « Plus tard », ne pas reproposer pendant la session
+      skipped: Boolean(cookieStore.get("setup_skipped")),
+    })
+  ) {
     redirect("/setup");
   }
 }
@@ -40,13 +49,13 @@ export default async function AppLayout({
 }: {
   children: React.ReactNode;
 }) {
-  await checkSetupCompleted();
+  const currentUser = await getSessionUser();
+  await checkSetupCompleted(currentUser);
   const licenseData = await getHooks().getLicenseForClient();
 
   const h = await headers();
   const orgSlug = h.get("x-org-slug") ?? "default";
 
-  const currentUser = await getSessionUser();
   const [org] = currentUser
     ? await db.select().from(organizations).where(eq(organizations.slug, orgSlug)).limit(1)
     : [];

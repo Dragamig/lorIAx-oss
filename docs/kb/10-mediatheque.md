@@ -1,6 +1,6 @@
 ---
 title: "Médiathèque"
-description: "Gérer les images, PDF, vidéos et autres fichiers de LorIAx dans la Médiathèque : téléverser, classer en dossiers et tags, filtrer, mettre à la corbeille et restaurer, droits d'accès et quota de stockage."
+description: "Gérer les images, PDF, vidéos et autres fichiers de LorIAx dans la Médiathèque : téléverser, classer en dossiers et tags, filtrer, mettre à la corbeille et restaurer, droits d'accès et stockage."
 ---
 
 ## Ouvrir la médiathèque
@@ -45,9 +45,9 @@ Un média reste 30 jours dans la corbeille (réglable par un administrateur), pu
 - Médias hors espace : visibles de leur auteur et des administrateurs.
 - Effacement définitif : administrateurs de l'organisation.
 
-## Quota de stockage
+## Stockage
 
-Le stockage est compté par organisation, corbeille et versions comprises : 1 Go en offre gratuite, 50 Go en Growth, illimité en Enterprise. Une jauge indique l'usage. Dès 80 %, un bandeau et une notification préviennent. Au quota, le téléversement est bloqué et la lecture reste possible ; libérer de la place passe par l'effacement définitif de médias en corbeille.
+L'édition open source n'impose aucun quota de stockage : l'espace disponible dépend du stockage S3 ou du disque configuré pour l'instance. Libérer de la place passe par l'effacement définitif de médias en corbeille.
 
 ## Administration
 
@@ -88,7 +88,7 @@ Les logos du Brand Kit se choisissent dans la médiathèque, dans un espace ouve
 
 ## Automatismes : `create_design`
 
-L'action `create_design` enregistre l'image rendue dans la médiathèque (origine `automation`, espace de l'automatisme ou, à défaut, sans espace). L'URL de sortie est `/api/media/<identifiant>`. Si le quota de stockage est atteint, l'étape échoue avec « Quota atteint ». Les fichiers déjà écrits avant ce changement ne sont pas migrés.
+L'action `create_design` enregistre l'image rendue dans la médiathèque (origine `automation`, espace de l'automatisme ou, à défaut, sans espace). L'URL de sortie est `/api/media/<identifiant>`. Les fichiers déjà écrits avant ce changement ne sont pas migrés.
 
 ## Réécriture des références existantes
 
@@ -202,7 +202,6 @@ Limites :
 - Extensions acceptées : pdf, doc, docx, xls, xlsx, ppt, pptx, odt, ods, odp, txt, csv, json, xml, yaml, yml, md, png, jpg, jpeg, gif, webp, svg, bmp, ico, mp4, webm, mp3, wav, ogg, zip, tar, gz.
 - Pour les formats binaires, le contenu doit être reconnu et correspondre à l'extension. Pour txt, csv, json, xml, yaml, yml, md et svg, ce contrôle des octets n'est pas fait.
 - Fichiers `video/` : types `video/mp4`, `video/quicktime`, `video/webm`, `video/x-msvideo` et `video/x-matroska`, contenu reconnu comme média.
-- Quota : le stockage de l'organisation (corbeille et versions comprises) ne doit pas être dépassé (voir Quota de stockage ci-dessus).
 - Le média est enregistré avec l'origine `upload`.
 
 Réponse 201 : `data` contient le média, au même format que la lecture des métadonnées.
@@ -231,7 +230,6 @@ Codes d'erreur du téléversement :
 - 415 : `Type de fichier non reconnu` ou `Le contenu du fichier n'est pas un média reconnu`.
 - 429 : `Limite de requêtes dépassée` (10 téléversements par minute et par clé).
 - 500 : `Échec de l'envoi du fichier`.
-- 507 : `Quota de stockage atteint`.
 
 ### Lectures refusées
 

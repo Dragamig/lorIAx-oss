@@ -32,7 +32,7 @@ Le DCO est obligatoire. Chaque commit d'une contribution porte une ligne de sign
 Signed-off-by: Prénom Nom <adresse>
 ```
 
-`git commit -s` l'ajoute à partir de `user.name` et `user.email` de votre configuration Git. Le nom est votre nom réel, l'adresse une adresse à laquelle vous êtes joignable. Une pull request dont un commit n'est pas signé n'est pas fusionnée. Pour signer après coup : `git commit --amend -s` sur le dernier commit, `git rebase --signoff <base>` sur une série.
+`git commit -s` l'ajoute à partir de `user.name` et `user.email` de votre configuration Git. Le nom est votre nom réel, l'adresse une adresse à laquelle vous êtes joignable. Une pull request dont un commit n'est pas signé n'est pas fusionnée : le contrôle DCO est obligatoire, y compris pour les commits de fusion qui portent des changements. Pour signer après coup : `git commit --amend -s` sur le dernier commit, `git rebase --signoff <base>` sur une série.
 
 Par cette ligne, vous certifiez le texte suivant pour la contribution concernée :
 

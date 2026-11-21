@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, Suspense } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { signIn } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 import { useRouter } from "@/i18n/routing";
@@ -35,6 +35,20 @@ function LoginForm() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [registrationOpen, setRegistrationOpen] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/auth/registration-status", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : { open: false }))
+      .then((d) => {
+        if (!cancelled) setRegistrationOpen(d?.open === true);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -142,17 +156,19 @@ function LoginForm() {
           </form>
         </CardContent>
 
-        <CardFooter className="justify-center">
-          <p className="text-sm text-muted-foreground">
-            {t("noAccount")}{" "}
-            <Link
-              href="/register"
-              className="text-primary hover:underline font-medium"
-            >
-              {t("createAccount")}
-            </Link>
-          </p>
-        </CardFooter>
+        {registrationOpen && (
+          <CardFooter className="justify-center">
+            <p className="text-sm text-muted-foreground">
+              {t("noAccount")}{" "}
+              <Link
+                href="/register"
+                className="text-primary hover:underline font-medium"
+              >
+                {t("createAccount")}
+              </Link>
+            </p>
+          </CardFooter>
+        )}
       </Card>
 
       {isDev && (

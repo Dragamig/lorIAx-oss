@@ -26,7 +26,7 @@ export function rootFromArgs(args: string[]): string {
 
 /**
  * Résout la composition depuis le registre STATIQUE complet, jamais depuis
- * registry.generated : la sortie d'un run précédent (profil oss, exemple) ne doit pas
+ * registry.generated : la sortie d'un run précédent (profil oss, par exemple) ne doit pas
  * borner le suivant, sinon `--all` ne peut pas restaurer les modules retirés.
  */
 export function includedIds(args: string[] = process.argv.slice(2)): ModuleId[] {

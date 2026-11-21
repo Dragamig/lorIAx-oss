@@ -1,7 +1,6 @@
 # Module Salles de réunion
 
 > Sprint 12 — implémenté en 7 PRs sur la branche `claude/meeting-room-management-6FBVr`.
-> Plan d'origine : `/docs/superpowers/plans/2026-05-05-meeting-rooms.md` (racine du repo).
 
 ## Vue d'ensemble
 

@@ -8,6 +8,7 @@
  * `created_at` croissant. Idempotent, ne modifie jamais une organisation existante.
  */
 import type { Pool } from "pg";
+import type { ModuleId } from "../src/lib/modules/types";
 
 const DEFAULT_ORG_NAME = "Organisation";
 const DEFAULT_ORG_SLUG = "default";
@@ -33,4 +34,18 @@ export async function ensureDefaultOrganization(
   throw new Error(
     `Impossible de creer l'organisation par defaut : le slug "${DEFAULT_ORG_SLUG}" est pris par une organisation inactive`
   );
+}
+
+/**
+ * Edition : l'organisation par defaut n'est creee que sans le module commercial. Dans l'edition
+ * commerciale, une base vierge reste sans organisation (register-org et provision-org creent la
+ * premiere) : en creer une ici la ferait adopter par `getDefaultOrgId` a la place de celle du client.
+ * Renvoie `null` quand rien n'est fait.
+ */
+export async function ensureDefaultOrganizationForEdition(
+  pool: Pool,
+  includedModuleIds: readonly ModuleId[]
+): Promise<{ id: string; created: boolean } | null> {
+  if (includedModuleIds.includes("commercial")) return null;
+  return ensureDefaultOrganization(pool);
 }

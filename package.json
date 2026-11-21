@@ -215,7 +215,10 @@
     "@univerjs/icons": "1.1.1"
   },
   "license": "FSL-1.1-MIT",
-  "repository": "github.com/Flavien-Dragamig/lorIAx-oss",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Flavien-Dragamig/lorIAx-oss.git"
+  },
   "loriax": {
     "basedOn": "1.210.x"
   }

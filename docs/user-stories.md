@@ -1186,37 +1186,7 @@
 
 ---
 
-## US-31 — SaaS hébergé multi-tenant
-
-### US-31.1 : Créer son espace LorIAx en self-service
-
-**En tant que** responsable d'une structure, **je veux** créer mon espace LorIAx sur `mon-org.example.com` en remplissant un formulaire, **afin de** démarrer sans aucun déploiement technique.
-
-**Critères d'acceptation :**
-- Le formulaire demande : nom, email, mot de passe, nom de l'organisation, slug souhaité
-- Le slug est validé en temps réel (disponibilité, format, mots réservés)
-- La création est atomique : utilisateur + organisation + membership owner + espace "Général"
-- Après inscription, l'utilisateur est connecté automatiquement et redirigé vers `/onboarding`
-- Un sous-domaine inconnu affiche une page d'erreur claire avec lien vers `/signup`
-
-**Statut : ✅ livré — v1.14.0**
-
-### US-31.2 : Gérer son abonnement et passer à un plan supérieur
-
-**En tant qu'** administrateur d'un espace LorIAx hébergé, **je veux** consulter mon plan actuel et monter en gamme depuis les paramètres, **afin d'** accéder à plus d'utilisateurs, d'espaces et de fonctionnalités.
-
-**Critères d'acceptation :**
-- L'onglet "Abonnement" dans `/settings` affiche le plan actuel avec ses limites
-- Les plans Free, Growth et Enterprise sont présentés avec tarifs et fonctionnalités
-- Le bouton "Passer à [plan]" redirige vers le checkout Stripe sans friction
-- Après paiement, le plan de l'organisation est mis à jour automatiquement via webhook
-- Un lien "Gérer la facturation" donne accès au portail Stripe pour les plans payants
-
-**Statut : ✅ livré — v1.14.0**
-
 ## Epic 27 : Espace Bases — Tableur Airtable-like standalone
-
-> Spec complète : `docs/superpowers/specs/2026-05-26-espace-bases-design.md`
 
 ### US-32 — Gérer mes bases dans une section dédiée
 

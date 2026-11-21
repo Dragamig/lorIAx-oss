@@ -9,8 +9,8 @@
  * Pont de mise à jour 1.21.x : une base publique 1.21.x n'a pas de table `media` et peut porter des lignes
  * `attachments`. Ces lignes sont copiées vers `media` avec la correspondance de 0052_mediatheque.sql
  * (identifiants, clés, types, tailles, auteurs, dates et liens de document conservés). Si `media` existe,
- * la copie se fait dans la transaction d'archivage ; sinon les tables sont archivées d'abord (aucune
- * donnée perdue) et `importArchivedMedia`, appelée par init-db après `drizzle-kit push` qui crée `media`,
+ * aucune copie : la garde d'intégrité ci-dessous s'applique seule et ne ressuscite pas les médias purgés ;
+ * sinon les tables sont archivées d'abord (aucune donnée perdue) et `importArchivedMedia`, appelée par init-db après `drizzle-kit push` qui crée `media`,
  * termine la copie. Un commentaire sur chaque table archivée marque l'import à faire puis fait : une archive
  * plus ancienne n'est jamais réimportée, et une relance ne copie rien deux fois.
  *
@@ -24,6 +24,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Pool, type PoolClient } from "pg";
+import type { ModuleId } from "../src/lib/modules/types";
+import { INCLUDED_MODULE_IDS } from "../src/lib/modules/registry.generated";
 import { LEGACY_KEY_COLUMN, idMatchSql, keyMatchSql, keyOtherOrgSql, orphanSql, type LegacyKind } from "./media/lib/copy-integrity";
 
 export interface RetireReport {
@@ -199,7 +201,7 @@ async function measure(client: PoolClient, kind: LegacyKind) {
 
 export async function ensureAttachmentsRetired(
   connectionString = process.env.DATABASE_URL,
-  options: { archiveSchema?: string } = {},
+  options: { archiveSchema?: string; includedModuleIds?: readonly ModuleId[] } = {},
 ): Promise<RetireReport | null> {
   const archive = options.archiveSchema ?? ARCHIVE_SCHEMA;
   if (!/^[a-z_][a-z0-9_]*$/.test(archive)) throw new Error(`Nom de schéma d'archive invalide : ${archive}`);
@@ -228,18 +230,22 @@ export async function ensureAttachmentsRetired(
       // Sans media (base d'avant 1.201, par exemple une 1.21.x publique), la copie est faite après
       // `drizzle-kit push` par importArchivedMedia : les tables sont archivées intactes d'ici là.
       const mediaPresent = await tableExists(client, "media");
+      // Le pont sans table media est propre a l'edition oss. Avec le module commercial, la base vient
+      // d'une version anterieure a 1.201 et l'archivage reste refuse, comme avant l'edition oss.
+      if (!mediaPresent && (options.includedModuleIds ?? INCLUDED_MODULE_IDS).includes("commercial")) {
+        throw new Error(
+          "Archivage refusé : la table media est absente, la copie ne peut pas être vérifiée. Cette base vient d'une version antérieure à 1.201 : déployer d'abord une version 1.201 à 1.204, qui crée et remplit media, puis passer à cette version.",
+        );
+      }
 
       // Verrou exclusif avant toute mesure : plus d'écriture concurrente entre la garde et le déplacement.
       const toLock = TABLES.filter((t) => present[t]);
       await client.query(`LOCK TABLE ${toLock.join(", ")} IN ACCESS EXCLUSIVE MODE`);
 
-      // Pont de mise à jour : les lignes sans copie dans media y sont copiées avant la garde d'intégrité.
-      const imported = mediaPresent
-        ? await copyToMedia(client, {
-            attachments: present.attachments ? "attachments" : undefined,
-            // studio_images : une ligne sans média de même id est une image purgée, jamais recopiée ici.
-          })
-        : { attachments: 0, studio: 0 };
+      // Garde B123 d'abord, sans aucune copie préalable : quand media existe, une ligne attachments sans copie
+      // accessible (média purgé) est une orpheline qui arrête le déploiement, jamais ressuscitée dans media.
+      // Le pont 1.21.x ne passe que par importArchivedMedia (media absente à l'archivage).
+      const imported = { attachments: 0, studio: 0 };
 
       const att = present.attachments && mediaPresent ? await measure(client, "attachments") : null;
       const stu = present.studio_images && mediaPresent ? await measure(client, "studio_images") : null;

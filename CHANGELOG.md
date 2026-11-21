@@ -43,6 +43,7 @@ lorIAx-oss 2.0.0, basée sur LorIAx 1.210.x. Tous les modules sont actifs, sans 
 - **`CRON_SECRET` obligatoire.** `docker-compose.yml` refuse de démarrer sans le secret des tâches planifiées.
 - **Organisation unique par défaut.** L'instance fonctionne avec une seule organisation, créée à l'initialisation de la base. Tous les utilisateurs, espaces et réglages lui sont rattachés, sans sous-domaine.
 - **L'application n'écoute que sur la machine.** Aucun port n'est ouvert vers l'extérieur : un reverse proxy HTTPS se place devant l'application.
+- **Inscription fermée par défaut.** L'inscription libre est refusée côté serveur tant qu'un administrateur ne l'ouvre pas dans les réglages système, y compris sur une instance venue de 1.21.x. Elle reste refusée tant qu'aucun super administrateur n'existe. Le lien de création de compte de la page de connexion n'apparaît que si elle est ouverte. L'assistant, les invitations et la création d'utilisateurs par un administrateur ne sont pas concernés.
 
 ### Migration depuis une version 1.21.x
 

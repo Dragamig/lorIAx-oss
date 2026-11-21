@@ -51,7 +51,7 @@ interface RolePermissions {
 const defaultSettings: SystemSettings = {
   appName: "LorIAx",
   appUrl: "",
-  allowRegistration: true,
+  allowRegistration: false,
   defaultRole: "editor",
 };
 

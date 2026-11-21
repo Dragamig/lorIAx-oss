@@ -29,7 +29,8 @@ import { ensureMediaExtensions } from "./migrate-media";
 import { ensureRowHistoryTriggers } from "./migrate-row-history";
 import { ensureRowCommentsAndTasks, ensureTaskKindRowValue } from "./migrate-row-comments";
 import { ensureAttachmentsRetired, importArchivedMedia } from "./retire-attachments";
-import { ensureDefaultOrganization } from "./ensure-default-org";
+import { ensureDefaultOrganizationForEdition } from "./ensure-default-org";
+import { INCLUDED_MODULE_IDS } from "../src/lib/modules/registry.generated";
 
 async function isDatabaseEmpty(): Promise<boolean> {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -359,12 +360,13 @@ async function main() {
   // Commentaires et tâches de ligne (lot 3) : valeur d'enum et contrainte, tables et colonnes viennent du push.
   await ensureRowCommentsAndTasks();
 
-  // Organisation par defaut : sans elle, l'assistant de configuration echoue sur base vide.
+  // Organisation par defaut (edition oss seulement) : sans elle, l'assistant de configuration echoue sur
+  // base vide. L'edition commerciale ne la cree pas : register-org / provision-org creent les organisations.
   {
     const pool = new Pool({ connectionString: process.env.DATABASE_URL });
     try {
-      const org = await ensureDefaultOrganization(pool);
-      if (org.created) console.log("✓ Organisation par défaut créée");
+      const org = await ensureDefaultOrganizationForEdition(pool, INCLUDED_MODULE_IDS);
+      if (org?.created) console.log("✓ Organisation par défaut créée");
     } catch (e) {
       // Etat anormal (toutes les organisations inactives) : ne pas bloquer le deploiement.
       console.warn("Organisation par défaut non créée :", e instanceof Error ? e.message : e);

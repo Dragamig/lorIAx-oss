@@ -1,8 +1,7 @@
 "use client";
 
 /**
- * Contrat client de l'API des notes vocales, tel que fixe par la specification
- * `docs/superpowers/specs/2026-08-17-note-vocale-design.md`.
+ * Contrat client de l'API des notes vocales.
  *
  * Le backend est ecrit en parallele : ce module reste tolerant sur la forme des
  * reponses (champs derives optionnels, codes d'erreur a plusieurs orthographes)

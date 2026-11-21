@@ -1,10 +1,12 @@
 import { db } from "@/lib/db";
 import { sql } from "drizzle-orm";
+import { SETUP_TOKEN_KEY } from "@/lib/setup/constants";
 import { setRowChangeContext, SKIP_ROW_HISTORY } from "@/lib/databases/row-change-context";
 
 /**
  * Purge toutes les données de démo.
- * Conserve : ai_providers, ai_prompts, ai_prompt_versions, system_settings.setup_completed.
+ * Conserve : ai_providers, ai_prompts, ai_prompt_versions, system_settings.setup_completed
+ * et system_settings.setup_bootstrap_token.
  * L'ordre respecte les contraintes FK (enfants d'abord).
  */
 export async function purgeAllData() {
@@ -78,9 +80,11 @@ export async function purgeAllData() {
     // 11. Utilisateurs
     await tx.execute(sql`DELETE FROM users`);
 
-    // 12. system_settings (sauf setup_completed)
+    // 12. system_settings (sauf setup_completed et le jeton d'amorçage : le
+    // supprimer en cours de parcours en ferait engendrer un neuf, et chaque
+    // étape suivante de l'assistant répondrait 401)
     await tx.execute(
-      sql`DELETE FROM system_settings WHERE key != 'setup_completed'`
+      sql`DELETE FROM system_settings WHERE key NOT IN ('setup_completed', ${SETUP_TOKEN_KEY})`
     );
   });
 }

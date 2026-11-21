@@ -77,7 +77,8 @@ describe.skipIf(!URL_)("ensureAttachmentsRetired (base de test)", () => {
     await admin.end();
   });
 
-  const retire = () => ensureAttachmentsRetired(connectionString, { archiveSchema: `${schema}_arch` });
+  // Edition oss par defaut : le registre genere de l'arbre de travail peut inclure le module commercial.
+  const retire = () => ensureAttachmentsRetired(connectionString, { archiveSchema: `${schema}_arch`, includedModuleIds: ["ai"] });
   const count = async (table: string) => Number((await pool.query(`SELECT count(*) FROM ${table}`)).rows[0].count);
   const exists = async (table: string) => (await pool.query("SELECT to_regclass($1) IS NOT NULL AS p", [table])).rows[0].p;
   const triggers = async () =>
@@ -252,6 +253,19 @@ describe.skipIf(!URL_)("ensureAttachmentsRetired (base de test)", () => {
     expect(await retire()).toBeNull();
   });
 
+  it("i0. base sans media (anterieure a 1.201) : refusee avec le module commercial, comme avant l'edition oss, tables intactes", async () => {
+    await pool.query("DROP TABLE media CASCADE");
+    await expect(
+      ensureAttachmentsRetired(connectionString, { archiveSchema: `${schema}_arch`, includedModuleIds: ["commercial"] }),
+    ).rejects.toThrow(/la table media est absente/);
+    expect(await exists("attachments")).toBe(true);
+    expect(await archived("attachments")).toBe(false);
+    // Edition oss : le pont accepte et archive.
+    const report = await ensureAttachmentsRetired(connectionString, { archiveSchema: `${schema}_arch`, includedModuleIds: ["ai"] });
+    expect(report).not.toBeNull();
+    expect(await archived("attachments")).toBe(true);
+  });
+
   it("i5. import sans media : une ligne sans espace n'est pas copiée, le journal compare vues et copiées et nomme l'identifiant ignoré", async () => {
     const good = randomUUID();
     const lost = randomUUID();
@@ -301,14 +315,14 @@ describe.skipIf(!URL_)("ensureAttachmentsRetired (base de test)", () => {
     expect(await count("media")).toBe(2);
   });
 
-  it("i4. media présente mais ligne attachments non copiée : copiée dans la transaction d'archivage", async () => {
-    const id = randomUUID();
+  it("i4. media présente, ligne attachments sans copie (média purgé) : la garde B123 arrête le déploiement avant toute copie, rien n'est ressuscité", async () => {
+    const orphan = randomUUID();
     await pool.query("ALTER TABLE attachments DISABLE TRIGGER USER");
-    await pool.query("INSERT INTO attachments (id, space_id, storage_key, mime_type) VALUES ($1,$2,'k/i4','image/png')", [id, SPACE]);
-    const report = await retire();
-    expect(report).toMatchObject({ attachmentsSeen: 1, attachmentsCopied: 1, attachmentsImported: 1 });
-    expect((await pool.query("SELECT kind FROM media WHERE id = $1", [id])).rows[0].kind).toBe("image");
-    expect(await archived("attachments")).toBe(true);
+    await pool.query("INSERT INTO attachments (id, space_id, storage_key, mime_type) VALUES ($1,$2,'k/i4','image/png')", [orphan, SPACE]);
+    await expect(retire()).rejects.toThrow(/sans copie accessible dans media/);
+    expect((await pool.query("SELECT count(*)::int AS n FROM media WHERE id = $1", [orphan])).rows[0].n).toBe(0);
+    expect(await exists("attachments")).toBe(true);
+    expect(await archived("attachments")).toBe(false);
   });
 
   it("i2. base sans media et sans aucune ligne legacy (1.21.x publique vide) : tables archivées, sans erreur", async () => {

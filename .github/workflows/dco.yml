@@ -13,5 +13,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+      # Le script vient de la branche de base : une pull request ne peut pas le remplacer
+      # pour se valider elle-meme.
       - name: Check sign-off
-        run: bash .github/scripts/check-dco.sh "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git show "origin/${BASE_REF}:.github/scripts/check-dco.sh" > "$RUNNER_TEMP/check-dco.sh"
+          bash "$RUNNER_TEMP/check-dco.sh" "$BASE_SHA" "$HEAD_SHA"

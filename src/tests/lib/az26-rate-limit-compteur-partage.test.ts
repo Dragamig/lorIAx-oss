@@ -79,6 +79,7 @@ vi.mock("@/lib/logger", () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 vi.mock("bcryptjs", () => ({ default: { hash: vi.fn(async () => "hash") } }));
+vi.mock("@/lib/auth/registration-policy", () => ({ getRegistrationRefusal: async () => null }));
 vi.mock("@/lib/git/repository", () => ({ initRepository: vi.fn(async () => {}) }));
 vi.mock("@/lib/calendar/auto-provision", () => ({
   ensurePersonalCalendar: vi.fn(async () => {}),

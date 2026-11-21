@@ -20,7 +20,7 @@ Une colonne peut prendre l'un des types suivants :
 - Case à cocher
 - Relation (lien vers une autre base)
 - Image
-- Pièces jointes (plusieurs fichiers, comptées dans le quota de stockage de l'organisation)
+- Pièces jointes (plusieurs fichiers)
 - URL, E-mail
 - Formule (calcul à partir d'autres colonnes)
 

@@ -56,6 +56,7 @@ vi.mock("@/lib/db", () => {
 });
 
 const initRepository = vi.hoisted(() => vi.fn(async () => {}));
+vi.mock("@/lib/auth/registration-policy", () => ({ getRegistrationRefusal: async () => null }));
 vi.mock("@/lib/git/repository", () => ({ initRepository }));
 
 const ensurePersonalCalendar = vi.hoisted(() => vi.fn(async () => {}));

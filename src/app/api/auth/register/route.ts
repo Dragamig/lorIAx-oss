@@ -13,6 +13,7 @@ import { ensurePersonalCalendar } from "@/lib/calendar/auto-provision";
 import { getHooks } from "@/lib/modules/hooks";
 import { getDefaultOrgId } from "@/lib/org/get-org-id";
 import { sendEmail } from "@/lib/email/send";
+import { getRegistrationRefusal } from "@/lib/auth/registration-policy";
 
 /**
  * Message unique de la route, aligné sur /api/auth/register-org et sur le
@@ -118,6 +119,13 @@ export async function POST(request: Request) {
         { error: "Trop de tentatives. Réessayez plus tard." },
         { status: 429 }
       );
+    }
+
+    // Politique d'inscription (C1) : réglage « Inscription ouverte » et instance
+    // non amorcée. Indépendante de l'adresse, donc sans effet d'oracle.
+    const refusal = await getRegistrationRefusal();
+    if (refusal) {
+      return NextResponse.json({ error: refusal.error }, { status: refusal.status });
     }
 
     // ORDRE DES CONTROLES. Les refus qui ne dépendent PAS de l'adresse (absence
