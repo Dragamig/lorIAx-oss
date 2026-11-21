@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/get-user";
-import { hasGlobalRole } from "@/lib/auth/rbac";
+import { hasGlobalRole, INSTANCE_ADMIN_ONLY_MESSAGE } from "@/lib/auth/rbac";
 import { db } from "@/lib/db";
 import { backupJobs } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
@@ -10,8 +10,14 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 export async function GET(request: NextRequest) {
   const user = await getSessionUser();
-  if (!user || !hasGlobalRole(user.globalRole, "admin")) {
-    return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+  // Portée instance : l'URL présignée rendue ici mène à un dump PostgreSQL
+  // complet, contenant les données de toutes les organisations. Un admin
+  // d'organisation y lirait les autres tenants (audit du 2026-08-19, AZ-07).
+  if (!user || !hasGlobalRole(user.globalRole, "super_admin")) {
+    return NextResponse.json(
+      { error: INSTANCE_ADMIN_ONLY_MESSAGE },
+      { status: 403 }
+    );
   }
 
   const jobId = new URL(request.url).searchParams.get("jobId");
@@ -43,7 +49,10 @@ export async function GET(request: NextRequest) {
     Key: job.s3Key,
   });
 
-  const url = await getSignedUrl(s3.client, command, { expiresIn: 900 });
-
-  return NextResponse.json({ url });
+  try {
+    const url = await getSignedUrl(s3.client, command, { expiresIn: 900 });
+    return NextResponse.json({ url });
+  } catch (err) {
+    return NextResponse.json({ error: 'Erreur génération URL' }, { status: 500 });
+  }
 }

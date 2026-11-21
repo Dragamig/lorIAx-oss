@@ -5,19 +5,16 @@ import { Mic, Circle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useRoomContext } from "@livekit/components-react";
 import { RoomEvent } from "livekit-client";
+import { useTranslations } from "next-intl";
 
 interface RecordingOverlayProps {
   meetingId: string | null;
 }
 
 export function RecordingOverlay({ meetingId }: RecordingOverlayProps) {
+  const t = useTranslations("meet.recording");
   const [recording, setRecording] = useState(false);
   const [starting, setStarting] = useState(false);
-  // Le déclenchement de l'enregistrement est réservé à l'organisateur : c'est la
-  // seule action de la famille /meet/rooms/[id] à toucher la vie privée de tiers.
-  // Sans cet état, le bouton restait affiché pour tout le monde et échouait en
-  // silence pour les autres participants.
-  const [isOrganizer, setIsOrganizer] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [connected, setConnected] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval>>(null);
@@ -72,35 +69,18 @@ export function RecordingOverlay({ meetingId }: RecordingOverlayProps) {
     }
   }, [meetingId, starting, recording]);
 
-  // Etat de l'enregistrement : au montage, puis par scrutation tant qu'il n'a pas
-  // demarre. Sans la scrutation, un participant deja connecte quand l'organisateur
-  // active la transcription n'apprenait jamais qu'il etait enregistre : le
-  // composant lui renvoyait null et aucune pastille ne s'affichait. C'est une
-  // question de consentement, pas d'ergonomie.
+  // Check if already recording (e.g. page reload)
   useEffect(() => {
-    if (!meetingId || recording) return;
-
-    let cancelled = false;
-
-    const poll = () => {
-      fetch(`/api/meet/rooms/${meetingId}/status`)
-        .then((res) => res.json())
-        .then((data) => {
-          if (cancelled) return;
-          if (data.egressId) setRecording(true);
-          setIsOrganizer(Boolean(data.isOrganizer));
-        })
-        .catch(() => {});
-    };
-
-    poll();
-    const interval = setInterval(poll, 5000);
-
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [meetingId, recording]);
+    if (!meetingId) return;
+    fetch(`/api/meet/rooms/${meetingId}/status`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.egressId) {
+          setRecording(true);
+        }
+      })
+      .catch(() => {});
+  }, [meetingId]);
 
   const formatTime = (s: number) => {
     const m = Math.floor(s / 60);
@@ -121,10 +101,6 @@ export function RecordingOverlay({ meetingId }: RecordingOverlayProps) {
     );
   }
 
-  // Participant non organisateur : la pastille REC reste visible quand la
-  // transcription tourne, mais pas le bouton de déclenchement.
-  if (!isOrganizer) return null;
-
   return (
     <div className="absolute top-3 right-3 z-50">
       <Button
@@ -137,12 +113,12 @@ export function RecordingOverlay({ meetingId }: RecordingOverlayProps) {
         {starting ? (
           <>
             <div className="h-3.5 w-3.5 mr-1.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
-            Connexion...
+            {t("starting")}
           </>
         ) : (
           <>
             <Mic className="h-3.5 w-3.5 mr-1.5" />
-            Activer la transcription
+            {t("startButton")}
           </>
         )}
       </Button>

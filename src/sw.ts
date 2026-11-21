@@ -3,6 +3,7 @@
 /// <reference lib="webworker" />
 import { defaultCache } from "@serwist/turbopack/worker";
 import type { PrecacheEntry, SerwistGlobalConfig } from "serwist";
+import { DEFAULT_LOCALE } from "@/i18n/config";
 import {
   CacheFirst,
   ExpirationPlugin,
@@ -82,13 +83,15 @@ const serwist = new Serwist({
         url.pathname === "/api/health",
       handler: new NetworkOnly(),
     },
-    // Document content APIs — NetworkOnly (contenu toujours frais)
+    // Document content APIs : NetworkOnly (contenu toujours frais ; /api/attachments/ est l'alias permanent des médias, remplaçables : jamais de cache)
     {
       matcher: ({ url }) =>
         url.pathname.startsWith("/api/documents/") ||
         url.pathname.startsWith("/api/mindmap/") ||
         url.pathname.startsWith("/api/whiteboard/") ||
-        url.pathname.startsWith("/api/attachments/"),
+        url.pathname.startsWith("/api/attachments/") ||
+        url.pathname.startsWith("/api/media/") ||
+        (url.pathname.startsWith("/api/public/") && url.pathname.includes("/media/")),
       handler: new NetworkOnly(),
     },
     // Navigation (pages HTML) :
@@ -122,7 +125,8 @@ const serwist = new Serwist({
   fallbacks: {
     entries: [
       {
-        url: "/offline",
+        // Page offline désormais sous le segment [locale] — URL canonique /${DEFAULT_LOCALE}/offline.
+        url: `/${DEFAULT_LOCALE}/offline`,
         matcher({ request }) {
           return request.destination === "document";
         },

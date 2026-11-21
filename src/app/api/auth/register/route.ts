@@ -1,17 +1,72 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { users, spaces } from "@/lib/db/schema";
+import { organizationMembers } from "@/lib/db/schema-org";
 import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import slugify from "slugify";
 import { initRepository } from "@/lib/git/repository";
-import { checkRateLimit, RATE_LIMITS, getClientIp } from "@/lib/rate-limit";
+import { checkRateLimitAsync, RATE_LIMITS, getClientIpOrNull } from "@/lib/rate-limit";
 import { z } from "zod";
 import logger from "@/lib/logger";
 import { ensurePersonalCalendar } from "@/lib/calendar/auto-provision";
-import { getLicenseFromDB } from "@/lib/license/validate";
-import { checkUsersLimit } from "@/lib/license/metering";
+import { getHooks } from "@/lib/modules/hooks";
 import { getDefaultOrgId } from "@/lib/org/get-org-id";
+import { sendEmail } from "@/lib/email/send";
+
+/**
+ * Message unique de la route, aligné sur /api/auth/register-org et sur le
+ * patron de /api/auth/forgot-password.
+ *
+ * Défaut relevé par la revue du lot 6 : le quota avait été posé sur les deux
+ * routes d'inscription, l'uniformisation de réponse sur une seule. Celle-ci
+ * répondait encore 409 « Un compte avec cet email existe deja », c'est-à-dire
+ * exactement l'oracle d'énumération que l'autre route venait de fermer, sur une
+ * route non authentifiée elle aussi.
+ */
+const REPONSE_UNIFORME = {
+  message:
+    "Votre demande a été enregistrée. Connectez-vous pour accéder à votre espace. Si cette adresse est déjà rattachée à un compte, un courriel vient de vous être envoyé.",
+} as const;
+
+function demandeEnregistree() {
+  return NextResponse.json(REPONSE_UNIFORME, { status: 200 });
+}
+
+/**
+ * Prévient le titulaire d'un compte existant qu'une inscription a été tentée
+ * avec son adresse. Contrepartie honnête de la réponse uniforme : l'appelant
+ * légitime qui avait oublié son compte est informé, l'attaquant ne voit rien.
+ */
+async function notifyExistingAccount(email: string): Promise<void> {
+  const baseUrl =
+    process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const text = [
+    "Bonjour,",
+    "",
+    "Une inscription vient d'être tentée avec cette adresse, qui est déjà rattachée à un compte LorIAx.",
+    "",
+    "Aucun nouveau compte n'a été créé. Si la demande vient de toi, connecte-toi avec ton compte existant :",
+    baseUrl + "/login",
+    "",
+    "Si tu as oublié ton mot de passe, utilise le lien de réinitialisation depuis cette page.",
+    "",
+    "Si elle ne vient pas de toi, tu peux ignorer ce message : personne n'a appris quoi que ce soit sur ton compte.",
+  ].join("\n");
+
+  try {
+    await sendEmail({
+      to: email,
+      subject: "Tentative d'inscription avec ton adresse",
+      html: text.split("\n").map((line) => `<p>${line}</p>`).join(""),
+      text,
+    });
+  } catch (err) {
+    // Un échec d'envoi ne doit rien changer à la réponse : la faire varier
+    // rouvrirait exactement l'oracle qu'on vient de fermer.
+    logger.warn({ err }, "[register] Échec de la notification de compte existant");
+  }
+}
 
 const registerSchema = z.object({
   name: z.string().min(2, "Le nom doit faire au moins 2 caracteres"),
@@ -20,14 +75,21 @@ const registerSchema = z.object({
 });
 
 export async function POST(request: Request) {
-  // Rate limiting
-  const ip = getClientIp(request);
-  const rateLimitResult = checkRateLimit(`register:${ip}`, RATE_LIMITS.auth);
-  if (!rateLimitResult.success) {
-    return NextResponse.json(
-      { error: "Trop de tentatives. Réessayez plus tard." },
-      { status: 429 }
+  // Rate limiting. AZ-26 : compteur PARTAGÉ. AZ-25 : sans adresse déterminable
+  // le palier par IP est sauté, le palier par adresse électronique (plus bas)
+  // restant, lui, appliqué dans tous les cas.
+  const ip = getClientIpOrNull(request);
+  if (ip) {
+    const rateLimitResult = await checkRateLimitAsync(
+      `register:${ip}`,
+      RATE_LIMITS.auth
     );
+    if (!rateLimitResult.success) {
+      return NextResponse.json(
+        { error: "Trop de tentatives. Réessayez plus tard." },
+        { status: 429 }
+      );
+    }
   }
 
   try {
@@ -44,29 +106,26 @@ export async function POST(request: Request) {
     const { name, password } = parsed.data;
     const email = parsed.data.email.toLowerCase().trim();
 
-    // Vérifier le quota utilisateurs de la licence
-    const license = await getLicenseFromDB();
-    const usersStatus = await checkUsersLimit(license);
-    if (usersStatus.exceeded) {
+    // Palier par adresse électronique : toujours actif, y compris sans adresse
+    // IP exploitable. Consommé AVANT la lecture en base, pour que le quota borne
+    // aussi le rythme d'interrogation de l'oracle d'existence de compte.
+    const emailRateLimit = await checkRateLimitAsync(
+      `register:email:${email}`,
+      RATE_LIMITS.auth
+    );
+    if (!emailRateLimit.success) {
       return NextResponse.json(
-        { error: `Quota d'utilisateurs atteint (${usersStatus.current}/${usersStatus.max}). Mettez à niveau votre licence.` },
-        { status: 403 }
+        { error: "Trop de tentatives. Réessayez plus tard." },
+        { status: 429 }
       );
     }
 
-    // Verifier si l'email existe deja
-    const [existing] = await db
-      .select({ id: users.id })
-      .from(users)
-      .where(eq(users.email, email))
-      .limit(1);
-
-    if (existing) {
-      return NextResponse.json(
-        { error: "Un compte avec cet email existe deja" },
-        { status: 409 }
-      );
-    }
+    // ORDRE DES CONTROLES. Les refus qui ne dépendent PAS de l'adresse (absence
+    // d'organisation d'accueil, quota d'utilisateurs de la licence) sont
+    // prononcés avant de regarder la table des comptes. Autrement, sur une
+    // instance vierge ou saturée, l'attaquant lisait la différence entre le
+    // refus et la réponse uniforme, et l'oracle refermé plus bas se rouvrait
+    // par la bande.
 
     // Résoudre l'organisation d'accueil AVANT toute écriture : `/register` rejoint
     // une instance déjà provisionnée. Sur une instance vierge, aucune org n'existe
@@ -86,6 +145,30 @@ export async function POST(request: Request) {
       );
     }
 
+    // Vérifier le quota utilisateurs de l'organisation d'accueil (scopé par tenant)
+    const usersStatus = await getHooks().usage.checkUsersLimit(orgId);
+    if (usersStatus.exceeded) {
+      return NextResponse.json(
+        { error: `Quota d'utilisateurs atteint (${usersStatus.current}/${usersStatus.max}). Mettez à niveau votre licence.` },
+        { status: 403 }
+      );
+    }
+
+    // Verifier si l'email existe deja. Aucun écart observable ne doit en
+    // découler : on ne crée rien, on prévient le titulaire par courriel, et on
+    // rend EXACTEMENT la réponse du succès.
+    const [existing] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.email, email))
+      .limit(1);
+
+    if (existing) {
+      await notifyExistingAccount(email);
+      logger.info("[register] Adresse déjà connue, aucune création");
+      return demandeEnregistree();
+    }
+
     const passwordHash = await bcrypt.hash(password, 12);
 
     // Creer l'utilisateur
@@ -93,6 +176,13 @@ export async function POST(request: Request) {
       .insert(users)
       .values({ name, email, passwordHash })
       .returning();
+
+    // Rattacher l'utilisateur à son organisation d'accueil (cloisonnement
+    // multi-tenant : sans cette ligne, il serait exclu d'une org isolée).
+    await db
+      .insert(organizationMembers)
+      .values({ organizationId: orgId, userId: user.id, role: "member" })
+      .onConflictDoNothing();
 
     // Creer l'espace personnel
     const slug = slugify(name, { lower: true, strict: true });
@@ -115,10 +205,9 @@ export async function POST(request: Request) {
       logger.error({ err }, "[register] Erreur création calendrier personnel")
     );
 
-    return NextResponse.json(
-      { message: "Compte cree avec succes", userId: user.id },
-      { status: 201 }
-    );
+    // Même corps, même statut que la branche « adresse déjà connue » : plus
+    // aucun champ (`userId` compris) ne dépend de la branche empruntée.
+    return demandeEnregistree();
   } catch (error) {
     logger.error({ err: error }, "[register] Erreur inscription utilisateur");
     return NextResponse.json(

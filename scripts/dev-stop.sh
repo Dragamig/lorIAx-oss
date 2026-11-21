@@ -15,13 +15,7 @@ if grep -qE '^LIVEKIT_ENABLED=true' .env.local 2>/dev/null; then
   LIVEKIT_COMPOSE="-f docker-compose.livekit.yml"
 fi
 
-# Détecter si Penpot est activé pour inclure l'overlay
-PENPOT_COMPOSE=""
-if grep -qE '^PENPOT_ENABLED=true' .env.local 2>/dev/null; then
-  PENPOT_COMPOSE="-f docker-compose.penpot.yml"
-fi
-
 echo "Arret des services Docker..."
-docker compose -f docker-compose.yml $LIVEKIT_COMPOSE $PENPOT_COMPOSE down
+docker compose -f docker-compose.yml $LIVEKIT_COMPOSE down
 
 echo "Environnement dev arrete."

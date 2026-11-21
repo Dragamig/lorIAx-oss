@@ -33,6 +33,14 @@ export function useCollaboration({
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [pendingUpdates, setPendingUpdates] = useState(0);
   const [ydocReady, setYdocReady] = useState(false);
+  /**
+   * Jeton réellement utilisé pour la connexion. Il part du jeton fourni par la
+   * page, puis peut être remplacé par un jeton fraîchement émis si le serveur
+   * refuse celui-ci comme périmé (jeton expiré, ou émis avant le cloisonnement
+   * multi-tenant du canal WebSocket et donc dépourvu d'organisation).
+   */
+  const [activeToken, setActiveToken] = useState(token);
+  const tokenRefreshedRef = useRef(false);
   const providerRef = useRef<HocuspocusProvider | null>(null);
   const ydocRef = useRef<Y.Doc | null>(null);
   const idbPersistenceRef = useRef<IndexeddbPersistence | null>(null);
@@ -56,8 +64,14 @@ export function useCollaboration({
     setYdocReady(false);
   }, []);
 
+  // Un nouveau jeton fourni par la page réarme la possibilité de rafraîchir
   useEffect(() => {
-    if (!enabled || !documentId || !token) {
+    tokenRefreshedRef.current = false;
+    setActiveToken(token);
+  }, [token, documentId]);
+
+  useEffect(() => {
+    if (!enabled || !documentId || !activeToken) {
       cleanup();
       return;
     }
@@ -98,7 +112,7 @@ export function useCollaboration({
       url: wsUrl,
       name: documentId,
       document: ydoc,
-      token,
+      token: activeToken,
       onConnect() {
         setIsConnected(true);
         setConnectionError(null);
@@ -118,11 +132,33 @@ export function useCollaboration({
         // Hocuspocus renvoie "permission-denied" par défaut — on traduit en français
         if (reason === "permission-denied" || reason === "Accès refusé") {
           setConnectionError("Accès refusé — vous n'avez pas les droits sur ce document");
-        } else if (reason === "Non autorisé") {
-          setConnectionError("Session expirée — veuillez recharger la page");
-        } else {
-          setConnectionError(reason || "Erreur d'authentification");
+          return;
         }
+        // Jeton périmé ou antérieur au cloisonnement multi-tenant : on en
+        // redemande un neuf (une seule fois) plutôt que de boucler sur le refus.
+        if (reason === "Session expirée" || reason === "Non autorisé") {
+          if (tokenRefreshedRef.current) {
+            setConnectionError("Session expirée — veuillez recharger la page");
+            return;
+          }
+          tokenRefreshedRef.current = true;
+          fetch("/api/auth/ws-token")
+            .then((res) => (res.ok ? res.json() : null))
+            .then((body: { token?: string } | null) => {
+              if (!mounted) return;
+              if (body?.token) {
+                setConnectionError(null);
+                setActiveToken(body.token);
+              } else {
+                setConnectionError("Session expirée — veuillez recharger la page");
+              }
+            })
+            .catch(() => {
+              if (mounted) setConnectionError("Session expirée — veuillez recharger la page");
+            });
+          return;
+        }
+        setConnectionError(reason || "Erreur d'authentification");
       },
     });
 
@@ -132,7 +168,7 @@ export function useCollaboration({
       mounted = false;
       cleanup();
     };
-  }, [documentId, token, enabled, cleanup]);
+  }, [documentId, activeToken, enabled, cleanup]);
 
   return {
     provider: providerRef.current,

@@ -64,10 +64,8 @@ if [ ! -f .env.local ]; then
   ENC_KEY=$(openssl rand -base64 32 2>/dev/null || head -c 32 /dev/urandom | base64)
   S3_KEY_ID="GK$(node -e "process.stdout.write(require('crypto').randomBytes(12).toString('hex'))" 2>/dev/null || openssl rand -hex 12)"
   S3_KEY_SECRET=$(node -e "process.stdout.write(require('crypto').randomBytes(32).toString('hex'))" 2>/dev/null || openssl rand -hex 32)
-  # .env.example ne livre aucune valeur de secret : les lignes sont vides, on
-  # les remplit ici. Ancrage sur la ligne entiere pour ne rien ecraser d'autre.
-  sed -i "s|^NEXTAUTH_SECRET=$|NEXTAUTH_SECRET=${SECRET}|" .env.local
-  sed -i "s|^ENCRYPTION_KEY=$|ENCRYPTION_KEY=${ENC_KEY}|" .env.local
+  sed -i "s|generate-a-random-secret-here|${SECRET}|" .env.local
+  sed -i "s|generate-a-32-byte-base64-key-here|${ENC_KEY}|" .env.local
   sed -i "s|GK6c6f72696178000000000000|${S3_KEY_ID}|" .env.local
   sed -i "s|6c6f726961787365637265740000000000000000000000000000000000000000|${S3_KEY_SECRET}|" .env.local
   echo -e "  ${GREEN}✓${NC} .env.local cree (NEXTAUTH_SECRET, ENCRYPTION_KEY, S3 credentials generes)"
@@ -76,17 +74,11 @@ else
   echo -e "  ${GREEN}✓${NC} .env.local existe"
 fi
 
-# Rattraper un .env.local preexistant dont les secrets sont restes vides
-if grep -qE '^ENCRYPTION_KEY=$' .env.local 2>/dev/null; then
+# Générer ENCRYPTION_KEY si manquant ou par défaut
+if grep -qE '^ENCRYPTION_KEY=generate-' .env.local 2>/dev/null; then
   ENC_KEY=$(openssl rand -base64 32 2>/dev/null || head -c 32 /dev/urandom | base64)
-  sed -i "s|^ENCRYPTION_KEY=$|ENCRYPTION_KEY=${ENC_KEY}|" .env.local
+  sed -i "s|generate-a-32-byte-base64-key-here|${ENC_KEY}|" .env.local
   echo -e "  ${GREEN}✓${NC} ENCRYPTION_KEY genere"
-fi
-
-if grep -qE '^NEXTAUTH_SECRET=$' .env.local 2>/dev/null; then
-  SECRET=$(openssl rand -base64 32 2>/dev/null || head -c 32 /dev/urandom | base64)
-  sed -i "s|^NEXTAUTH_SECRET=$|NEXTAUTH_SECRET=${SECRET}|" .env.local
-  echo -e "  ${GREEN}✓${NC} NEXTAUTH_SECRET genere"
 fi
 
 # ----------------------------------------------------------
@@ -120,23 +112,15 @@ if [ -n "$LIVEKIT_ENABLED" ]; then
   LIVEKIT_COMPOSE="-f docker-compose.livekit.yml"
 fi
 
-# Détecter si Penpot est activé dans .env.local
-PENPOT_ENABLED=$(grep -E '^PENPOT_ENABLED=true' .env.local 2>/dev/null | head -1)
-PENPOT_COMPOSE=""
-if [ -n "$PENPOT_ENABLED" ]; then
-  PENPOT_COMPOSE="-f docker-compose.penpot.yml"
-fi
-
 # Afficher les services qui seront lancés
 SERVICES_LABEL="PostgreSQL + Garage S3 + Ollama"
 [ -n "$LIVEKIT_ENABLED" ] && SERVICES_LABEL="$SERVICES_LABEL + LiveKit + Whisper"
-[ -n "$PENPOT_ENABLED" ] && SERVICES_LABEL="$SERVICES_LABEL + Penpot"
 echo -e "${BLUE}[5/7]${NC} Services Docker ($SERVICES_LABEL)..."
 
 # On utilise le docker-compose principal mais sans le service app
 # Ollama démarre systématiquement (compose principal)
 # LiveKit + Egress + Whisper démarrent ensemble si LIVEKIT_ENABLED=true
-docker compose -f docker-compose.yml $LIVEKIT_COMPOSE $PENPOT_COMPOSE up -d postgres garage garage-init ollama ${LIVEKIT_ENABLED:+livekit livekit-egress whisper} ${PENPOT_ENABLED:+penpot-frontend penpot-backend penpot-exporter penpot-valkey} 2>&1 | while read -r line; do
+docker compose -f docker-compose.yml $LIVEKIT_COMPOSE up -d postgres garage garage-init ollama ${LIVEKIT_ENABLED:+livekit livekit-egress whisper} 2>&1 | while read -r line; do
   echo "  $line"
 done
 
@@ -237,60 +221,25 @@ if [ -n "$LIVEKIT_ENABLED" ]; then
 
 fi
 
-# Attendre Penpot (si activé)
-if [ -n "$PENPOT_ENABLED" ]; then
-  echo -n "  Attente de Penpot"
-  for i in $(seq 1 30); do
-    if curl -sf http://localhost:9002 >/dev/null 2>&1; then
-      echo -e "\n  ${GREEN}✓${NC} Penpot pret (frontend: 9002, backend: 6060)"
-      break
-    fi
-    echo -n "."
-    sleep 1
-    if [ "$i" -eq 30 ]; then
-      echo -e "\n  ${YELLOW}⚠${NC}  Penpot pas encore pret — il demarrera en arriere-plan"
-    fi
-  done
-fi
-
-# Initialiser le compte service Penpot (si activé)
-if [ -n "$PENPOT_ENABLED" ]; then
-  PENPOT_SECRET_KEY=$(grep -E '^PENPOT_SECRET_KEY=' .env.local 2>/dev/null | head -1 | cut -d= -f2-)
-  if [ -n "$PENPOT_SECRET_KEY" ]; then
-    echo -e "  Initialisation du compte service Penpot..."
-    # Tenter le login — si 400 wrong-credentials, créer le compte
-    LOGIN_STATUS=$(curl -sf -o /dev/null -w "%{http_code}" http://localhost:6060/api/rpc/command/login-with-password \
-      -H "Content-Type: application/json" \
-      -d "{\"email\":\"loriax-system@loriax.dev\",\"password\":\"${PENPOT_SECRET_KEY}\"}" 2>/dev/null)
-    if [ "$LOGIN_STATUS" = "200" ]; then
-      echo -e "  ${GREEN}✓${NC} Compte service Penpot deja cree"
-    else
-      # Créer le profil service
-      CREATE_STATUS=$(curl -sf -o /dev/null -w "%{http_code}" http://localhost:6060/api/rpc/command/prepare-register-profile \
-        -H "Content-Type: application/json" \
-        -d "{\"email\":\"loriax-system@loriax.dev\",\"password\":\"${PENPOT_SECRET_KEY}\",\"fullname\":\"LorIAx System\"}" 2>/dev/null)
-      if [ "$CREATE_STATUS" = "200" ]; then
-        # Finaliser l'enregistrement (Penpot 2.x requiert un token de confirmation)
-        REGISTER_TOKEN=$(curl -sf http://localhost:6060/api/rpc/command/prepare-register-profile \
-          -H "Content-Type: application/json" \
-          -d "{\"email\":\"loriax-system@loriax.dev\",\"password\":\"${PENPOT_SECRET_KEY}\",\"fullname\":\"LorIAx System\"}" 2>/dev/null | python3 -c "import sys,json;print(json.loads(sys.stdin.read().replace('\"~:','\"').replace('\"^ \",',''))['token'])" 2>/dev/null)
-        if [ -n "$REGISTER_TOKEN" ]; then
-          curl -sf http://localhost:6060/api/rpc/command/register-profile \
-            -H "Content-Type: application/json" \
-            -d "{\"token\":\"${REGISTER_TOKEN}\"}" >/dev/null 2>&1
-        fi
-        echo -e "  ${GREEN}✓${NC} Compte service Penpot cree"
-      else
-        echo -e "  ${YELLOW}⚠${NC}  Impossible de creer le compte service Penpot (status: $CREATE_STATUS)"
-      fi
-    fi
-  fi
-fi
-
 # ----------------------------------------------------------
 # 6. Schema BDD (Drizzle push)
 # ----------------------------------------------------------
 echo -e "${BLUE}[6/7]${NC} Schema BDD (Drizzle push)..."
+
+# Avant le push, qui détruit sans garde toute table absente de schema.ts :
+# extension pg_trgm (index de media) puis retrait gardé de attachments et studio_images
+npx tsx --env-file=.env.local scripts/migrate-media.ts 2>&1 | while read -r line; do
+  echo "  $line"
+done
+# Seule cette étape est stricte : PIPESTATUS lit le code de la garde, pas celui de la boucle d'affichage.
+npx tsx --env-file=.env.local scripts/retire-attachments.ts 2>&1 | while read -r line; do
+  echo "  $line"
+done
+GUARD_STATUS=${PIPESTATUS[0]}
+if [ "$GUARD_STATUS" -ne 0 ]; then
+  echo -e "  ${RED}✗${NC} retrait de attachments refusé par la garde (code $GUARD_STATUS), push du schéma annulé"
+  exit 1
+fi
 
 # drizzle-kit push nécessite un TTY interactif — utilise --force pour éviter les prompts
 DATABASE_URL=$(grep DATABASE_URL .env.local 2>/dev/null | head -1 | cut -d= -f2-)
@@ -308,6 +257,14 @@ echo -e "  ${GREEN}✓${NC} Schema applique"
 # Enregistrer les migrations dans le registre Drizzle
 # (évite que server.ts tente de les rejouer au démarrage)
 npx tsx --env-file=.env.local scripts/mark-migrations-applied.ts 2>&1 | while read -r line; do
+  echo "  $line"
+done
+
+# Historique de ligne (0054) : hors migrator embarqué
+npx tsx --env-file=.env.local scripts/migrate-row-history.ts 2>&1 | while read -r line; do
+  echo "  $line"
+done
+npx tsx --env-file=.env.local scripts/migrate-row-comments.ts 2>&1 | while read -r line; do
   echo "  $line"
 done
 
@@ -336,9 +293,6 @@ echo -e "  ${BLUE}○${NC}  Drizzle Studio  npx drizzle-kit studio"
 if [ -n "$LIVEKIT_ENABLED" ]; then
   echo -e "  ${BLUE}○${NC}  LiveKit         ws://localhost:7880"
   echo -e "  ${BLUE}○${NC}  Whisper         http://localhost:9000"
-fi
-if [ -n "$PENPOT_ENABLED" ]; then
-  echo -e "  ${BLUE}○${NC}  Penpot          http://localhost:9002"
 fi
 echo ""
 echo -e "  ${YELLOW}Ctrl+C${NC} pour arrêter Next.js  ·  ${YELLOW}docker compose down${NC} pour Docker"

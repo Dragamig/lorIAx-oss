@@ -16,12 +16,14 @@ const Excalidraw = dynamic(
 
 interface WhiteboardModalProps {
   canvasId: string;
+  /** Document porteur — requis à la création du canevas côté serveur. */
+  documentId?: string;
   title: string;
   onClose: (thumbnailUrl?: string) => void;
 }
 
-export function WhiteboardModal({ canvasId, title, onClose }: WhiteboardModalProps) {
-  const { initialElements, onExcalidrawChange, isSynced } = useWhiteboardSync(canvasId);
+export function WhiteboardModal({ canvasId, documentId, title, onClose }: WhiteboardModalProps) {
+  const { initialElements, onExcalidrawChange, isSynced } = useWhiteboardSync(canvasId, documentId);
   const { libraryItems, onLibraryChange, isLoaded } = useWhiteboardLibrary();
   const { darkMode: isDark } = useTheme();
 
@@ -58,7 +60,14 @@ export function WhiteboardModal({ canvasId, title, onClose }: WhiteboardModalPro
 
       const dataUrl = await new Promise<string>((resolve) => {
         const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result as string);
+        reader.onloadend = () => {
+          const result = reader.result;
+          if (typeof result !== 'string') {
+            onClose();
+            return;
+          }
+          resolve(result);
+        };
         reader.readAsDataURL(blob);
       });
 

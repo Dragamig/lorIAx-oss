@@ -26,7 +26,12 @@ export async function PUT(req: NextRequest) {
   if (!user || !hasGlobalRole(user.globalRole, "admin"))
     return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
 
-  const body = await req.json();
+  let body;
+  try {
+    body = await req.json();
+  } catch (e) {
+    return NextResponse.json({ error: "JSON invalide" }, { status: 400 });
+  }
   if (typeof body !== "object" || body === null || Array.isArray(body))
     return NextResponse.json({ error: "Format invalide" }, { status: 400 });
 

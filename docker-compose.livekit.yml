@@ -1,70 +1,91 @@
 # ============================================================
-# LorIAx — LiveKit + Egress + Whisper (override optionnel)
-# Usage : docker compose -f docker-compose.yml -f docker-compose.livekit.yml up -d
+# LorIAx : visioconférence LiveKit, enregistrement et transcription
+# Complément optionnel de docker-compose.yml :
+#   docker compose -f docker-compose.yml -f docker-compose.livekit.yml up -d
+#
+# Prérequis dans .env :
+#   LIVEKIT_ENABLED=true
+#   LIVEKIT_URL=wss://visio.exemple.fr   (URL WebSocket publique, jointe depuis le navigateur)
+#   WHISPER_ENABLED=true                 (transcription des réunions, facultatif)
+# LIVEKIT_API_KEY et LIVEKIT_API_SECRET sont générés par scripts/generate-env.sh.
+#
+# Ports à ouvrir sur le pare-feu : 7880/tcp (signalisation, derrière le reverse
+# proxy), 7881/tcp et 50000-50050/udp (média WebRTC).
+# Transcription par GPU (Voxtral) : ajouter --profile voxtral.
 # ============================================================
-#
-# Prérequis :
-# - Définir LIVEKIT_ENABLED=true dans .env.local
-# - Définir WHISPER_ENABLED=true dans .env.local (optionnel, pour la transcription)
-#
 
 services:
-  # Redis — Bus de messages LiveKit ↔ Egress
+  # L'application lit les enregistrements et joint les services de transcription
+  app:
+    environment:
+      LIVEKIT_EGRESS_PATH: /recordings
+      WHISPER_API_URL: http://whisper:8000
+      VOXTRAL_API_URL: http://voxtral:9001
+    volumes:
+      - recordings:/recordings
+
+  # Bus de messages entre LiveKit et Egress
   livekit-redis:
     image: redis:7-alpine
-    networks:
-      - backend
-    restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
+    mem_limit: 128m
+    restart: unless-stopped
+    networks:
+      - loriax
 
-  # LiveKit — Serveur SFU (WebRTC)
+  # Serveur SFU WebRTC. Les clés d'API viennent de LIVEKIT_KEYS, jamais du fichier de configuration.
   livekit:
-    image: livekit/livekit-server:latest
+    image: livekit/livekit-server:v1.13.1
     command: --config /etc/livekit.yaml
+    environment:
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY:?LIVEKIT_API_KEY manquant, lancer scripts/generate-env.sh}: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET manquant, lancer scripts/generate-env.sh}"
     ports:
-      - "7880:7880"
+      - "127.0.0.1:7880:7880"
       - "7881:7881"
-      - "7882:7882/udp"
+      - "50000-50050:50000-50050/udp"
     volumes:
-      - ./docker/livekit/livekit.yaml:/etc/livekit.yaml:ro
+      - ./docker/livekit/livekit.prod.yaml:/etc/livekit.yaml:ro
     depends_on:
       livekit-redis:
         condition: service_healthy
-    networks:
-      - frontend
-      - backend
+    mem_limit: 512m
     restart: unless-stopped
+    networks:
+      - loriax
 
-  # LiveKit Egress — Enregistrement des réunions
+  # Egress : enregistrement audio des réunions
   livekit-egress:
-    image: livekit/egress:latest
+    image: livekit/egress:v1.13.0
     environment:
-      EGRESS_CONFIG_FILE: /etc/egress.yaml
+      EGRESS_CONFIG_BODY: |
+        api_key: ${LIVEKIT_API_KEY:?LIVEKIT_API_KEY manquant, lancer scripts/generate-env.sh}
+        api_secret: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET manquant, lancer scripts/generate-env.sh}
+        ws_url: ws://livekit:7880
+        redis:
+          address: livekit-redis:6379
+        file_output:
+          local:
+            - /recordings
     volumes:
-      - ./docker/livekit/egress.yaml:/etc/egress.yaml:ro
-      - ./data/recordings:/recordings
+      - recordings:/recordings
     depends_on:
       livekit-redis:
         condition: service_healthy
       livekit:
         condition: service_started
-    networks:
-      - backend
+    mem_limit: 1g
     restart: unless-stopped
+    networks:
+      - loriax
 
-  # Faster-Whisper (Speaches) — Transcription audio
-  # Image : speaches-ai/speaches — Faster-Whisper via CTranslate2 (x4 plus rapide)
-  # API OpenAI-compatible : POST /v1/audio/transcriptions
-  # Modèles HF Hub : Systran/faster-whisper-{tiny,base,small,medium,large-v3}
+  # Transcription audio : Faster-Whisper (Speaches), API compatible OpenAI sur CPU
   whisper:
-    image: ghcr.io/speaches-ai/speaches:latest-cpu
+    image: ghcr.io/speaches-ai/speaches:0.9.0-rc.3-cpu
     user: "1000:1000"
-    ports:
-      - "9000:8000"
     environment:
       UVICORN_HOST: "0.0.0.0"
       UVICORN_PORT: "8000"
@@ -74,33 +95,21 @@ services:
       HF_TOKEN: ${HF_TOKEN:-}
     volumes:
       - whisper_cache:/home/ubuntu/.cache/huggingface/hub
-    networks:
-      - backend
+    mem_limit: 4g
     restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 4G
+    networks:
+      - loriax
 
-  # Voxtral Realtime — STT Mistral via vLLM (requiert GPU >= 16 Go VRAM)
-  # Désactivé par défaut (profil Docker). Pour activer :
-  #   docker compose -f docker-compose.yml -f docker-compose.livekit.yml --profile voxtral up -d
-  # Puis mettre VOXTRAL_ENABLED=true et TRANSCRIPTION_ENGINE=voxtral dans .env.local
+  # Transcription Voxtral (Mistral) via vLLM : GPU NVIDIA de 16 Go de VRAM minimum
   voxtral:
     profiles: ["voxtral"]
-    build:
-      context: ./docker/voxtral
-    ports:
-      - "9001:9001"
+    build: ./docker/voxtral
     environment:
       VOXTRAL_MODEL: ${VOXTRAL_MODEL:-mistralai/Voxtral-Mini-4B-Realtime-2602}
       HF_TOKEN: ${HF_TOKEN:-}
       VLLM_PORT: "8000"
     volumes:
       - voxtral_cache:/root/.cache/huggingface
-    networks:
-      - backend
-    restart: unless-stopped
     deploy:
       resources:
         reservations:
@@ -108,9 +117,12 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
-        limits:
-          memory: 24G
+    mem_limit: 24g
+    restart: unless-stopped
+    networks:
+      - loriax
 
 volumes:
+  recordings:
   whisper_cache:
   voxtral_cache:

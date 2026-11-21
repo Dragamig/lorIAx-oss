@@ -3,10 +3,12 @@
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { PresenceBadge } from "@/components/ui/presence-badge";
 import { useTeamStatus } from "@/hooks/use-team-status";
+import { useTranslations } from "next-intl";
 import { CollapsibleSection } from "./collapsible-section";
 import { Users } from "lucide-react";
 
 export function TeamMembersSection() {
+  const t = useTranslations("shell.sidebar");
   const { members, isLoading } = useTeamStatus();
 
   // Afficher uniquement si au moins un membre actif
@@ -19,7 +21,7 @@ export function TeamMembersSection() {
   if (!isLoading && activeMembers.length === 0) return null;
 
   return (
-    <CollapsibleSection id="team-members" title="Membres actifs" icon={Users}>
+    <CollapsibleSection id="team-members" title={t("teamMembers")} icon={Users}>
       <div className="space-y-1 px-2 pb-2">
         {activeMembers.map((m) => (
           <div key={m.userId} className="flex items-center gap-2 py-1 px-1 rounded-md hover:bg-sidebar-accent">

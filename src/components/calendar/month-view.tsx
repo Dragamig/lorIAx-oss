@@ -1,5 +1,7 @@
 "use client";
 
+import { useMemo } from "react";
+import { useTranslations, useFormatter } from "next-intl";
 import type { CalendarEvent, Calendar } from "@/types";
 
 interface MonthViewProps {
@@ -10,8 +12,6 @@ interface MonthViewProps {
   onEventClick: (event: CalendarEvent) => void;
   onDateClick: (date: Date) => void;
 }
-
-const DAY_NAMES = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 
 function getMonthGrid(date: Date): Date[][] {
   const year = date.getFullYear();
@@ -53,6 +53,10 @@ function isToday(date: Date): boolean {
   return isSameDay(date, new Date());
 }
 
+// Reference week (a Monday-to-Sunday week) for computing weekday labels
+// Use a fixed reference: week of Mon 2 – Sun 8 Jan 2023
+const REF_WEEK_MONDAY = new Date(2023, 0, 2); // Monday
+
 export default function MonthView({
   currentDate,
   events,
@@ -61,8 +65,19 @@ export default function MonthView({
   onEventClick,
   onDateClick,
 }: MonthViewProps) {
+  const t = useTranslations("calendar");
+  const format = useFormatter();
   const weeks = getMonthGrid(currentDate);
   const currentMonth = currentDate.getMonth();
+
+  // Compute locale-aware weekday labels (Mon–Sun order)
+  const dayNames = useMemo(() => {
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(REF_WEEK_MONDAY);
+      d.setDate(REF_WEEK_MONDAY.getDate() + i);
+      return format.dateTime(d, { weekday: "short" });
+    });
+  }, [format]);
 
   const calColorMap = new Map(calendars.map((c) => [c.id, c.color]));
 
@@ -82,7 +97,7 @@ export default function MonthView({
     <div className="flex flex-col flex-1 overflow-hidden">
       {/* Day headers */}
       <div className="grid grid-cols-7 border-b border-border">
-        {DAY_NAMES.map((name) => (
+        {dayNames.map((name) => (
           <div
             key={name}
             className="text-center text-xs font-medium text-muted-foreground py-2"
@@ -141,7 +156,7 @@ export default function MonthView({
                     ))}
                     {overflow > 0 && (
                       <span className="text-[10px] text-muted-foreground px-1">
-                        +{overflow} autres
+                        {t("monthView.moreEvents", { count: overflow })}
                       </span>
                     )}
                   </div>

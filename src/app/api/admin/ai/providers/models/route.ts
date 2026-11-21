@@ -1,99 +1,35 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/get-user";
-import { hasGlobalRole } from "@/lib/auth/rbac";
-import { safeFetch } from "@/lib/security/safe-fetch";
+import { hasGlobalRole, INSTANCE_ADMIN_ONLY_MESSAGE } from "@/lib/auth/rbac";
+import { detectModels } from "@/lib/ai/detect-models";
 
-export const runtime = "nodejs";
-
+/**
+ * Détection de modèles sur une URL et une clé d'API fournies dans le CORPS de
+ * la requête : la route émet une requête sortante vers une cible choisie par
+ * l'appelant et lui relaie le résultat. Depuis l'ADR-079 (2026-08-20),
+ * `admin` n'est plus un rôle d'instance, donc la laisser ouverte à ce rôle
+ * revenait à donner un scanner de réseau interne à tout administrateur
+ * d'organisation. Réservée à `super_admin`.
+ */
 export async function POST(request: NextRequest) {
   const user = await getSessionUser();
-  if (!user || !hasGlobalRole(user.globalRole, "admin")) {
-    return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+  if (!user || !hasGlobalRole(user.globalRole, "super_admin")) {
+    return NextResponse.json(
+      { error: INSTANCE_ADMIN_ONLY_MESSAGE },
+      { status: 403 }
+    );
   }
 
   const { apiBaseUrl, apiKey, connectorType } = await request.json();
 
-  // Pour Mistral, utiliser l'URL officielle par défaut
-  const effectiveBaseUrl =
-    connectorType === "mistral" && !apiBaseUrl
-      ? "https://api.mistral.ai"
-      : apiBaseUrl;
+  const result = await detectModels({ connectorType, apiBaseUrl, apiKey });
 
-  if (!effectiveBaseUrl) {
+  if (result.models.length === 0) {
     return NextResponse.json(
-      { error: "L'URL de base est requise" },
-      { status: 400 }
+      { error: result.error || "Impossible de récupérer la liste des modèles" },
+      { status: 502 }
     );
   }
 
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (apiKey) {
-    headers["Authorization"] = `Bearer ${apiKey}`;
-  }
-
-  // L'URL sondée ici vient du corps de la requête : c'est une entrée
-  // utilisateur, même si l'utilisateur est administrateur. La dérogation réseau
-  // privé n'est donc accordée que si les DEUX conditions sont réunies :
-  //   1. l'appelant est super_admin, c'est-à-dire l'exploitant de l'instance
-  //      (le rôle admin est un administrateur côté client sur une instance
-  //      multi-organisations, il ne doit pas pouvoir sonder le réseau de
-  //      l'hébergeur) ;
-  //   2. l'exploitant n'a pas désactivé la dérogation via
-  //      AI_PROVIDER_ALLOW_PRIVATE=false.
-  // Sans dérogation, la détection de modèles reste possible sur toute cible
-  // publique ; seul un fournisseur auto-hébergé sur adresse privée est refusé.
-  const allowPrivate =
-    hasGlobalRole(user.globalRole, "super_admin") &&
-    process.env.AI_PROVIDER_ALLOW_PRIVATE !== "false";
-
-  // 1. Try OpenAI-compatible /v1/models
-  try {
-    const url = `${effectiveBaseUrl.replace(/\/+$/, "")}/v1/models`;
-    const res = await safeFetch(url, {
-      headers,
-      timeoutMs: 10_000,
-      allowPrivate,
-    });
-
-    if (res.ok) {
-      const data = await res.json();
-      const models: string[] = (data.data || []).map(
-        (m: { id: string }) => m.id
-      );
-      if (models.length > 0) {
-        return NextResponse.json({ models: models.sort() });
-      }
-    }
-  } catch {
-    // Try next strategy
-  }
-
-  // 2. Try Ollama-specific /api/tags
-  try {
-    const url = `${effectiveBaseUrl.replace(/\/+$/, "")}/api/tags`;
-    const res = await safeFetch(url, {
-      headers,
-      timeoutMs: 10_000,
-      allowPrivate,
-    });
-
-    if (res.ok) {
-      const data = await res.json();
-      const models: string[] = (data.models || []).map(
-        (m: { name: string }) => m.name
-      );
-      if (models.length > 0) {
-        return NextResponse.json({ models: models.sort() });
-      }
-    }
-  } catch {
-    // Both strategies failed
-  }
-
-  return NextResponse.json(
-    { error: "Impossible de récupérer la liste des modèles" },
-    { status: 502 }
-  );
+  return NextResponse.json({ models: result.models, details: result.details });
 }

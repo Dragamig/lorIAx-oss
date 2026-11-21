@@ -1,0 +1,16 @@
+# LiveKit — configuration production (stack média)
+# Les clés API ne sont PAS ici : injectées via l'env LIVEKIT_KEYS
+# (le fichier compose qui monte cette configuration définit LIVEKIT_KEYS).
+port: 7880
+rtc:
+  # Plage UDP publiée sur l'hôte pour le média WebRTC (à ouvrir au firewall).
+  port_range_start: 50000
+  port_range_end: 50050
+  tcp_port: 7881
+  # Annonce l'IP publique du VPS dans les candidats ICE (indispensable
+  # derrière un reverse proxy / NAT).
+  use_external_ip: true
+redis:
+  address: livekit-redis:6379
+logging:
+  level: info

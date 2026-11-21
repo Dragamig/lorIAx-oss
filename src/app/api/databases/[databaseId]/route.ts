@@ -4,40 +4,32 @@ import {
   userDatabases,
   userDatabaseColumns,
   userDatabaseRows,
+  userDatabaseGroups,
 } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
-import { getSessionUser } from "@/lib/auth/get-user";
-import { checkSpaceViewAccess, checkSpaceEditAccess } from "@/lib/auth/check-access";
+import { eq, sql } from "drizzle-orm";
+import { requireOrgScoped, OrgScopeError } from "@/lib/auth/require-org-scoped";
 import { z } from "zod";
-
-async function getDatabase(databaseId: string) {
-  const [database] = await db
-    .select()
-    .from(userDatabases)
-    .where(eq(userDatabases.id, databaseId))
-    .limit(1);
-  return database ?? null;
-}
+import { unpairColumnsOfDeletedDatabase } from "@/lib/databases/relation-columns";
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ databaseId: string }> }
 ) {
-  const user = await getSessionUser();
-  if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
-
   const { databaseId } = await params;
-  const database = await getDatabase(databaseId);
-  if (!database) {
-    return NextResponse.json({ error: "Base introuvable" }, { status: 404 });
+  try {
+    await requireOrgScoped({ resource: { type: "database", id: databaseId }, minPermission: "viewer" });
+  } catch (e) {
+    if (e instanceof OrgScopeError) return e.response;
+    throw e;
   }
 
-  // Le PATCH et le DELETE verifiaient l'espace, pas le GET : l'identifiant de base
-  // suffisait a lire toutes les colonnes et toutes les lignes. Mode `member` : voir
-  // la note de GET /api/databases, une base n'est pas filtrable par classification.
-  const canView = await checkSpaceViewAccess(user, database.spaceId, "member");
-  if (!canView) {
-    return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+  const [database] = await db
+    .select()
+    .from(userDatabases)
+    .where(eq(userDatabases.id, databaseId))
+    .limit(1);
+  if (!database) {
+    return NextResponse.json({ error: "Introuvable" }, { status: 404 });
   }
 
   const [columns, rows] = await Promise.all([
@@ -59,24 +51,22 @@ export async function GET(
 const updateSchema = z.object({
   name: z.string().min(1).optional(),
   description: z.string().optional(),
+  groupId: z.string().uuid().nullable().optional(),
 });
 
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ databaseId: string }> }
 ) {
-  const user = await getSessionUser();
-  if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
-
   const { databaseId } = await params;
-  const database = await getDatabase(databaseId);
-  if (!database) {
-    return NextResponse.json({ error: "Base introuvable" }, { status: 404 });
-  }
-
-  const canEdit = await checkSpaceEditAccess(user, database.spaceId);
-  if (!canEdit) {
-    return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+  try {
+    await requireOrgScoped({
+      resource: { type: "database", id: databaseId },
+      minPermission: "editor",
+    });
+  } catch (e) {
+    if (e instanceof OrgScopeError) return e.response;
+    throw e;
   }
 
   const body = await request.json();
@@ -88,11 +78,37 @@ export async function PATCH(
     );
   }
 
+  // Intégrité : si on rattache la base à un groupe, ce groupe doit appartenir
+  // au même espace que la base (sinon une base pourrait référencer un groupe
+  // d'un autre espace de l'org — incohérence d'affichage).
+  if (parsed.data.groupId) {
+    const [base] = await db
+      .select({ spaceId: userDatabases.spaceId })
+      .from(userDatabases)
+      .where(eq(userDatabases.id, databaseId))
+      .limit(1);
+    const [group] = await db
+      .select({ spaceId: userDatabaseGroups.spaceId })
+      .from(userDatabaseGroups)
+      .where(eq(userDatabaseGroups.id, parsed.data.groupId))
+      .limit(1);
+    if (!group || !base || group.spaceId !== base.spaceId) {
+      return NextResponse.json(
+        { error: "Groupe invalide pour cet espace" },
+        { status: 400 }
+      );
+    }
+  }
+
   const [updated] = await db
     .update(userDatabases)
     .set({ ...parsed.data, updatedAt: new Date() })
     .where(eq(userDatabases.id, databaseId))
     .returning();
+
+  if (!updated) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
 
   return NextResponse.json(updated);
 }
@@ -101,21 +117,25 @@ export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ databaseId: string }> }
 ) {
-  const user = await getSessionUser();
-  if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
-
   const { databaseId } = await params;
-  const database = await getDatabase(databaseId);
-  if (!database) {
-    return NextResponse.json({ error: "Base introuvable" }, { status: 404 });
+  try {
+    await requireOrgScoped({
+      resource: { type: "database", id: databaseId },
+      minPermission: "editor",
+    });
+  } catch (e) {
+    if (e instanceof OrgScopeError) return e.response;
+    throw e;
   }
 
-  const canEdit = await checkSpaceEditAccess(user, database.spaceId);
-  if (!canEdit) {
-    return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
-  }
-
-  await db.delete(userDatabases).where(eq(userDatabases.id, databaseId));
+  // Les colonnes jumelles situées dans d'autres bases redeviennent des relations simples.
+  await db.transaction(async (tx) => {
+    // Même verrou que la création de colonne jumelée : pas de jumelage concurrent
+    // pendant la lecture et le dé-jumelage.
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${databaseId}, 0))`);
+    await unpairColumnsOfDeletedDatabase(tx, databaseId);
+    await tx.delete(userDatabases).where(eq(userDatabases.id, databaseId));
+  });
 
   return NextResponse.json({ ok: true });
 }

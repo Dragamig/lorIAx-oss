@@ -38,7 +38,8 @@ const CALLOUT_LABELS: Record<CalloutType, string> = {
 const CALLOUT_TYPES: CalloutType[] = ["info", "warning", "success", "error"];
 
 const CalloutView = ({ node, updateAttributes, editor }: NodeViewProps) => {
-  const calloutType: CalloutType = node.attrs.calloutType || "info";
+  const rawCalloutType = node.attrs.calloutType ?? "info";
+  const calloutType: CalloutType = (typeof rawCalloutType === "string" && CALLOUT_TYPES.includes(rawCalloutType as CalloutType)) ? (rawCalloutType as CalloutType) : "info";
   const emoji = node.attrs.emoji || CALLOUT_EMOJIS[calloutType];
   const editable = editor?.isEditable;
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);

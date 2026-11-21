@@ -84,7 +84,11 @@ export function TeamPanel() {
   const toggleOpen = () => {
     setOpen((v) => {
       const next = !v;
-      localStorage.setItem(STORAGE_KEY, String(next));
+      try {
+        localStorage.setItem(STORAGE_KEY, String(next));
+      } catch (e) {
+        console.warn('localStorage unavailable');
+      }
       return next;
     });
   };

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { X, Clock, MapPin, AlignLeft, Repeat, Bell, Video } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -34,22 +35,6 @@ export interface EventFormData {
   meetingSpaceId?: string;
 }
 
-const RECURRENCE_PRESETS = [
-  { label: "Aucune", value: "" },
-  { label: "Tous les jours", value: "FREQ=DAILY" },
-  { label: "Chaque semaine", value: "FREQ=WEEKLY" },
-  { label: "Chaque mois", value: "FREQ=MONTHLY" },
-  { label: "Chaque année", value: "FREQ=YEARLY" },
-  { label: "Jours ouvrés", value: "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR" },
-];
-
-const REMINDER_PRESETS = [
-  { label: "15 minutes", value: 15 },
-  { label: "30 minutes", value: 30 },
-  { label: "1 heure", value: 60 },
-  { label: "1 jour", value: 1440 },
-];
-
 function toLocalDatetime(date: Date): string {
   const d = new Date(date);
   d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
@@ -70,6 +55,7 @@ export default function EventFormDialog({
   defaultMeeting,
   spaceId,
 }: EventFormDialogProps) {
+  const t = useTranslations("calendar");
   const defaultStart = initialDate || new Date();
   const defaultEnd = addHour(defaultStart);
 
@@ -103,7 +89,7 @@ export default function EventFormDialog({
       await onSave(form);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur lors de la sauvegarde");
+      setError(err instanceof Error ? err.message : t("eventForm.saveError"));
     } finally {
       setSaving(false);
     }
@@ -112,6 +98,22 @@ export default function EventFormDialog({
   const update = (key: keyof EventFormData, value: string | boolean) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
+
+  const recurrencePresets = [
+    { label: t("eventForm.recurrence.none"), value: "" },
+    { label: t("eventForm.recurrence.daily"), value: "FREQ=DAILY" },
+    { label: t("eventForm.recurrence.weekly"), value: "FREQ=WEEKLY" },
+    { label: t("eventForm.recurrence.monthly"), value: "FREQ=MONTHLY" },
+    { label: t("eventForm.recurrence.yearly"), value: "FREQ=YEARLY" },
+    { label: t("eventForm.recurrence.workdays"), value: "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR" },
+  ];
+
+  const reminderPresets = [
+    { label: t("eventForm.reminder.15min"), value: 15 },
+    { label: t("eventForm.reminder.30min"), value: 30 },
+    { label: t("eventForm.reminder.1hour"), value: 60 },
+    { label: t("eventForm.reminder.1day"), value: 1440 },
+  ];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
@@ -122,9 +124,9 @@ export default function EventFormDialog({
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-border">
           <h2 className="text-base font-semibold">
-            {event ? "Modifier l'événement" : "Nouvel événement"}
+            {event ? t("eventForm.titleEdit") : t("eventForm.titleNew")}
           </h2>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose} title="Fermer">
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose} title={t("eventForm.closeAria")}>
             <X className="h-4 w-4" />
           </Button>
         </div>
@@ -132,7 +134,7 @@ export default function EventFormDialog({
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
           {/* Title */}
           <Input
-            placeholder="Titre de l'événement"
+            placeholder={t("eventForm.titlePlaceholder")}
             value={form.title}
             onChange={(e) => update("title", e.target.value)}
             className="text-lg font-medium border-0 border-b rounded-none px-0 focus-visible:ring-0"
@@ -165,7 +167,7 @@ export default function EventFormDialog({
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <Clock className="h-4 w-4 text-muted-foreground" />
-              <Label className="text-sm text-muted-foreground">Horaires</Label>
+              <Label className="text-sm text-muted-foreground">{t("eventForm.scheduleLabel")}</Label>
               <label className="flex items-center gap-1 ml-auto text-xs">
                 <input
                   type="checkbox"
@@ -173,7 +175,7 @@ export default function EventFormDialog({
                   onChange={(e) => update("allDay", e.target.checked)}
                   className="rounded"
                 />
-                Journée entière
+                {t("eventForm.allDay")}
               </label>
             </div>
             <div className="grid grid-cols-2 gap-2 ml-6">
@@ -196,7 +198,7 @@ export default function EventFormDialog({
           <div className="flex items-center gap-2">
             <MapPin className="h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Lieu"
+              placeholder={t("eventForm.locationPlaceholder")}
               value={form.location}
               onChange={(e) => update("location", e.target.value)}
               className="border-0 border-b rounded-none px-0 focus-visible:ring-0 text-sm"
@@ -207,7 +209,7 @@ export default function EventFormDialog({
           <div className="flex items-start gap-2">
             <AlignLeft className="h-4 w-4 text-muted-foreground mt-2" />
             <textarea
-              placeholder="Description"
+              placeholder={t("eventForm.descriptionPlaceholder")}
               value={form.description}
               onChange={(e) => update("description", e.target.value)}
               className="flex-1 text-sm bg-transparent border border-border rounded px-3 py-2 resize-none min-h-[60px]"
@@ -222,7 +224,7 @@ export default function EventFormDialog({
               onChange={(e) => update("recurrenceRule", e.target.value)}
               className="text-sm bg-transparent border border-border rounded px-2 py-1"
             >
-              {RECURRENCE_PRESETS.map((p) => (
+              {recurrencePresets.map((p) => (
                 <option key={p.value} value={p.value}>
                   {p.label}
                 </option>
@@ -240,7 +242,7 @@ export default function EventFormDialog({
                 onChange={(e) => update("isMeeting", e.target.checked)}
                 className="rounded"
               />
-              Réunion visio
+              {t("eventForm.meeting")}
             </label>
           </div>
 
@@ -252,9 +254,9 @@ export default function EventFormDialog({
               onChange={(e) => setReminders([parseInt(e.target.value)])}
               className="text-sm bg-transparent border border-border rounded px-2 py-1"
             >
-              {REMINDER_PRESETS.map((p) => (
+              {reminderPresets.map((p) => (
                 <option key={p.value} value={p.value}>
-                  {p.label} avant
+                  {p.label}
                 </option>
               ))}
             </select>
@@ -267,18 +269,18 @@ export default function EventFormDialog({
               onChange={(e) => update("visibility", e.target.value)}
               className="text-xs bg-transparent border border-border rounded px-2 py-1"
             >
-              <option value="public">Public</option>
-              <option value="private">Privé</option>
-              <option value="confidential">Confidentiel</option>
+              <option value="public">{t("eventForm.visibility.public")}</option>
+              <option value="private">{t("eventForm.visibility.private")}</option>
+              <option value="confidential">{t("eventForm.visibility.confidential")}</option>
             </select>
             <select
               value={form.status}
               onChange={(e) => update("status", e.target.value)}
               className="text-xs bg-transparent border border-border rounded px-2 py-1"
             >
-              <option value="confirmed">Confirmé</option>
-              <option value="tentative">Provisoire</option>
-              <option value="cancelled">Annulé</option>
+              <option value="confirmed">{t("eventForm.status.confirmed")}</option>
+              <option value="tentative">{t("eventForm.status.tentative")}</option>
+              <option value="cancelled">{t("eventForm.status.cancelled")}</option>
             </select>
           </div>
 
@@ -288,10 +290,10 @@ export default function EventFormDialog({
           )}
           <div className="flex justify-end gap-2 pt-2 border-t border-border">
             <Button variant="ghost" type="button" onClick={onClose}>
-              Annuler
+              {t("eventForm.cancel")}
             </Button>
             <Button type="submit" disabled={saving || !form.title.trim()}>
-              {saving ? "Enregistrement..." : event ? "Modifier" : "Créer"}
+              {saving ? t("eventForm.saving") : event ? t("eventForm.update") : t("eventForm.save")}
             </Button>
           </div>
         </form>

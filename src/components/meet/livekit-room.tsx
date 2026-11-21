@@ -12,19 +12,22 @@ import {
   useLocalParticipant,
   useTrackVolume,
 } from "@livekit/components-react";
-import { Track } from "livekit-client";
+import { type LocalAudioTrack, Track } from "livekit-client";
 import "@livekit/components-styles";
+import { EditorBlockErrorBoundary } from "@/components/editor/editor-error-boundary";
 import { RecordingOverlay } from "./recording-overlay";
 import { MobileConferenceLayout } from "./mobile-conference-layout";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useTranslations } from "next-intl";
 
 function RoomLoader() {
+  const t = useTranslations("meet.livekit");
   return (
     <div className="flex h-[600px] items-center justify-center rounded-lg bg-muted/50">
       <div className="text-center">
         <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
         <p className="text-sm text-muted-foreground">
-          Chargement de la visioconference...
+          {t("loading")}
         </p>
       </div>
     </div>
@@ -34,21 +37,31 @@ function RoomLoader() {
 /**
  * VU meter showing local microphone level.
  * Must be rendered inside a <LiveKitRoom>.
+ *
+ * Uses microphoneTrack from useLocalParticipant() directly — more stable than
+ * calling getTrackPublications().find() and constructing a TrackReference manually.
+ * The track is passed as LocalAudioTrack directly to useTrackVolume, which is
+ * the cleaner API (avoids the TrackReference wrapper).
  */
-function AudioLevelIndicator() {
-  const { localParticipant } = useLocalParticipant();
-  const micTrack = localParticipant
-    .getTrackPublications()
-    .find((t) => t.source === Track.Source.Microphone);
+function AudioLevelIndicatorInner() {
+  const t = useTranslations("meet.livekit");
+  const { microphoneTrack } = useLocalParticipant();
 
-  const volume = useTrackVolume(micTrack?.track ? { participant: localParticipant, publication: micTrack, source: Track.Source.Microphone } : undefined);
+  // Cast is safe: microphoneTrack.track is always a LocalAudioTrack (microphone = audio)
+  const audioTrack = microphoneTrack?.track as LocalAudioTrack | undefined;
 
-  const isMuted = !micTrack?.track || micTrack.isMuted;
+  // Pass the track directly — useTrackVolume accepts LocalAudioTrack | undefined
+  const volume = useTrackVolume(audioTrack);
+
+  const isMuted = !audioTrack || microphoneTrack?.isMuted === true;
   const barCount = 8;
-  const level = isMuted ? 0 : Math.min(volume, 1);
+  const level = isMuted ? 0 : Math.min(volume ?? 0, 1);
 
   return (
-    <div className="absolute bottom-3 left-3 z-50 flex items-end gap-0.5 rounded bg-black/60 px-2 py-1.5" title={isMuted ? "Micro coupé" : `Niveau micro : ${Math.round(level * 100)}%`}>
+    <div
+      className="absolute bottom-3 left-3 z-50 flex items-end gap-0.5 rounded bg-black/60 px-2 py-1.5"
+      title={isMuted ? t("micMuted") : t("micLevel", { level: Math.round(level * 100) })}
+    >
       {Array.from({ length: barCount }, (_, i) => {
         const threshold = (i + 1) / barCount;
         const active = level >= threshold;
@@ -66,9 +79,22 @@ function AudioLevelIndicator() {
         );
       })}
       {isMuted && (
-        <span className="ml-1.5 text-[10px] text-red-400 font-medium">MUET</span>
+        <span className="ml-1.5 text-[10px] text-red-400 font-medium">{t("muted")}</span>
       )}
     </div>
+  );
+}
+
+/**
+ * AudioLevelIndicator wrapped in its own error boundary.
+ * If the VU-meter crashes (e.g. AudioContext unavailable, hook version mismatch),
+ * the main conference layout is preserved and only the VU-meter silently disappears.
+ */
+function AudioLevelIndicator() {
+  return (
+    <EditorBlockErrorBoundary blockType="vu-meter">
+      <AudioLevelIndicatorInner />
+    </EditorBlockErrorBoundary>
   );
 }
 
@@ -131,6 +157,7 @@ export function LiveKitMeeting({
   preloadedToken,
   preloadedServerUrl,
 }: LiveKitMeetingProps) {
+  const t = useTranslations("meet.livekit");
   const [token, setToken] = useState<string | null>(preloadedToken ?? null);
   const [serverUrl, setServerUrl] = useState<string | null>(preloadedServerUrl ?? null);
   const [error, setError] = useState<string | null>(null);
@@ -141,9 +168,13 @@ export function LiveKitMeeting({
       return;
     }
 
+    const configError = t("configError");
+    const tokenError = t("tokenError");
+    const livekitNotConfigured = t("livekitNotConfigured");
+
     const configPromise = fetch("/api/meet/config")
       .then((res) => {
-        if (!res.ok) throw new Error("Impossible de charger la configuration");
+        if (!res.ok) throw new Error(configError);
         return res.json();
       })
       .then((data) => data.url as string);
@@ -155,9 +186,9 @@ export function LiveKitMeeting({
     }).then((res) => {
       if (!res.ok) {
         if (res.status === 503) {
-          throw new Error("LiveKit non configure sur le serveur");
+          throw new Error(livekitNotConfigured);
         }
-        throw new Error("Erreur de generation du token");
+        throw new Error(tokenError);
       }
       return res.json().then((data) => data.token as string);
     });
@@ -168,7 +199,7 @@ export function LiveKitMeeting({
         setToken(tkn);
       })
       .catch((err) => setError(err.message));
-  }, [roomName, preloadedToken, preloadedServerUrl]);
+  }, [roomName, preloadedToken, preloadedServerUrl, t]);
 
   const handleDisconnected = useCallback(() => {
     onDisconnected?.();
@@ -200,7 +231,11 @@ export function LiveKitMeeting({
       >
         <ConferenceLayout onDisconnect={handleDisconnected} />
         <AudioLevelIndicator />
-        {meetingId && <RecordingOverlay meetingId={meetingId} />}
+        {meetingId && (
+          <EditorBlockErrorBoundary blockType="recording-overlay">
+            <RecordingOverlay meetingId={meetingId} />
+          </EditorBlockErrorBoundary>
+        )}
       </LiveKitRoom>
     </div>
   );

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 import { useCurrentUser } from "@/hooks/use-session";
 import {
@@ -22,16 +23,17 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-const CATEGORIES = [
-  { value: "réunion", label: "Réunion", icon: "📅" },
-  { value: "projet", label: "Projet", icon: "🎯" },
-  { value: "commercial", label: "Commercial", icon: "🤝" },
-  { value: "documentation", label: "Documentation", icon: "📖" },
-  { value: "savoir", label: "Savoir", icon: "💡" },
-  { value: "personnel", label: "Personnel", icon: "👤" },
-  { value: "résolution", label: "Résolution", icon: "🔍" },
-  { value: "rapport", label: "Rapport", icon: "📊" },
-  { value: "général", label: "Général", icon: "📝" },
+// API slugs (stable, never translated) — i18n-ignore
+const CATEGORY_SLUGS = [
+  { value: "réunion", icon: "📅" }, // i18n-ignore — API slug
+  { value: "projet", icon: "🎯" },
+  { value: "commercial", icon: "🤝" },
+  { value: "documentation", icon: "📖" },
+  { value: "savoir", icon: "💡" },
+  { value: "personnel", icon: "👤" },
+  { value: "résolution", icon: "🔍" }, // i18n-ignore — API slug
+  { value: "rapport", icon: "📊" },
+  { value: "général", icon: "📝" }, // i18n-ignore — API slug
 ];
 
 interface SaveAsTemplateDialogProps {
@@ -49,13 +51,14 @@ export function SaveAsTemplateDialog({
   documentContent,
   spaceId,
 }: SaveAsTemplateDialogProps) {
+  const t = useTranslations("document");
   const user = useCurrentUser();
   const isAdmin =
     user?.globalRole === "admin" || user?.globalRole === "super_admin";
 
   const [name, setName] = useState(documentTitle);
   const [description, setDescription] = useState("");
-  const [category, setCategory] = useState("général");
+  const [category, setCategory] = useState("général"); // i18n-ignore — API slug
   const [icon, setIcon] = useState("📄");
   const [isGlobal, setIsGlobal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -73,7 +76,7 @@ export function SaveAsTemplateDialog({
           name: name.trim(),
           description: description.trim() || undefined,
           content: documentContent,
-          icon: icon.trim() || "📄",
+          icon: (icon.trim() || "📄").slice(0, 4),
           category,
           isGlobal: isAdmin ? isGlobal : false,
           spaceId: isAdmin && isGlobal ? undefined : (spaceId?.trim() || undefined),
@@ -82,18 +85,18 @@ export function SaveAsTemplateDialog({
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        toast.error(data.error || "Erreur lors de la création du template");
+        toast.error(data.error || t("saveAsTemplateDialog.toasts.createError"));
         return;
       }
 
-      toast.success("Template créé");
+      toast.success(t("saveAsTemplateDialog.toasts.created"));
       onOpenChange(false);
       setDescription("");
-      setCategory("général");
+      setCategory("général"); // i18n-ignore — API slug
       setIcon("📄");
       setIsGlobal(false);
     } catch {
-      toast.error("Erreur réseau");
+      toast.error(t("saveAsTemplateDialog.toasts.networkError"));
     } finally {
       setIsSubmitting(false);
     }
@@ -103,7 +106,7 @@ export function SaveAsTemplateDialog({
     if (!newOpen) {
       setName(documentTitle);
       setDescription("");
-      setCategory("général");
+      setCategory("général"); // i18n-ignore — API slug
       setIcon("📄");
       setIsGlobal(false);
     }
@@ -114,12 +117,14 @@ export function SaveAsTemplateDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Enregistrer comme template</DialogTitle>
+          <DialogTitle>{t("saveAsTemplateDialog.title")}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div className="flex gap-3">
             <div className="flex flex-col gap-1.5 w-16 flex-shrink-0">
-              <Label htmlFor="template-icon">Icône</Label>
+              <Label htmlFor="template-icon">
+                {t("saveAsTemplateDialog.iconLabel")}
+              </Label>
               <Input
                 id="template-icon"
                 value={icon}
@@ -130,12 +135,14 @@ export function SaveAsTemplateDialog({
               />
             </div>
             <div className="flex flex-col gap-1.5 flex-1 min-w-0">
-              <Label htmlFor="template-name">Nom</Label>
+              <Label htmlFor="template-name">
+                {t("saveAsTemplateDialog.nameLabel")}
+              </Label>
               <Input
                 id="template-name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Nom du template"
+                placeholder={t("saveAsTemplateDialog.namePlaceholder")}
                 required
                 autoFocus
               />
@@ -144,31 +151,32 @@ export function SaveAsTemplateDialog({
 
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="template-description">
-              Description{" "}
+              {t("saveAsTemplateDialog.descriptionLabel")}{" "}
               <span className="text-muted-foreground font-normal">
-                (optionnel)
+                {t("saveAsTemplateDialog.descriptionOptional")}
               </span>
             </Label>
             <Textarea
               id="template-description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Décrivez l'usage de ce template…"
+              placeholder={t("saveAsTemplateDialog.descriptionPlaceholder")}
               rows={2}
               className="resize-none"
             />
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <Label>Catégorie</Label>
+            <Label>{t("saveAsTemplateDialog.categoryLabel")}</Label>
             <Select value={category} onValueChange={(v) => { if (v) setCategory(v); }}>
               <SelectTrigger className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {CATEGORIES.map((cat) => (
+                {CATEGORY_SLUGS.map((cat) => (
                   <SelectItem key={cat.value} value={cat.value}>
-                    {cat.icon} {cat.label}
+                    {cat.icon}{" "}
+                    {t(`saveAsTemplateDialog.categories.${cat.value}`)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -178,9 +186,11 @@ export function SaveAsTemplateDialog({
           {isAdmin && (
             <div className="flex items-center justify-between rounded-lg border border-border p-3">
               <div className="flex flex-col gap-0.5">
-                <span className="text-sm font-medium">Template global</span>
+                <span className="text-sm font-medium">
+                  {t("saveAsTemplateDialog.globalTemplate")}
+                </span>
                 <span className="text-xs text-muted-foreground">
-                  Disponible pour tous les espaces
+                  {t("saveAsTemplateDialog.globalTemplateHint")}
                 </span>
               </div>
               <button
@@ -208,10 +218,12 @@ export function SaveAsTemplateDialog({
               onClick={() => onOpenChange(false)}
               disabled={isSubmitting}
             >
-              Annuler
+              {t("saveAsTemplateDialog.cancel")}
             </Button>
             <Button type="submit" disabled={isSubmitting || !name.trim()}>
-              {isSubmitting ? "Enregistrement…" : "Enregistrer"}
+              {isSubmitting
+                ? t("saveAsTemplateDialog.saving")
+                : t("saveAsTemplateDialog.save")}
             </Button>
           </DialogFooter>
         </form>

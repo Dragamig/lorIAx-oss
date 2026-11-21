@@ -39,8 +39,8 @@ export const MindmapBlock = Node.create({
   addNodeView() {
     return ReactNodeViewRenderer(LazyMindmapBlockView, {
       stopEvent: ({ event }) => {
-        const target = event.target as HTMLElement;
-        return !!target.closest("input, button, select, textarea, [role='button']");
+        const target = event.target as HTMLElement | null;
+        return !!target?.closest("input, button, select, textarea, [role='button']");
       },
     });
   },

@@ -1,12 +1,17 @@
 import { db } from "@/lib/db";
-import { documents, spaces, meetings } from "@/lib/db/schema";
+import {
+  documents,
+  spaces,
+  meetings,
+} from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
+import { writeFile } from "fs/promises";
+import { dirname, extname, join, basename } from "path";
 import { writeDocument } from "@/lib/storage/filesystem";
 import { commitFile } from "@/lib/git/repository";
+import { seedCollabState } from "@/lib/collab/seed-state";
 import slugify from "slugify";
 import logger from "@/lib/logger";
-import { enforceClassificationFloor } from "@/lib/auth/classification";
-import type { ClassificationLevel } from "@/types";
 
 const log = logger.child({ module: "meet-notes" });
 
@@ -28,8 +33,7 @@ interface CreateNotesInput {
  */
 async function getOrCreateNotesFolder(
   spaceId: string,
-  createdBy: string,
-  spaceClassification: ClassificationLevel
+  createdBy: string
 ): Promise<string> {
   const [existing] = await db
     .select({ id: documents.id })
@@ -54,10 +58,7 @@ async function getOrCreateNotesFolder(
       filePath: MEETING_NOTES_FOLDER_SLUG,
       icon: MEETING_NOTES_FOLDER_ICON,
       visibility: "team",
-      // Dernier point de creation qui ignorait le plafond de l'espace : un espace
-      // `confidential` recevait un dossier `internal`. Niveau propage et non choisi,
-      // donc releve au plancher de l'espace (voir enforceClassificationFloor).
-      classification: enforceClassificationFloor("internal", spaceClassification),
+      classification: "internal",
       isFolder: true,
       createdBy,
     })
@@ -65,6 +66,75 @@ async function getOrCreateNotesFolder(
 
   log.info({ spaceId, folderId: folder.id }, "Meeting notes folder created");
   return folder.id;
+}
+
+/**
+ * Build the markdown body of a meeting notes document.
+ * The transcript is wrapped in a collapsible `<details>` block, which
+ * `template-to-yjs` converts into a real TipTap `details` node.
+ */
+export function buildMeetingNotesContent(input: {
+  docTitle: string;
+  summary: string;
+  transcript: string;
+}): string {
+  const { docTitle, summary, transcript } = input;
+  return `# ${docTitle}
+
+${summary}
+
+---
+
+## Transcript complet
+
+<details>
+<summary>Voir le transcript intégral</summary>
+<div data-type="detailsContent">
+
+${transcript}
+
+</div>
+</details>
+`;
+}
+
+/**
+ * Write the raw transcript next to the recording file and store its path in
+ * `meetings.transcript_path`. Must be called before the audio file is purged.
+ * Never throws: a failure here must not break the meeting pipeline.
+ */
+export async function saveTranscriptFile(input: {
+  meetingId: string;
+  recordingPath: string | null | undefined;
+  transcript: string;
+}): Promise<string | null> {
+  const { meetingId, recordingPath, transcript } = input;
+
+  if (!recordingPath || !transcript.trim()) {
+    log.warn(
+      { meetingId, hasRecordingPath: !!recordingPath, hasTranscript: !!transcript },
+      "Transcript not persisted: missing recording path or empty transcript"
+    );
+    return null;
+  }
+
+  try {
+    const base = basename(recordingPath, extname(recordingPath));
+    const transcriptPath = join(dirname(recordingPath), `${base}.transcript.md`);
+    await writeFile(transcriptPath, transcript, "utf-8");
+    await db
+      .update(meetings)
+      .set({ transcriptPath, updatedAt: new Date() })
+      .where(eq(meetings.id, meetingId));
+    log.info({ meetingId, transcriptPath }, "Transcript file persisted");
+    return transcriptPath;
+  } catch (err) {
+    log.error(
+      { error: String(err), meetingId, recordingPath },
+      "Failed to persist transcript file"
+    );
+    return null;
+  }
 }
 
 /**
@@ -88,14 +158,7 @@ export async function createMeetingNotes(
   }
 
   // Ensure the "Comptes rendus" folder exists
-  const spaceClassification = ((space.classification as ClassificationLevel) ||
-    "internal") as ClassificationLevel;
-
-  const folderId = await getOrCreateNotesFolder(
-    spaceId,
-    createdBy,
-    spaceClassification
-  );
+  const folderId = await getOrCreateNotesFolder(spaceId, createdBy);
 
   // Build the document content
   const date = new Date().toLocaleDateString("fr-FR", {
@@ -105,22 +168,8 @@ export async function createMeetingNotes(
     day: "numeric",
   });
 
-  const docTitle = `Compte-rendu — ${title} — ${date}`;
-  const content = `# ${docTitle}
-
-${summary}
-
----
-
-## Transcript complet
-
-<details>
-<summary>Voir le transcript intégral</summary>
-
-${transcript}
-
-</details>
-`;
+  const docTitle = `Compte-rendu : ${title} (${date})`;
+  const content = buildMeetingNotesContent({ docTitle, summary, transcript });
 
   const docSlug = slugify(docTitle, { lower: true, strict: true }).slice(
     0,
@@ -149,12 +198,27 @@ ${transcript}
       filePath,
       icon: "📋",
       visibility: space.type === "personal" ? "private" : "team",
-      classification: spaceClassification,
+      classification:
+        (space.classification as
+          | "public"
+          | "internal"
+          | "confidential"
+          | "secret") || "internal",
       isFolder: false,
       createdBy,
       contentText: content,
     })
     .returning();
+
+  // Seed the collaborative state so the editor does not open an empty document
+  try {
+    await seedCollabState(doc.id, content);
+  } catch (err) {
+    log.error(
+      { error: String(err), documentId: doc.id, meetingId },
+      "Failed to seed Yjs state for meeting notes"
+    );
+  }
 
   // Link the notes document to the meeting
   await db

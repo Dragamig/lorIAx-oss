@@ -146,7 +146,8 @@ export function ChartBlockView({
         link.href = dataUrl;
         link.click();
       } catch (err) {
-        console.error("Export error:", err);
+        setSyncError("Erreur lors de l'export");
+        setTimeout(() => setSyncError(null), 3000);
       }
     },
     [config.title]

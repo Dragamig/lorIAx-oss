@@ -1,18 +1,13 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, ArrowLeft, SkipForward, Loader2, ShieldCheck } from "lucide-react";
-import type { SetupData } from "@/app/(setup)/setup/page";
+import type { SetupData } from "@/app/[locale]/(setup)/setup/page";
+import { setupFetch } from "@/lib/setup/client";
 
 type PermissionLevel = "" | "viewer" | "editor" | "admin";
-
-const LEVEL_LABELS: Record<PermissionLevel, string> = {
-  "": "Aucun",
-  viewer: "Lecteur",
-  editor: "Éditeur",
-  admin: "Admin",
-};
 
 interface StepPermissionsProps {
   data: SetupData;
@@ -30,6 +25,15 @@ function defaultLevel(role: string): PermissionLevel {
 }
 
 export function StepPermissions({ data, onUpdate, onNext, onSkip, onBack }: StepPermissionsProps) {
+  const t = useTranslations("setup.permissions");
+
+  const LEVEL_LABELS: Record<PermissionLevel, string> = {
+    "": t("levels.none"),
+    viewer: t("levels.viewer"),
+    editor: t("levels.editor"),
+    admin: t("levels.admin"),
+  };
+
   // Build initial matrix: space × user → level
   const initialMatrix = useMemo<Record<MatrixKey, PermissionLevel>>(() => {
     const matrix: Record<MatrixKey, PermissionLevel> = {};
@@ -69,22 +73,26 @@ export function StepPermissions({ data, onUpdate, onNext, onSkip, onBack }: Step
 
     try {
       if (permissions.length > 0) {
-        const res = await fetch("/api/setup/permissions", {
+        const res = await setupFetch("/api/setup/permissions", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ permissions }),
         });
 
         if (!res.ok) {
-          const err = await res.json();
-          throw new Error(err.error || "Erreur lors de l'enregistrement");
+          try {
+            const err = await res.json();
+            throw new Error(err.error || t("errors.saveError"));
+          } catch (parseErr) {
+            throw new Error(t("errors.unexpectedError"));
+          }
         }
       }
 
       onUpdate(permissions);
       onNext();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur inattendue");
+      setError(err instanceof Error ? err.message : t("errors.unexpectedError"));
     } finally {
       setSaving(false);
     }
@@ -96,15 +104,15 @@ export function StepPermissions({ data, onUpdate, onNext, onSkip, onBack }: Step
     <div className="space-y-6">
       <div className="text-center">
         <ShieldCheck className="h-12 w-12 text-primary mx-auto mb-3" />
-        <h2 className="text-2xl font-bold">Autorisations</h2>
+        <h2 className="text-2xl font-bold">{t("title")}</h2>
         <p className="text-muted-foreground mt-1">
-          Définissez qui peut accéder à chaque espace.
+          {t("description")}
         </p>
       </div>
 
       {!hasData && (
         <p className="text-sm text-muted-foreground text-center py-4">
-          Aucun espace ou utilisateur défini. Vous pouvez configurer les autorisations plus tard.
+          {t("empty")}
         </p>
       )}
 
@@ -114,7 +122,7 @@ export function StepPermissions({ data, onUpdate, onNext, onSkip, onBack }: Step
             <thead>
               <tr className="border-b border-border bg-muted/40">
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">
-                  Espace
+                  {t("spaceColumn")}
                 </th>
                 {data.users.map((user) => (
                   <th
@@ -180,12 +188,12 @@ export function StepPermissions({ data, onUpdate, onNext, onSkip, onBack }: Step
           {onBack && (
             <Button variant="ghost" onClick={onBack} disabled={saving} className="gap-2">
               <ArrowLeft className="h-4 w-4" />
-              Précédent
+              {t("previous")}
             </Button>
           )}
           <Button variant="ghost" onClick={onSkip} disabled={saving} className="gap-2">
             <SkipForward className="h-4 w-4" />
-            Passer
+            {t("skip")}
           </Button>
         </div>
         <Button onClick={handleNext} disabled={saving} className="gap-2">
@@ -194,7 +202,7 @@ export function StepPermissions({ data, onUpdate, onNext, onSkip, onBack }: Step
           ) : (
             <ArrowRight className="h-4 w-4" />
           )}
-          Suivant
+          {t("next")}
         </Button>
       </div>
     </div>

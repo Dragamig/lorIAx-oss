@@ -22,8 +22,14 @@ export async function GET() {
   // Check S3 storage (Garage / MinIO / AWS S3)
   try {
     const start = Date.now();
+    // Validate required S3 configuration
+    if (!process.env.S3_ENDPOINT || !process.env.S3_PORT) {
+      throw new Error(
+        `Missing S3 configuration: S3_ENDPOINT=${process.env.S3_ENDPOINT}, S3_PORT=${process.env.S3_PORT}`
+      );
+    }
     const s3 = new S3Client({
-      endpoint: `http${process.env.S3_USE_SSL === "true" ? "s" : ""}://${process.env.S3_ENDPOINT}:${process.env.S3_PORT}`,
+      endpoint: `http${process.env.S3_USE_SSL?.toLowerCase().trim() === "true" ? "s" : ""}://${process.env.S3_ENDPOINT}:${process.env.S3_PORT}`,
       region: process.env.S3_REGION || "garage",
       credentials: {
         accessKeyId: process.env.S3_ACCESS_KEY!,

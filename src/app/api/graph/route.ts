@@ -5,8 +5,7 @@ import { eq, inArray, or, and } from "drizzle-orm";
 import { getSessionUser } from "@/lib/auth/get-user";
 import { getAccessibleSpaceIds, isGlobalAdmin } from "@/lib/auth/check-access";
 import type { GraphData } from "@/types";
-import { headers } from "next/headers";
-import { getOrgId, getOrgSlugFromHeaders } from "@/lib/org/get-org-id";
+import { getRequestOrgId } from "@/lib/org/get-request-org";
 
 const DEFAULT_LIMIT = 500;
 const MAX_LIMIT = 2000;
@@ -15,8 +14,12 @@ export async function GET(request: NextRequest) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ nodes: [], edges: [] }, { status: 401 });
 
-  const orgSlug = await getOrgSlugFromHeaders(headers);
-  const orgId = await getOrgId(orgSlug);
+  // Cloisonnement multi-tenant : appartenance obligatoire à l'organisation du
+  // sous-domaine, sinon 404 sans rien révéler du graphe du tenant visé.
+  const orgId = await getRequestOrgId(user);
+  if (!orgId) {
+    return NextResponse.json({ nodes: [], edges: [] }, { status: 404 });
+  }
 
   const spaceId = request.nextUrl.searchParams.get("spaceId");
   const limitParam = parseInt(request.nextUrl.searchParams.get("limit") || String(DEFAULT_LIMIT));

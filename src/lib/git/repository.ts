@@ -22,20 +22,34 @@ export async function initRepository(spaceGitRepoPath: string): Promise<void> {
   });
 }
 
+/** Create the git repository on the fly when the space directory has none (or an incomplete one). */
+async function ensureRepository(dir: string): Promise<void> {
+  await fs.mkdir(dir, { recursive: true });
+  try {
+    await fs.access(`${dir}/.git/HEAD`);
+  } catch {
+    await git.init({ fs, dir });
+  }
+}
+
 export async function commitFile(
   spaceGitRepoPath: string,
   filePath: string,
   message: string,
-  authorName: string,
-  authorEmail: string
+  authorName: string | null | undefined,
+  authorEmail: string | null | undefined
 ): Promise<string> {
   const dir = getWorkspacePath(spaceGitRepoPath);
+  await ensureRepository(dir);
+  // Null or empty author fields make isomorphic-git throw a raw TypeError.
+  const name = authorName?.trim() || "LorIAx";
+  const email = authorEmail?.trim() || "system@loriax.local";
   await git.add({ fs, dir, filepath: filePath });
   const sha = await git.commit({
     fs,
     dir,
     message,
-    author: { name: authorName, email: authorEmail },
+    author: { name, email },
   });
   return sha;
 }

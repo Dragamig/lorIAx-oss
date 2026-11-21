@@ -332,7 +332,12 @@ export async function transcribeWithEngine(
       log.warn({ enabled: voxtralConfig.enabled, apiUrl: voxtralConfig.apiUrl }, "Voxtral not available, falling back to Whisper");
     }
     // Fallback: Whisper
-    return await transcribeAudio(filePath);
+    try {
+      return await transcribeAudio(filePath);
+    } catch (err) {
+      log.error({error: String(err)}, 'Whisper fallback failed');
+      throw err;
+    }
   }
 
   // Default engine: Whisper

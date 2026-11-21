@@ -34,7 +34,7 @@ export function GalleryView({
                   src={coverUrl}
                   alt=""
                   className="w-full h-full object-cover"
-                  onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                  onError={(e) => { const img = e.target as HTMLImageElement; if (img) img.style.display = "none"; }}
                 />
               </div>
             )}

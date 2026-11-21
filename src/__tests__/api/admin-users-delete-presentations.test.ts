@@ -1,0 +1,45 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { NextRequest } from "next/server";
+
+const calls: string[] = [];
+const txMock = {
+  execute: vi.fn(async (q: unknown) => {
+    const chunks = (q as { queryChunks?: unknown[] }).queryChunks ?? [];
+    const text = chunks.map((c) => (typeof c === "string" ? c : [(c as { value?: string | string[] }).value ?? ""].flat().join(""))).join("");
+    calls.push(text);
+  }),
+  delete: vi.fn(() => ({ where: vi.fn(async () => { calls.push("delete-user"); }) })),
+};
+const selectChain = { from: () => ({ where: () => ({ limit: async () => [{ name: "X", email: "x@x.fr" }] }) }) };
+
+vi.mock("@/lib/db", () => ({
+  db: {
+    select: () => selectChain,
+    transaction: async (fn: (tx: unknown) => Promise<void>) => fn(txMock),
+  },
+}));
+vi.mock("@/lib/auth", () => ({ clearAuthUserStateCache: vi.fn() }));
+vi.mock("@/lib/auth/get-user", () => ({ getSessionUser: async () => ({ id: "admin", globalRole: "super_admin" }) }));
+vi.mock("@/lib/auth/rbac", () => ({ hasGlobalRole: () => true }));
+vi.mock("@/lib/org/get-request-org", () => ({ getRequestOrgId: async () => "org" }));
+vi.mock("@/lib/org/org-members", () => ({ getOrgMemberIds: async () => ["victim"] }));
+vi.mock("@/lib/databases/view-cleanup", () => ({
+  deletePersonalViewsOf: vi.fn(async () => { calls.push("personal-views"); }),
+}));
+vi.mock("@/lib/email/send", () => ({ sendEmail: vi.fn() }));
+vi.mock("@/lib/git/repository", () => ({ initRepository: vi.fn() }));
+vi.mock("@/lib/calendar/auto-provision", () => ({ ensurePersonalCalendar: vi.fn() }));
+
+import { DELETE } from "@/app/api/admin/users/route";
+
+describe("DELETE /api/admin/users : présentations (I2)", () => {
+  beforeEach(() => { calls.length = 0; });
+
+  it("réattribue presentations.created_by (modèles semés compris) avant de supprimer le compte", async () => {
+    const res = await DELETE(new NextRequest("http://x/api/admin/users", { method: "DELETE", body: JSON.stringify({ id: "victim" }) }));
+    expect(res.status).toBe(200);
+    const iPres = calls.findIndex((c) => c.includes("presentations") && c.includes("created_by") && c.includes("SET"));
+    expect(iPres).toBeGreaterThanOrEqual(0);
+    expect(iPres).toBeLessThan(calls.indexOf("delete-user"));
+  });
+});

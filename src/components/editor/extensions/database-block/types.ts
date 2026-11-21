@@ -1,15 +1,26 @@
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-export type ColumnType = "text" | "number" | "date" | "select" | "checkbox" | "relation" | "image" | "formula" | "url" | "email" | "attachment" | "time";
+import type { ColumnMapping } from "@/lib/integrations/base";
+
+export type ColumnType = "text" | "number" | "date" | "select" | "checkbox" | "relation" | "image" | "formula" | "url" | "email" | "attachment" | "time" | "autonumber" | "person" | "document_link";
 
 // ARCH-03 — Types stricts pour les configurations de colonnes
 export interface ColumnConfig {
   options?: string[];
   targetDatabaseId?: string;
+  /** Colonne jumelle dans la base cible (posée par le serveur uniquement). */
+  inverseColumnId?: string;
   unit?: string;
   formula?: string;
   multiple?: boolean;
   width?: number;
+  /** Retour à la ligne du contenu de la cellule (désactivé par défaut). */
+  wrap?: boolean;
+  // Autonumber
+  startNumber?: number;
+  padding?: number;
+  prefix?: string;
+  suffix?: string;
   [key: string]: unknown;
 }
 
@@ -57,10 +68,46 @@ export interface SortConfig {
   direction: "asc" | "desc";
 }
 
+export type FilterOperator =
+  // text / url / email / formula
+  | "contains" | "not_contains" | "is" | "is_not" | "is_empty" | "is_not_empty"
+  // number / autonumber
+  | "eq" | "neq" | "lt" | "gt" | "lte" | "gte"
+  // checkbox
+  | "is_checked" | "is_not_checked"
+  // date / time
+  | "is_before" | "is_after" | "is_on_or_before" | "is_on_or_after"
+  | "is_today" | "is_this_week" | "is_this_month" | "is_this_year"
+  | "is_within_days" | "is_this_quarter"
+  // person
+  | "is_me";
+
 export interface FilterConfig {
   columnId: string;
+  operator: FilterOperator;
   value: string;
 }
+
+// ─── Arbre de filtres récursif (style Airtable) ─────────────────────────────────
+// Un groupe contient des conditions et/ou des sous-groupes, joints par "and"/"or".
+
+export type FilterConjunction = "and" | "or";
+
+export interface FilterCondition {
+  id: string;
+  columnId: string;
+  operator: FilterOperator;
+  value: string;
+}
+
+export interface FilterGroup {
+  id: string;
+  type: "group";
+  conjunction: FilterConjunction;
+  children: FilterNode[];
+}
+
+export type FilterNode = FilterCondition | FilterGroup;
 
 export interface SyncMapping {
   id: string;
@@ -72,6 +119,6 @@ export interface SyncMapping {
   syncError: string | null;
   lastSyncAt: string | null;
   lastSyncDirection: string | null;
-  columnMapping: unknown;
-  logs: { id: string; direction: string; status: string; errorMessage: string | null; rowsCreated: number; rowsUpdated: number; rowsDeleted: number; startedAt: string }[];
+  columnMapping: ColumnMapping[];
+  logs: { id: string; direction: string; status: string; rowsCreated: number; rowsUpdated: number; rowsDeleted: number; startedAt: string }[];
 }

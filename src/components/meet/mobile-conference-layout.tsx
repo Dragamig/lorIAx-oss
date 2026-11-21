@@ -10,12 +10,14 @@ import {
 import { Track } from "livekit-client";
 import { Mic, MicOff, Video, VideoOff, Monitor, PhoneOff } from "lucide-react";
 import { useOrientation } from "@/hooks/use-orientation";
+import { useTranslations } from "next-intl";
 
 interface MobileConferenceLayoutProps {
   onDisconnect?: () => void;
 }
 
 export function MobileConferenceLayout({ onDisconnect }: MobileConferenceLayoutProps) {
+  const t = useTranslations("meet.mobile");
   const orientation = useOrientation();
   const { localParticipant } = useLocalParticipant();
 
@@ -51,7 +53,7 @@ export function MobileConferenceLayout({ onDisconnect }: MobileConferenceLayoutP
     <div className="flex items-center justify-center gap-4">
       <button
         onClick={toggleMic}
-        aria-label={isMicEnabled ? "Couper le micro" : "Activer le micro"}
+        aria-label={isMicEnabled ? t("muteMicAria") : t("unmuteMicAria")}
         className="w-12 h-12 rounded-full flex items-center justify-center transition-colors"
         style={{ backgroundColor: "#2F2F2F" }}
       >
@@ -63,7 +65,7 @@ export function MobileConferenceLayout({ onDisconnect }: MobileConferenceLayoutP
       </button>
       <button
         onClick={toggleCam}
-        aria-label={isCamEnabled ? "Éteindre la caméra" : "Activer la caméra"}
+        aria-label={isCamEnabled ? t("stopCamAria") : t("startCamAria")}
         className="w-12 h-12 rounded-full flex items-center justify-center transition-colors"
         style={{ backgroundColor: "#2F2F2F" }}
       >
@@ -75,7 +77,7 @@ export function MobileConferenceLayout({ onDisconnect }: MobileConferenceLayoutP
       </button>
       <button
         onClick={toggleScreen}
-        aria-label={isScreenShareEnabled ? "Arrêter le partage" : "Partager l'écran"}
+        aria-label={isScreenShareEnabled ? t("stopShareAria") : t("startShareAria")}
         className="w-12 h-12 rounded-full flex items-center justify-center transition-colors"
         style={{ backgroundColor: "#2F2F2F" }}
       >
@@ -83,7 +85,7 @@ export function MobileConferenceLayout({ onDisconnect }: MobileConferenceLayoutP
       </button>
       <button
         onClick={onDisconnect}
-        aria-label="Raccrocher"
+        aria-label={t("hangupAria")}
         className="w-12 h-12 rounded-full flex items-center justify-center"
         style={{ backgroundColor: "#EB5757" }}
       >
@@ -95,7 +97,7 @@ export function MobileConferenceLayout({ onDisconnect }: MobileConferenceLayoutP
   if (orientation === "landscape") {
     return (
       <div className="relative h-full w-full" style={{ backgroundColor: "#191919" }}>
-        {/* Speaker plein écran */}
+        {/* Speaker fullscreen */}
         {speakerTrack && (
           <TrackRefContext.Provider value={speakerTrack}>
             <ParticipantTile />
@@ -114,7 +116,7 @@ export function MobileConferenceLayout({ onDisconnect }: MobileConferenceLayoutP
           </div>
         )}
 
-        {/* Contrôles overlay */}
+        {/* Controls overlay */}
         <div className="absolute bottom-4 left-0 right-0 h-16">
           {controls}
         </div>
@@ -152,7 +154,7 @@ export function MobileConferenceLayout({ onDisconnect }: MobileConferenceLayoutP
         </div>
       )}
 
-      {/* Contrôles */}
+      {/* Controls */}
       <div className="h-16 flex-shrink-0">
         {controls}
       </div>

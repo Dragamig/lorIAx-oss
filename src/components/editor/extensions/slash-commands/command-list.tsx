@@ -9,10 +9,13 @@ import {
   useImperativeHandle,
 } from "react";
 
+import { useTranslations } from "next-intl";
+
 import type { CommandListProps, CommandListRef } from "./types";
 
 export const CommandList = forwardRef<CommandListRef, CommandListProps>(
   ({ items, command }, ref) => {
+    const t = useTranslations();
     const [selectedIndex, setSelectedIndex] = useState(0);
     const listRef = useRef<HTMLDivElement>(null);
 
@@ -37,6 +40,7 @@ export const CommandList = forwardRef<CommandListRef, CommandListProps>(
 
     useImperativeHandle(ref, () => ({
       onKeyDown: ({ event }) => {
+        if (items.length === 0) return false;
         if (event.key === "ArrowUp") {
           setSelectedIndex((prev) => (prev + items.length - 1) % items.length);
           return true;
@@ -56,7 +60,7 @@ export const CommandList = forwardRef<CommandListRef, CommandListProps>(
     if (items.length === 0) return null;
 
     return (
-      <div ref={listRef} className="slash-command-menu">
+      <div ref={listRef} className="slash-command-menu" data-tour="editor-slash-menu">
         {items.map((item, index) => (
           <button
             key={item.title}
@@ -69,7 +73,7 @@ export const CommandList = forwardRef<CommandListRef, CommandListProps>(
             <div>
               <p className="font-medium">{item.title}</p>
               <p className="text-xs text-muted-foreground">
-                {item.description}
+                {item.descriptionKey ? t(item.descriptionKey) : item.description}
               </p>
             </div>
           </button>

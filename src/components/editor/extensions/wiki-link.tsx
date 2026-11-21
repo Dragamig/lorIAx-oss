@@ -93,6 +93,7 @@ export const WikiLink = Node.create({
       {
         tag: 'span[data-wiki-link]',
         getAttrs: (dom) => {
+          if (!(dom instanceof HTMLElement)) return { target: '', label: '', docId: '', spaceSlug: '' };
           const el = dom as HTMLElement;
           return {
             target: el.getAttribute("data-target") || "",
@@ -314,7 +315,7 @@ export const WikiLinkSuggestion = Node.create({
 
           try {
             const res = await fetch(
-              `/api/search?q=${encodeURIComponent(query)}&limit=8`
+              `/api/search?q=${encodeURIComponent(query)}&limit=8&rerank=0`
             );
             const data = await res.json();
 

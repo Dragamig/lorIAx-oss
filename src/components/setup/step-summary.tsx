@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Loader2, Rocket, CheckCircle2, ArrowLeft } from "lucide-react";
-import type { SetupData } from "@/app/(setup)/setup/page";
+import type { SetupData } from "@/app/[locale]/(setup)/setup/page";
+import { clearSetupToken, setupFetch } from "@/lib/setup/client";
 
 interface StepSummaryProps {
   data: SetupData;
@@ -11,6 +13,7 @@ interface StepSummaryProps {
 }
 
 export function StepSummary({ data, onBack }: StepSummaryProps) {
+  const t = useTranslations("setup.summary");
   const [launching, setLaunching] = useState(false);
   const [error, setError] = useState("");
 
@@ -18,11 +21,14 @@ export function StepSummary({ data, onBack }: StepSummaryProps) {
     setLaunching(true);
     setError("");
     try {
-      const res = await fetch("/api/setup/complete", { method: "POST" });
-      if (!res.ok) throw new Error("Erreur lors de la finalisation");
+      const res = await setupFetch("/api/setup/complete", { method: "POST" });
+      if (!res.ok) throw new Error(t("errors.finalizeError"));
+      // Installation terminée : le jeton est consommé côté serveur, il n'a
+      // plus rien à faire dans le stockage de l'onglet.
+      clearSetupToken();
       window.location.href = "/login";
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur inattendue");
+      setError(err instanceof Error ? err.message : t("errors.unexpectedError"));
       setLaunching(false);
     }
   }
@@ -31,16 +37,16 @@ export function StepSummary({ data, onBack }: StepSummaryProps) {
     <div className="space-y-6">
       <div className="text-center">
         <CheckCircle2 className="h-16 w-16 text-green-500 mx-auto mb-3" />
-        <h2 className="text-2xl font-bold">Configuration terminée</h2>
+        <h2 className="text-2xl font-bold">{t("title")}</h2>
         <p className="text-muted-foreground mt-1">
-          Voici un récapitulatif de votre configuration.
+          {t("description")}
         </p>
       </div>
 
       <div className="space-y-4">
         <div className="p-4 rounded-lg border border-border">
-          <h3 className="font-medium mb-2">Organisation</h3>
-          <p className="text-sm">{data.identity.name || "Non renseigné"}</p>
+          <h3 className="font-medium mb-2">{t("organizationSection")}</h3>
+          <p className="text-sm">{data.identity.name || "—"}</p>
           {data.identity.description && (
             <p className="text-sm text-muted-foreground">{data.identity.description}</p>
           )}
@@ -48,25 +54,25 @@ export function StepSummary({ data, onBack }: StepSummaryProps) {
 
         {(data.context.sector || data.context.website) && (
           <div className="p-4 rounded-lg border border-border">
-            <h3 className="font-medium mb-2">Contexte métier</h3>
-            {data.context.sector && <p className="text-sm">Secteur : {data.context.sector}</p>}
-            {data.context.website && <p className="text-sm">Site : {data.context.website}</p>}
+            <h3 className="font-medium mb-2">{t("contextSection")}</h3>
+            {data.context.sector && <p className="text-sm">{t("sector", { value: data.context.sector })}</p>}
+            {data.context.website && <p className="text-sm">{t("website", { value: data.context.website })}</p>}
           </div>
         )}
 
         <div className="p-4 rounded-lg border border-border">
-          <h3 className="font-medium mb-2">Utilisateurs</h3>
-          <p className="text-sm">{data.users.length} utilisateur{data.users.length > 1 ? "s" : ""} créé{data.users.length > 1 ? "s" : ""}</p>
+          <h3 className="font-medium mb-2">{t("usersSection")}</h3>
+          <p className="text-sm">{t("usersCount", { count: data.users.length })}</p>
           <ul className="text-sm text-muted-foreground mt-1 space-y-0.5">
             {data.users.slice(0, 5).map((u) => (
-              <li key={u.id}>{u.name} ({u.email}) : {u.role}</li>
+              <li key={u.id}>{u.name} ({u.email}) — {u.role}</li>
             ))}
-            {data.users.length > 5 && <li>... et {data.users.length - 5} autres</li>}
+            {data.users.length > 5 && <li>{t("usersMore", { count: data.users.length - 5 })}</li>}
           </ul>
         </div>
 
         <div className="p-4 rounded-lg border border-border">
-          <h3 className="font-medium mb-2">Espaces de travail</h3>
+          <h3 className="font-medium mb-2">{t("spacesSection")}</h3>
           <ul className="text-sm space-y-0.5">
             {data.spaces.map((s) => (
               <li key={s.id}>
@@ -79,8 +85,8 @@ export function StepSummary({ data, onBack }: StepSummaryProps) {
 
         {data.permissions.length > 0 && (
           <div className="p-4 rounded-lg border border-border">
-            <h3 className="font-medium mb-2">Autorisations</h3>
-            <p className="text-sm">{data.permissions.length} permission{data.permissions.length > 1 ? "s" : ""} configurée{data.permissions.length > 1 ? "s" : ""}</p>
+            <h3 className="font-medium mb-2">{t("permissionsSection")}</h3>
+            <p className="text-sm">{t("permissionsCount", { count: data.permissions.length })}</p>
           </div>
         )}
       </div>
@@ -91,19 +97,19 @@ export function StepSummary({ data, onBack }: StepSummaryProps) {
         {onBack && (
           <Button variant="ghost" onClick={onBack} disabled={launching} className="gap-2">
             <ArrowLeft className="h-4 w-4" />
-            Précédent
+            {t("previous")}
           </Button>
         )}
         <Button size="lg" onClick={handleLaunch} disabled={launching} className="gap-2 ml-auto">
           {launching ? (
             <>
               <Loader2 className="h-5 w-5 animate-spin" />
-              Finalisation...
+              {t("launching")}
             </>
           ) : (
             <>
               <Rocket className="h-5 w-5" />
-              Lancer l&apos;application
+              {t("launch")}
             </>
           )}
         </Button>

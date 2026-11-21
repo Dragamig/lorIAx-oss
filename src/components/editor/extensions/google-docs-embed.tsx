@@ -6,6 +6,7 @@ import { ReactNodeViewRenderer, NodeViewWrapper } from "@tiptap/react";
 import { useState, useCallback, useRef, useEffect } from "react";
 import { FileText, ExternalLink, GripHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { stopMouse } from "../utils/stop-mouse";
 
 // ─── URL helpers ─────────────────────────────────────────────────────────────
 
@@ -121,6 +122,7 @@ function GoogleDocsEmbedView({
                 setInputValue(e.target.value);
                 setError("");
               }}
+              onMouseDown={stopMouse}
               onKeyDown={handleKeyDown}
               placeholder="https://docs.google.com/document/d/..."
               className="google-docs-embed-url-input"
@@ -192,11 +194,14 @@ const googleDocsInputRule = new InputRule({
     const url = match[1];
     if (!url || !isValidGoogleDocsUrl(url)) return null;
 
+    const node = state.schema.nodes.googleDocsEmbed;
+    if (!node) return null;
+
     const { tr } = state;
     tr.delete(range.from, range.to);
     tr.insert(
       range.from,
-      state.schema.nodes.googleDocsEmbed.create({ url, height: 600 })
+      node.create({ url, height: 600 })
     );
     return;
   },

@@ -12,6 +12,7 @@ import {
   X,
   Route,
   Loader2,
+  GripHorizontal,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -39,6 +40,8 @@ export function MapBlockView({
   const [searchResults, setSearchResults] = useState<GeoResult[]>([]);
   const [editingMarkerId, setEditingMarkerId] = useState<string | null>(null);
   const [editingLabel, setEditingLabel] = useState("");
+  const [colorPickerId, setColorPickerId] = useState<string | null>(null);
+  const [hexInput, setHexInput] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isEditable = editor?.isEditable;
@@ -115,6 +118,28 @@ export function MapBlockView({
     setEditingLabel(marker.label);
   }
 
+  function openColorPicker(marker: MapMarker) {
+    setColorPickerId(marker.id);
+    setHexInput(marker.color || "#2563eb");
+  }
+
+  function applyColor(id: string, color: string) {
+    updateConfig({
+      ...config,
+      markers: config.markers.map((m) => m.id === id ? { ...m, color } : m),
+    });
+    setColorPickerId(null);
+  }
+
+  function applyHex(id: string) {
+    const hex = hexInput.trim();
+    if (/^#[0-9a-fA-F]{6}$/.test(hex)) {
+      applyColor(id, hex);
+    } else {
+      toast.error("Format invalide: utilisez #rrggbb");
+    }
+  }
+
   function saveLabel(id: string) {
     updateConfig({
       ...config,
@@ -139,6 +164,11 @@ export function MapBlockView({
       {isEditable && (
         <div className={`map-block-toolbar ${toolbarVisible ? "is-visible" : ""}`}>
           <div className="flex items-center gap-2 flex-1 min-w-0">
+            {/* Poignée de déplacement : restreint le drag au handle (comme
+                mindmap/design) pour que le texte du bloc reste sélectionnable. */}
+            <span data-drag-handle className="cursor-grab shrink-0">
+              <GripHorizontal className="h-4 w-4 text-muted-foreground" />
+            </span>
             <MapPin className="h-4 w-4 text-blue-500 shrink-0" />
             <input
               type="text"
@@ -165,6 +195,7 @@ export function MapBlockView({
                     }
                     placeholder="Rechercher un lieu, une adresse..."
                     className="h-7 text-xs w-64"
+                    onMouseDown={(e) => { e.stopPropagation(); e.nativeEvent.stopImmediatePropagation(); }}
                     onKeyDown={(e: React.KeyboardEvent) => {
                       if (e.key === "Enter") handleSearch();
                       if (e.key === "Escape") {
@@ -266,6 +297,10 @@ export function MapBlockView({
         <LeafletMap
           config={config}
           onConfigChange={updateConfig}
+          onMarkerClick={isEditable ? (id) => {
+            const m = config.markers.find((mk) => mk.id === id);
+            if (m) openColorPicker(m);
+          } : undefined}
           isEditable={!!isEditable}
           fullscreen={fullscreen}
         />
@@ -278,16 +313,18 @@ export function MapBlockView({
             Marqueurs — cliquez sur la carte pour en ajouter
           </p>
           {config.markers.map((marker, i) => (
+            <div key={marker.id} className="flex flex-col gap-1">
             <div
-              key={marker.id}
               className="flex items-center gap-2 text-xs group"
             >
-              <div
-                className="w-4 h-4 rounded-full shrink-0 flex items-center justify-center text-white text-[9px] font-bold"
+              <button
+                className="w-4 h-4 rounded-full shrink-0 flex items-center justify-center text-white text-[9px] font-bold hover:ring-2 hover:ring-offset-1 hover:ring-primary transition-all"
                 style={{ backgroundColor: marker.color || "#2563eb" }}
+                onClick={() => colorPickerId === marker.id ? setColorPickerId(null) : openColorPicker(marker)}
+                title="Changer la couleur"
               >
                 {i + 1}
-              </div>
+              </button>
               {editingMarkerId === marker.id ? (
                 <Input
                   value={editingLabel}
@@ -325,6 +362,39 @@ export function MapBlockView({
               >
                 <Trash2 className="h-3 w-3" />
               </Button>
+            </div>
+            {colorPickerId === marker.id && (
+              <div className="ml-6 flex flex-wrap items-center gap-1.5 p-2 bg-background border border-border rounded-md">
+                {MARKER_COLORS.map((c) => (
+                  <button
+                    key={c}
+                    className="w-5 h-5 rounded-full hover:ring-2 hover:ring-offset-1 hover:ring-primary transition-all"
+                    style={{ backgroundColor: c, outline: marker.color === c ? "2px solid" : "none", outlineOffset: 2 }}
+                    onClick={() => applyColor(marker.id, c)}
+                    title={c}
+                  />
+                ))}
+                <input
+                  type="text"
+                  value={hexInput}
+                  onChange={(e) => setHexInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") applyHex(marker.id);
+                    if (e.key === "Escape") setColorPickerId(null);
+                    e.stopPropagation();
+                  }}
+                  onMouseDown={(e) => { e.stopPropagation(); e.nativeEvent.stopImmediatePropagation(); }}
+                  placeholder="#rrggbb"
+                  className="w-20 h-5 px-1 text-[10px] border border-border rounded bg-transparent focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+                <button
+                  className="text-[10px] text-primary hover:underline"
+                  onClick={() => applyHex(marker.id)}
+                >
+                  OK
+                </button>
+              </div>
+            )}
             </div>
           ))}
         </div>

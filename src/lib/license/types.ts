@@ -25,6 +25,8 @@ export interface LicensePayload {
   issuedAt: number; // Unix timestamp (seconds)
   expiresAt: number; // Unix timestamp (seconds)
   features: Feature[];
+  /** Modules accordés à la carte (add-ons), en plus du socle du plan. */
+  modules: string[];
 }
 
 /**

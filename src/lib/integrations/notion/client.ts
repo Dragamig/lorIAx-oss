@@ -1,4 +1,5 @@
 import type { ExternalProvider, ExternalColumn, ExternalRow } from "../base";
+import { assertPublicHostname } from "@/lib/security/url-validator-server";
 
 const NOTION_API = "https://api.notion.com/v1";
 const NOTION_VERSION = "2022-06-28";
@@ -73,7 +74,10 @@ async function notionFetch(
   token: string,
   options?: RequestInit
 ): Promise<unknown> {
-  const res = await fetch(`${NOTION_API}${path}`, {
+  const fullUrl = `${NOTION_API}${path}`;
+  // Anti DNS rebinding : valide host avant chaque fetch.
+  await assertPublicHostname(new URL(fullUrl));
+  const res = await fetch(fullUrl, {
     ...options,
     headers: {
       Authorization: `Bearer ${token}`,
@@ -85,7 +89,8 @@ async function notionFetch(
   });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`Notion ${res.status}: ${body}`);
+    console.error('Notion error:', body);
+    throw new Error('Notion API error: ' + res.status);
   }
   return res.json();
 }

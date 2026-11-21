@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/get-user";
 import { db } from "@/lib/db";
 import { spreadsheetData, spaces } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
+import { getRequestOrgId } from "@/lib/org/get-request-org";
+import { getAccessibleSpaceIds } from "@/lib/auth/check-access";
 import logger from "@/lib/logger";
 import { fortuneSheetsToWorkbookData } from "@/lib/spreadsheet/fortune-to-univer";
 
@@ -18,12 +20,26 @@ export async function GET(_req: NextRequest, { params }: Params) {
 
   try {
     const [row] = await db
-      .select({ data: spreadsheetData.data })
+      .select({ data: spreadsheetData.data, spaceId: spreadsheetData.spaceId })
       .from(spreadsheetData)
       .where(eq(spreadsheetData.sheetId, sheetId))
       .limit(1);
 
     if (!row) {
+      return NextResponse.json({ error: "Tableur introuvable" }, { status: 404 });
+    }
+
+    // Fail-closed : un tableur sans espace de rattachement n'est contrôlable par
+    // aucun accès, il n'est donc lisible par personne (auparavant : lisible par
+    // tout utilisateur authentifié, y compris d'une autre organisation).
+    if (!row.spaceId) {
+      return NextResponse.json({ error: "Tableur introuvable" }, { status: 404 });
+    }
+
+    // Le tableur est rattaché à un espace : l'utilisateur doit y avoir accès
+    // dans l'org courante (anti-fuite cross-tenant).
+    const accessible = await getAccessibleSpaceIds(user);
+    if (!accessible.includes(row.spaceId)) {
       return NextResponse.json({ error: "Tableur introuvable" }, { status: 404 });
     }
 
@@ -57,28 +73,60 @@ export async function PUT(req: NextRequest, { params }: Params) {
     const toStore = Array.isArray(data) ? fortuneSheetsToWorkbookData(data) : data;
     const serialized = JSON.stringify(toStore);
 
-    // Vérifier que l'espace existe si fourni
-    if (spaceId) {
-      const [space] = await db
-        .select({ id: spaces.id })
-        .from(spaces)
-        .where(eq(spaces.id, spaceId))
-        .limit(1);
-      if (!space) {
-        return NextResponse.json({ error: "Espace introuvable" }, { status: 404 });
-      }
+    const [existing] = await db
+      .select({ spaceId: spreadsheetData.spaceId })
+      .from(spreadsheetData)
+      .where(eq(spreadsheetData.sheetId, sheetId))
+      .limit(1);
+
+    // Le rattachement à un espace est la seule prise de contrôle d'accès sur un
+    // tableur : il est donc obligatoire, en création comme en mise à jour.
+    // Pour une ligne existante, le spaceId stocké fait foi (pas de reparentage
+    // via le corps de la requête).
+    const effectiveSpaceId = existing ? existing.spaceId : (spaceId ?? null);
+
+    if (!effectiveSpaceId) {
+      // Création sans espace, ou ligne héritée sans espace (fail-closed).
+      return NextResponse.json(
+        existing
+          ? { error: "Accès refusé" }
+          : { error: "spaceId requis" },
+        { status: existing ? 403 : 400 }
+      );
+    }
+
+    // L'espace doit appartenir à l'org courante ET être accessible à
+    // l'utilisateur (anti-fuite cross-tenant : pas de tableur greffé sur
+    // l'espace d'un autre tenant, pas d'écrasement d'un tableur d'autrui).
+    const orgId = await getRequestOrgId(user);
+    if (!orgId) {
+      return NextResponse.json({ error: "Espace introuvable" }, { status: 404 });
+    }
+    const [space] = await db
+      .select({ id: spaces.id })
+      .from(spaces)
+      .where(and(eq(spaces.id, effectiveSpaceId), eq(spaces.organizationId, orgId)))
+      .limit(1);
+    if (!space) {
+      return NextResponse.json({ error: "Espace introuvable" }, { status: 404 });
+    }
+
+    const accessible = await getAccessibleSpaceIds(user);
+    if (!accessible.includes(effectiveSpaceId)) {
+      return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
 
     await db
       .insert(spreadsheetData)
       .values({
         sheetId,
-        spaceId: spaceId ?? null,
+        spaceId: effectiveSpaceId,
         data: serialized,
       })
       .onConflictDoUpdate({
         target: spreadsheetData.sheetId,
         set: {
+          spaceId: effectiveSpaceId,
           data: serialized,
           updatedAt: new Date(),
         },

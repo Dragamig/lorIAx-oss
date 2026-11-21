@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { users, spaces } from "@/lib/db/schema";
+import { organizationMembers } from "@/lib/db/schema-org";
 import { eq, or } from "drizzle-orm";
 import slugify from "slugify";
 import { initRepository } from "@/lib/git/repository";
@@ -39,6 +40,14 @@ export async function syncLdapUser(ldapUser: LdapUser) {
         .where(eq(users.id, existing.id));
     }
 
+    // Garantir l'appartenance à l'org par défaut (rattrapage des comptes LDAP
+    // créés avant le cloisonnement multi-tenant).
+    const defaultOrgId = await getDefaultOrgId();
+    await db
+      .insert(organizationMembers)
+      .values({ organizationId: defaultOrgId, userId: existing.id, role: "member" })
+      .onConflictDoNothing();
+
     return {
       id: existing.id,
       email: existing.email,
@@ -61,10 +70,18 @@ export async function syncLdapUser(ldapUser: LdapUser) {
     })
     .returning();
 
+  if (!newUser) throw new Error('Failed to create user');
+
   // Create personal space
   const slug = slugify(ldapUser.name, { lower: true, strict: true });
   const gitRepoPath = `personal/${newUser.id}`;
   const orgId = await getDefaultOrgId();
+
+  // Rattacher le compte LDAP à l'org par défaut (cloisonnement multi-tenant).
+  await db
+    .insert(organizationMembers)
+    .values({ organizationId: orgId, userId: newUser.id, role: "member" })
+    .onConflictDoNothing();
 
   await db.insert(spaces).values({
     name: `Espace de ${ldapUser.name}`,

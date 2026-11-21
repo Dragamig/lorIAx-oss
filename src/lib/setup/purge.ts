@@ -1,11 +1,10 @@
 import { db } from "@/lib/db";
 import { sql } from "drizzle-orm";
+import { setRowChangeContext, SKIP_ROW_HISTORY } from "@/lib/databases/row-change-context";
 
 /**
  * Purge toutes les données de démo.
- * Conserve : ai_providers, ai_prompts, ai_prompt_versions, et dans system_settings
- * les clés setup_completed et setup_install_token (sans quoi l'exploitant en cours
- * d'installation perdrait son accès à l'assistant juste après avoir purgé).
+ * Conserve : ai_providers, ai_prompts, ai_prompt_versions, system_settings.setup_completed.
  * L'ordre respecte les contraintes FK (enfants d'abord).
  */
 export async function purgeAllData() {
@@ -49,11 +48,16 @@ export async function purgeAllData() {
     await tx.execute(sql`DELETE FROM document_links`);
     await tx.execute(sql`DELETE FROM document_permissions`);
     await tx.execute(sql`DELETE FROM public_shares`);
-    await tx.execute(sql`DELETE FROM attachments`);
+    await tx.execute(sql`DELETE FROM media_usages`);
+    await tx.execute(sql`DELETE FROM media_tag_links`);
+    await tx.execute(sql`DELETE FROM media_tags`);
+    await tx.execute(sql`DELETE FROM media`);
+    await tx.execute(sql`DELETE FROM media_folders`);
     await tx.execute(sql`DELETE FROM notifications`);
     await tx.execute(sql`DELETE FROM activity_log`);
 
     // 7. Bases de données utilisateur
+    await setRowChangeContext(tx, SKIP_ROW_HISTORY);
     await tx.execute(sql`DELETE FROM user_database_rows`);
     await tx.execute(sql`DELETE FROM user_database_columns`);
     await tx.execute(sql`DELETE FROM user_databases`);
@@ -74,9 +78,9 @@ export async function purgeAllData() {
     // 11. Utilisateurs
     await tx.execute(sql`DELETE FROM users`);
 
-    // 12. system_settings (sauf l'état de l'assistant de configuration)
+    // 12. system_settings (sauf setup_completed)
     await tx.execute(
-      sql`DELETE FROM system_settings WHERE key NOT IN ('setup_completed', 'setup_install_token')`
+      sql`DELETE FROM system_settings WHERE key != 'setup_completed'`
     );
   });
 }

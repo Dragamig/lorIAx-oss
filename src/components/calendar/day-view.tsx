@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations, useFormatter } from "next-intl";
 import type { CalendarEvent, Calendar } from "@/types";
 
 interface DayViewProps {
@@ -25,9 +26,6 @@ function formatTime(date: Date): string {
   return `${date.getHours().toString().padStart(2, "0")}:${date.getMinutes().toString().padStart(2, "0")}`;
 }
 
-const WEEKDAY_FR = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
-const MONTH_FR = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
-
 export default function DayView({
   currentDate,
   events,
@@ -36,6 +34,8 @@ export default function DayView({
   onEventClick,
   onDateClick,
 }: DayViewProps) {
+  const t = useTranslations("calendar");
+  const format = useFormatter();
   const calColorMap = new Map(calendars.map((c) => [c.id, c.color]));
 
   const dayEvents = events.filter((e) => {
@@ -47,19 +47,21 @@ export default function DayView({
   const allDayEvents = dayEvents.filter((e) => e.allDay);
   const timedEvents = dayEvents.filter((e) => !e.allDay);
 
+  const dayLabel = format.dateTime(currentDate, { weekday: "long", day: "numeric", month: "long" });
+
   return (
     <div className="flex flex-col flex-1 overflow-hidden overflow-x-hidden">
       {/* Header */}
       <div className="px-4 py-3 border-b border-border">
         <h2 className="text-lg font-semibold capitalize">
-          {WEEKDAY_FR[currentDate.getDay()]} {currentDate.getDate()} {MONTH_FR[currentDate.getMonth()]}
+          {dayLabel}
         </h2>
       </div>
 
       {/* All-day events */}
       {allDayEvents.length > 0 && (
         <div className="px-4 py-2 border-b border-border bg-muted/30 space-y-1">
-          <span className="text-xs text-muted-foreground">Journée entière</span>
+          <span className="text-xs text-muted-foreground">{t("dayView.allDay")}</span>
           {allDayEvents.map((event) => {
             const color = event.color || calColorMap.get(event.calendarId) || "#3b82f6";
             return (
@@ -103,6 +105,7 @@ export default function DayView({
                   {hourEvents.map((event) => {
                     const start = new Date(event.startAt);
                     const end = new Date(event.endAt);
+                    if (isNaN(start.getTime()) || isNaN(end.getTime())) return null;
                     const durationMinutes = (end.getTime() - start.getTime()) / 60000;
                     const topOffset = (start.getMinutes() / 60) * 56;
                     const height = Math.max(24, (durationMinutes / 60) * 56);

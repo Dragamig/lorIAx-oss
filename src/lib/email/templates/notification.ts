@@ -3,7 +3,7 @@ import { wrapInLayout } from "./base-layout";
 interface NotificationTemplateParams {
   userName: string;
   actorName: string;
-  type: "mention" | "comment" | "reply" | "share" | "calendar_reminder" | "calendar_invitation" | "task_assigned" | "chat_message";
+  type: "mention" | "comment" | "reply" | "share" | "calendar_reminder" | "calendar_invitation" | "task_assigned" | "chat_message" | "automation";
   documentTitle: string;
   documentUrl: string;
   message?: string;
@@ -18,6 +18,7 @@ const typeLabels: Record<string, string> = {
   calendar_invitation: "vous invite à",
   task_assigned: "vous a assigné une tâche dans",
   chat_message: "vous a envoyé un message",
+  automation: "a déclenché une automatisation pour",
 };
 
 export function notificationEmail(params: NotificationTemplateParams) {

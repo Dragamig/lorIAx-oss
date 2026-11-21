@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isValidInternalBearer } from "@/lib/security/secure-compare";
 import { processReminders } from "@/lib/calendar/notifications";
 
 /**
@@ -10,11 +11,8 @@ export async function POST(request: Request) {
   const authHeader = request.headers.get("authorization");
   const cronSecret = process.env.CRON_SECRET;
 
-  // Fail-closed : sans CRON_SECRET configuré la route refuse, comme
-  // /api/internal/org-plan-update. L'ancienne condition `cronSecret && ...`
-  // laissait la route ouverte à tout le monde sur une installation où la variable
-  // n'est pas définie, ce qui est justement le cas par défaut.
-  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
+  // Fail-closed : sans CRON_SECRET configuré, la route refuse tout appel.
+  if (!isValidInternalBearer(authHeader, cronSecret)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
-import Link from "next/link";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { setLastSpaceCookie, findSpaceIdBySlug } from "@/lib/spaces/last-space-cookie";
+import { Link, usePathname } from "@/i18n/routing";
 import Image from "next/image";
-import { usePathname } from "next/navigation";
 import { useCurrentUser } from "@/hooks/use-session";
-import { useOrganization } from "@/lib/org/organization-context";
+import { useTranslations } from "next-intl";
 import {
   DndContext,
   DragOverlay,
@@ -30,9 +30,10 @@ import {
   X,
   Compass,
   Layers,
-  Building2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { CreateSpaceDialog } from "@/components/sidebar/create-space-dialog";
+import { getClientSlots } from "@/lib/modules/hooks.client";
 import { QuickNav } from "./quick-nav";
 import { SpacesSection } from "./spaces-section";
 import { SortableDocumentTree } from "./sortable-document";
@@ -47,27 +48,18 @@ import {
   getCachedDocumentTree,
 } from "@/lib/offline/cache-manager";
 import { TeamMembersSection } from "./team-members-section";
+import { SIDEBAR_REFRESH_EVENT } from "@/lib/events/sidebar-sync";
 
-// ─── Sélecteur d'organisation ───────────────────────────────────────────────
-
-function OrgSwitcher() {
-  const { org } = useOrganization();
-  if (!org) return null;
-  return (
-    <div className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-muted-foreground">
-      <Building2 className="h-4 w-4 shrink-0" />
-      <span className="truncate">{org.name}</span>
-    </div>
-  );
-}
-
-// ─── Sidebar principale ─────────────────────────────────────────────────────
+// ─── Main sidebar ────────────────────────────────────────────────────────────
 
 export function AppSidebar() {
+  const t = useTranslations("shell.sidebar");
   const user = useCurrentUser();
   const pathname = usePathname();
   const [spaces, setSpaces] = useState<SpaceItem[]>([]);
   const [activeSpace, setActiveSpace] = useState<string | null>(null);
+  // Vrai quand l'espace actif vient d'une URL /s/[slug] ou du sélecteur (pas du défaut initial).
+  const explicitSpaceRef = useRef(false);
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
 const [creatingFolder, setCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
@@ -76,7 +68,7 @@ const [creatingFolder, setCreatingFolder] = useState(false);
   const [availableLabels, setAvailableLabels] = useState<{ id: string; name: string; color: string }[]>([]);
   const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([]);
 
-  // Filtrage de l'arborescence par labels sélectionnés
+  // Filter document tree by selected labels
   const filteredDocuments = useMemo(() => {
     if (selectedLabelIds.length === 0) return documents;
     return documents.filter((doc) => {
@@ -93,9 +85,9 @@ const [creatingFolder, setCreatingFolder] = useState(false);
 
   const spaceGroups = useMemo(() => {
     const groups: { type: SpaceItem["type"]; label: string; spaces: SpaceItem[] }[] = [
-      { type: "personal", label: "Personnels", spaces: [] },
-      { type: "team", label: "Équipes", spaces: [] },
-      { type: "organization", label: "Organisation", spaces: [] },
+      { type: "personal", label: t("spaceGroups.personal"), spaces: [] },
+      { type: "team", label: t("spaceGroups.team"), spaces: [] },
+      { type: "organization", label: t("spaceGroups.organization"), spaces: [] },
     ];
     for (const space of filteredSpaces) {
       const group = groups.find((g) => g.type === space.type);
@@ -103,7 +95,7 @@ const [creatingFolder, setCreatingFolder] = useState(false);
       else groups[0].spaces.push(space);
     }
     return groups;
-  }, [filteredSpaces]);
+  }, [filteredSpaces, t]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -113,11 +105,24 @@ const [creatingFolder, setCreatingFolder] = useState(false);
   useEffect(() => {
     const match = pathname.match(/^\/s\/([^/]+)/);
     if (match) {
+      explicitSpaceRef.current = true;
       setActiveSpace(match[1]);
     }
   }, [pathname]);
 
-  function loadSpaces() {
+  // Mémorise le dernier espace consulté pour le menu Bases.
+  useEffect(() => {
+    if (!explicitSpaceRef.current) return;
+    const id = findSpaceIdBySlug(spaces, activeSpace);
+    if (id) setLastSpaceCookie(id);
+  }, [activeSpace, spaces]);
+
+  const handleActiveSpaceChange = useCallback((slug: string | null) => {
+    explicitSpaceRef.current = true;
+    setActiveSpace(slug);
+  }, []);
+
+  const loadSpaces = useCallback(() => {
     fetch("/api/spaces")
       .then((r) => r.json())
       .then((data) => {
@@ -147,12 +152,11 @@ const [creatingFolder, setCreatingFolder] = useState(false);
           }
         }).catch(() => {});
       });
-  }
+  }, []);
 
   useEffect(() => {
     loadSpaces();
-     
-  }, []);
+  }, [loadSpaces]);
 
   const reloadDocuments = useCallback(() => {
     if (!activeSpace) return;
@@ -178,6 +182,27 @@ const [creatingFolder, setCreatingFolder] = useState(false);
   useEffect(() => {
     reloadDocuments();
   }, [reloadDocuments]);
+
+  // Synchronisation sans F5 : recharger spaces + documents quand une mutation
+  // est signalée ailleurs (espace de travail, réglages d'espace, déplacement…)
+  // ou au retour de focus / d'onglet (filet de sécurité universel).
+  useEffect(() => {
+    const refresh = () => {
+      loadSpaces();
+      reloadDocuments();
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    window.addEventListener(SIDEBAR_REFRESH_EVENT, refresh);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener(SIDEBAR_REFRESH_EVENT, refresh);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [loadSpaces, reloadDocuments]);
 
   useEffect(() => {
     if (!activeSpace) return;
@@ -206,7 +231,7 @@ const [creatingFolder, setCreatingFolder] = useState(false);
       if (res.ok) {
         setNewFolderName("");
         setCreatingFolder(false);
-        // Recharger les documents
+        // Reload documents
         const docsRes = await fetch(`/api/spaces/${activeSpace}/documents`);
         const data = await docsRes.json();
         if (Array.isArray(data)) setDocuments(data);
@@ -219,7 +244,7 @@ const [creatingFolder, setCreatingFolder] = useState(false);
   const handleDragStart = useCallback(
     (event: DragStartEvent) => {
       const id = event.active.id as string;
-      // Chercher d'abord au niveau racine, puis dans les enfants
+      // Search at root level first, then in children
       let found = documents.find((d) => d.id === id) ?? null;
       if (!found) {
         for (const doc of documents) {
@@ -239,12 +264,12 @@ const [creatingFolder, setCreatingFolder] = useState(false);
       const { active, over } = event;
       if (!over || active.id === over.id) return;
 
-      // Dépôt sur un dossier → mise à jour optimiste
+      // Drop on folder — optimistic update
       if (over.data.current?.type === "folder") {
         const folderId = String(over.id);
         if (String(active.id) === folderId) return;
 
-        // Optimiste : retirer le document de la liste racine
+        // Optimistic: remove document from root list
         setDocuments((prev) => prev.filter((d) => d.id !== active.id));
 
         fetch("/api/documents/reorder", {
@@ -259,7 +284,7 @@ const [creatingFolder, setCreatingFolder] = useState(false);
         return;
       }
 
-      // Réordonnancement classique — déjà optimiste (arrayMove avant fetch)
+      // Classic reorder — already optimistic (arrayMove before fetch)
       const docs = documents.filter((d) => !d.isFolder);
       const oldIndex = docs.findIndex((d) => d.id === active.id);
       const newIndex = docs.findIndex((d) => d.id === over.id);
@@ -285,30 +310,39 @@ const [creatingFolder, setCreatingFolder] = useState(false);
 
   return (
     <aside className="w-full h-screen flex flex-col bg-sidebar border-r border-sidebar-border">
-      {/* En-tête */}
+      {/* Header */}
       <div className="pt-4 px-4 pb-2 border-b border-sidebar-border">
         <Link href="/" className="flex items-center gap-2 mb-1">
           <Image src="/mascotte.svg" alt="LorIAx" width={32} height={32} />
           <span className="font-semibold text-lg">LorIAx</span>
+          {process.env.NEXT_PUBLIC_APP_VERSION && (
+            <span className="text-[11px] text-muted-foreground self-end mb-1" title="Version">
+              v{process.env.NEXT_PUBLIC_APP_VERSION}
+            </span>
+          )}
         </Link>
-        <OrgSwitcher />
+        {(() => {
+          const OrgSwitcher = getClientSlots().OrgSwitcher;
+          return OrgSwitcher ? <OrgSwitcher /> : null;
+        })()}
       </div>
 
-      {/* Zone scrollable : Navigation + Favoris + Espaces + Documents */}
+      {/* Scrollable area: Navigation + Favorites + Spaces + Documents */}
       <div className="flex-1 overflow-y-auto min-h-0">
-        {/* Navigation rapide */}
-        <CollapsibleSection id="quick-nav" title="Navigation" icon={Compass}>
+        {/* Quick navigation */}
+        <CollapsibleSection id="quick-nav" title={t("navigation")} icon={Compass}>
           <QuickNav pathname={pathname} user={user} />
         </CollapsibleSection>
 
-        {/* Favoris */}
+        {/* Favorites */}
         <FavoritesSection />
 
-        {/* Espaces */}
+        {/* Spaces */}
         <CollapsibleSection
           id="spaces"
-          title="Espaces"
+          title={t("spaces")}
           icon={Layers}
+          actions={<CreateSpaceDialog onCreated={loadSpaces} />}
         >
           <SpacesSection
             spaces={spaces}
@@ -317,14 +351,14 @@ const [creatingFolder, setCreatingFolder] = useState(false);
             spaceSearch={spaceSearch}
             activeSpace={activeSpace}
             onSpaceSearchChange={setSpaceSearch}
-            onActiveSpaceChange={setActiveSpace}
+            onActiveSpaceChange={handleActiveSpaceChange}
           />
         </CollapsibleSection>
 
         {/* Documents */}
         <CollapsibleSection
           id="documents"
-          title="Documents"
+          title={t("documents")}
           icon={FileText}
           actions={
             activeSpace ? (
@@ -334,12 +368,13 @@ const [creatingFolder, setCreatingFolder] = useState(false);
                   size="icon"
                   className="h-6 w-6"
                   onClick={() => setCreatingFolder(true)}
-                  title="Nouveau dossier"
+                  title={t("newFolder")}
+                  aria-label={t("newFolderAria")}
                 >
                   <FolderPlus className="h-3.5 w-3.5" />
                 </Button>
                 <Link href={`/s/${activeSpace}/new`}>
-                  <Button variant="ghost" size="icon" className="h-6 w-6" title="Nouveau document">
+                  <Button variant="ghost" size="icon" className="h-6 w-6" title={t("newDocument")} aria-label={t("newDocumentAria")}>
                     <Plus className="h-3.5 w-3.5" />
                   </Button>
                 </Link>
@@ -348,7 +383,7 @@ const [creatingFolder, setCreatingFolder] = useState(false);
           }
         >
           <div className="px-3 py-2">
-            {/* Filtre par labels */}
+            {/* Label filter */}
             {availableLabels.length > 0 && (
               <div className="flex flex-wrap gap-1 mb-2">
                 {availableLabels.map((label) => {
@@ -372,7 +407,7 @@ const [creatingFolder, setCreatingFolder] = useState(false);
                         outline: isSelected ? `2px solid ${label.color}` : "none",
                         outlineOffset: "1px",
                       }}
-                      title={isSelected ? `Retirer le filtre ${label.name}` : `Filtrer par ${label.name}`}
+                      title={isSelected ? t("removeFilterAria", { name: label.name }) : t("filterByAria", { name: label.name })}
                     >
                       {label.name}
                     </button>
@@ -394,7 +429,7 @@ const [creatingFolder, setCreatingFolder] = useState(false);
                       setNewFolderName("");
                     }
                   }}
-                  placeholder="Nom du dossier..."
+                  placeholder={t("newFolderPlaceholder")}
                   className="flex-1 text-sm bg-transparent border-b border-primary outline-none px-1 py-0.5"
                   autoFocus
                 />
@@ -445,18 +480,18 @@ const [creatingFolder, setCreatingFolder] = useState(false);
             {filteredDocuments.length === 0 && activeSpace && (
               <p className="text-xs text-muted-foreground px-2 py-4">
                 {selectedLabelIds.length > 0
-                  ? "Aucun document avec ce label."
-                  : "Aucun document. Créez le premier !"}
+                  ? t("noDocumentsLabel")
+                  : t("noDocuments")}
               </p>
             )}
           </div>
         </CollapsibleSection>
 
-        {/* Membres actifs */}
+        {/* Active team members */}
         <TeamMembersSection />
       </div>
 
-      {/* Pied de page utilisateur */}
+      {/* User footer */}
       <SidebarFooter user={user} />
     </aside>
   );

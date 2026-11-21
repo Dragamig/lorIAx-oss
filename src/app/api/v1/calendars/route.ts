@@ -1,10 +1,11 @@
 import { type NextRequest } from "next/server";
 import { db } from "@/lib/db";
-import { calendars, calendarSubscriptions, teamMembers } from "@/lib/db/schema";
-import { eq, and, inArray } from "drizzle-orm";
+import { calendars } from "@/lib/db/schema";
+import { inArray } from "drizzle-orm";
 import { authenticateApiRequest } from "@/lib/api/auth-api";
 import { apiSuccess, apiError } from "@/lib/api/response";
 import { hasScope } from "@/lib/auth/api-key";
+import { getAccessibleCalendarIds } from "@/lib/calendar/permissions";
 
 export async function GET(request: NextRequest) {
   const auth = await authenticateApiRequest(request);
@@ -17,41 +18,15 @@ export async function GET(request: NextRequest) {
     return apiError("Scope calendars:read requis", 403);
   }
 
-  // Own calendars
-  const ownCalendars = await db
-    .select()
-    .from(calendars)
-    .where(eq(calendars.ownerUserId, user.id));
+  // Cloisonnement multi-tenant : calendriers accessibles confinés à l'org de la clé API.
+  const ids = await getAccessibleCalendarIds(
+    { id: user.id, email: user.email, name: user.name, globalRole: user.globalRole, capabilities: user.capabilities },
+    user.orgId
+  );
+  if (ids.length === 0) return apiSuccess([]);
 
-  // Subscribed
-  const subs = await db
-    .select({ calendarId: calendarSubscriptions.calendarId })
-    .from(calendarSubscriptions)
-    .where(eq(calendarSubscriptions.userId, user.id));
-
-  const subIds = subs.map((s) => s.calendarId);
-  let subscribedCalendars: (typeof calendars.$inferSelect)[] = [];
-  if (subIds.length > 0) {
-    subscribedCalendars = await db.select().from(calendars).where(inArray(calendars.id, subIds));
-  }
-
-  // Org calendars
-  const orgCalendars = await db.select().from(calendars).where(eq(calendars.type, "organization"));
-
-  // Team calendars
-  const userTeams = await db.select({ teamId: teamMembers.teamId }).from(teamMembers).where(eq(teamMembers.userId, user.id));
-  let teamCalendars: (typeof calendars.$inferSelect)[] = [];
-  if (userTeams.length > 0) {
-    const teamIds = userTeams.map((t) => t.teamId);
-    teamCalendars = await db.select().from(calendars).where(and(eq(calendars.type, "team"), inArray(calendars.ownerTeamId, teamIds)));
-  }
-
-  const allCals = new Map<string, typeof calendars.$inferSelect>();
-  for (const cal of [...ownCalendars, ...subscribedCalendars, ...orgCalendars, ...teamCalendars]) {
-    allCals.set(cal.id, cal);
-  }
-
-  return apiSuccess([...allCals.values()].sort((a, b) => a.name.localeCompare(b.name)));
+  const rows = await db.select().from(calendars).where(inArray(calendars.id, ids));
+  return apiSuccess(rows.sort((a, b) => a.name.localeCompare(b.name)));
 }
 
 export async function POST(request: NextRequest) {

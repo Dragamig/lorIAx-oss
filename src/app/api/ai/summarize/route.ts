@@ -1,20 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateText } from "ai";
 import { getSessionUser } from "@/lib/auth/get-user";
-import { getLanguageModel, getDefaultProvider } from "@/lib/ai/provider";
+import { checkDocumentViewAccess } from "@/lib/auth/check-access";
+import { getLanguageModelForUsageInOrg, isAnyAIProviderConfigured } from "@/lib/ai/provider-resolver";
+import { getRequestOrgId } from "@/lib/org/get-request-org";
 import { db } from "@/lib/db";
 import { documents, spaces } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { readDocument } from "@/lib/storage/filesystem";
-import { checkDocumentViewAccess } from "@/lib/auth/check-access";
-
-function isAIConfigured(): boolean {
-  const provider = getDefaultProvider();
-  if (provider.name === "claude") return !!process.env.ANTHROPIC_API_KEY;
-  if (provider.name === "openai") return !!process.env.OPENAI_API_KEY;
-  if (provider.name === "ollama") return !!process.env.OLLAMA_BASE_URL;
-  return false;
-}
 
 export async function POST(request: NextRequest) {
   const user = await getSessionUser();
@@ -22,9 +15,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
   }
 
-  if (!isAIConfigured()) {
+  if (!(await isAnyAIProviderConfigured())) {
     return NextResponse.json(
-      { error: "Aucun provider IA configuré. Ajoutez ANTHROPIC_API_KEY, OPENAI_API_KEY, ou configurez Ollama." },
+      { error: "Aucun provider IA configuré. Configurez un provider dans /admin/ai/providers." },
       { status: 503 }
     );
   }
@@ -45,9 +38,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Document non trouve" }, { status: 404 });
   }
 
-  // Resumer un document, c'est en restituer le contenu : le meme droit de lecture que
-  // GET /api/documents/[id] est exige. Sans ce controle, tout compte authentifie qui
-  // connait un identifiant se fait resumer un document `secret`.
+  // Vérifier les permissions de lecture (cloisonnement multi-tenant inclus)
   const canView = await checkDocumentViewAccess(user, doc.spaceId, doc.id);
   if (!canView) {
     return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
@@ -73,10 +64,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Document vide" }, { status: 400 });
   }
 
-  const model = getLanguageModel();
+  // Cloisonnement AZ-06 (lot 6) : le fournisseur est choisi dans la portée de
+  // la requête. Le document résumé appartient déjà à cette organisation, son
+  // accès venant d'être vérifié par `checkDocumentViewAccess`.
+  const { languageModel } = await getLanguageModelForUsageInOrg(
+    "summary_doc",
+    await getRequestOrgId(user)
+  );
 
   const { text } = await generateText({
-    model,
+    model: languageModel,
     system:
       "Tu es un assistant qui produit des resumes concis et structures en francais. Utilise des bullet points.",
     prompt: `Resume le document suivant :\n\n# ${doc.title}\n\n${content}`,

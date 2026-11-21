@@ -3,14 +3,10 @@ import { db } from "@/lib/db";
 import { documents, spaces } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { getSessionUser } from "@/lib/auth/get-user";
-import {
-  checkDocumentViewAccess,
-  checkSpaceEditAccess,
-} from "@/lib/auth/check-access";
+import { checkDocumentEditAccess, checkSpaceWriteAccess } from "@/lib/auth/check-access";
 import { enforceClassificationFloor } from "@/lib/auth/classification";
-import { logActivity } from "@/lib/activity";
-import { z } from "zod";
 import type { ClassificationLevel } from "@/types";
+import { z } from "zod";
 
 const moveSchema = z
   .object({
@@ -30,7 +26,12 @@ export async function POST(
   if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
 
   const { id } = await params;
-  const body = await request.json();
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "JSON invalide" }, { status: 400 });
+  }
   const parsed = moveSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
@@ -39,20 +40,10 @@ export async function POST(
   const [doc] = await db.select().from(documents).where(eq(documents.id, id)).limit(1);
   if (!doc) return NextResponse.json({ error: "Document introuvable" }, { status: 404 });
 
-  // Deplacer un document `secret` vers un espace que l'on possede donne la lecture :
-  // checkDocumentViewAccess court-circuite en `true` pour le proprietaire de l'espace.
-  // Le droit de lecture sur le document deplace est donc exige, en plus du droit
-  // d'ecriture sur l'espace source.
-  const canViewSource = await checkDocumentViewAccess(user, doc.spaceId, doc.id);
-  if (!canViewSource) {
-    return NextResponse.json({ error: "Accès refusé (document source)" }, { status: 403 });
-  }
-
-  // Le droit d'ecriture reste evalue au niveau de l'espace source, comme avant : sortir
-  // un document d'un espace engage l'espace, pas seulement le document.
-  const canEditSource = await checkSpaceEditAccess(user, doc.spaceId);
+  // Permission d'écriture sur le document source (inclut le cloisonnement d'org)
+  const canEditSource = await checkDocumentEditAccess(user, doc.spaceId, doc.id);
   if (!canEditSource) {
-    return NextResponse.json({ error: "Accès refusé (espace source)" }, { status: 403 });
+    return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
   }
 
   // --- Déplacement vers un autre espace ---
@@ -64,52 +55,24 @@ export async function POST(
       .limit(1);
     if (!targetSpace) return NextResponse.json({ error: "Espace cible introuvable" }, { status: 404 });
 
-    // Check write permission on target space
-    const canEditTarget = await checkSpaceEditAccess(user, targetSpace.id);
-    if (!canEditTarget) {
-      return NextResponse.json({ error: "Accès refusé (espace cible)" }, { status: 403 });
+    // Permission d'écriture sur l'espace cible (+ appartenance à l'org courante)
+    const canWriteTarget = await checkSpaceWriteAccess(user, targetSpace.id);
+    if (!canWriteTarget) {
+      return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
-
-    // La ligne deplacee ne peut pas atterrir sous le plancher de classification de
-    // l'espace cible : deplacer n'est pas un moyen de declasser. Niveau propage et non
-    // choisi par l'appelant, donc releve et non refuse (voir enforceClassificationFloor).
-    //
-    // Limite connue, heritee : seule la ligne du document deplace est mise a jour. Le
-    // deplacement d'un DOSSIER laisse ses enfants avec l'ancien `spaceId` et l'ancienne
-    // classification, ils restent donc rattachees a l'espace d'origine et gardent leur
-    // niveau. Aucune declassification n'en resulte, mais l'arborescence devient
-    // incoherente : a traiter avec le deplacement recursif, hors perimetre de ce lot.
-    const docClassification = (doc.classification || "internal") as ClassificationLevel;
-    const nextClassification = enforceClassificationFloor(
-      docClassification,
-      (targetSpace.classification || "internal") as ClassificationLevel
-    );
 
     await db
       .update(documents)
       .set({
         spaceId: targetSpace.id,
         parentId: null,
-        classification: nextClassification,
+        // Le document ne descend jamais sous le plancher de l'espace cible.
+        classification: enforceClassificationFloor(
+          (doc.classification || "internal") as ClassificationLevel,
+          (targetSpace.classification || "internal") as ClassificationLevel
+        ),
       })
       .where(eq(documents.id, id));
-
-    // Une reclassification est un evenement d'audit, meme lorsqu'elle est automatique.
-    logActivity({
-      userId: user.id,
-      action: "move",
-      entityType: "document",
-      entityId: id,
-      metadata: {
-        title: doc.title,
-        spaceId: targetSpace.id,
-        sourceSpaceId: doc.spaceId,
-        targetSpaceSlug: targetSpace.slug,
-        ...(nextClassification !== docClassification
-          ? { classificationRaisedFrom: docClassification, classification: nextClassification }
-          : {}),
-      },
-    });
 
     return NextResponse.json({ ok: true, spaceSlug: targetSpace.slug });
   }

@@ -1,26 +1,15 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { userDatabases, userDatabaseRows } from "@/lib/db/schema";
-import { eq, sql } from "drizzle-orm";
-import { getSessionUser } from "@/lib/auth/get-user";
-import { checkSpaceEditAccess } from "@/lib/auth/check-access";
-import type { SessionUser } from "@/types";
+import { userDatabaseRows } from "@/lib/db/schema";
+import { and, eq, inArray } from "drizzle-orm";
+import { requireOrgScoped, OrgScopeError } from "@/lib/auth/require-org-scoped";
+import { dispatchRowEvents } from "@/lib/automations/dispatch-row-events";
+import { createDatabaseRow, mergeDatabaseRowCells } from "@/lib/databases/row-writes";
+import { deleteDatabaseRows } from "@/lib/databases/row-batch";
+import { rowBatchErrorResponse } from "@/lib/databases/row-batch-http";
+import { rowContextFromRequest } from "@/lib/databases/row-request-context";
+import { validateAttachmentCells } from "@/lib/databases/attachment-cell-guard";
 import { z } from "zod";
-
-async function getDatabaseWithAccess(databaseId: string, user: SessionUser) {
-  const [database] = await db
-    .select()
-    .from(userDatabases)
-    .where(eq(userDatabases.id, databaseId))
-    .limit(1);
-  if (!database) return { database: null, allowed: false };
-
-  // checkSpaceEditAccess et non getSpacePermission : cette derniere ignore la
-  // propriete de l'espace, un utilisateur ne pouvait donc pas ecrire dans les bases
-  // de son propre espace personnel, faute de ligne space_permissions a son nom.
-  const allowed = await checkSpaceEditAccess(user, database.spaceId);
-  return { database, allowed };
-}
 
 const createRowSchema = z.object({
   cells: z.record(z.string(), z.any()).optional(),
@@ -30,13 +19,17 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ databaseId: string }> }
 ) {
-  const user = await getSessionUser();
-  if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
-
   const { databaseId } = await params;
-  const { database, allowed } = await getDatabaseWithAccess(databaseId, user);
-  if (!database) return NextResponse.json({ error: "Base introuvable" }, { status: 404 });
-  if (!allowed) return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+  let scope: Awaited<ReturnType<typeof requireOrgScoped>>;
+  try {
+    scope = await requireOrgScoped({
+      resource: { type: "database", id: databaseId },
+      minPermission: "editor",
+    });
+  } catch (e) {
+    if (e instanceof OrgScopeError) return e.response;
+    throw e;
+  }
 
   const body = await request.json();
   const parsed = createRowSchema.safeParse(body);
@@ -44,20 +37,24 @@ export async function POST(
     return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
   }
 
-  // Get max position
-  const [maxPos] = await db
-    .select({ max: sql<number>`COALESCE(MAX(${userDatabaseRows.position}), -1)` })
-    .from(userDatabaseRows)
-    .where(eq(userDatabaseRows.databaseId, databaseId));
+  const cells: Record<string, unknown> = { ...(parsed.data.cells ?? {}) };
+  const guard = await validateAttachmentCells(databaseId, cells, scope.user, scope.orgId);
+  if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
 
-  const [row] = await db
-    .insert(userDatabaseRows)
-    .values({
-      databaseId,
-      cells: parsed.data.cells ?? {},
-      position: (maxPos?.max ?? -1) + 1,
-    })
-    .returning();
+  const row = await createDatabaseRow(
+    databaseId,
+    cells,
+    undefined,
+    rowContextFromRequest(request, scope.user, { allowImport: true })
+  );
+
+  // Fire-and-forget : déclenche les automations row_created
+  dispatchRowEvents({
+    databaseId,
+    rowId: row.id,
+    before: null,
+    after: row.cells as Record<string, unknown>,
+  });
 
   return NextResponse.json(row, { status: 201 });
 }
@@ -75,13 +72,17 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ databaseId: string }> }
 ) {
-  const user = await getSessionUser();
-  if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
-
   const { databaseId } = await params;
-  const { database, allowed } = await getDatabaseWithAccess(databaseId, user);
-  if (!database) return NextResponse.json({ error: "Base introuvable" }, { status: 404 });
-  if (!allowed) return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+  let scope: Awaited<ReturnType<typeof requireOrgScoped>>;
+  try {
+    scope = await requireOrgScoped({
+      resource: { type: "database", id: databaseId },
+      minPermission: "editor",
+    });
+  } catch (e) {
+    if (e instanceof OrgScopeError) return e.response;
+    throw e;
+  }
 
   const body = await request.json();
   const parsed = updateRowsSchema.safeParse(body);
@@ -89,59 +90,96 @@ export async function PATCH(
     return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
   }
 
+  // Valeur enregistrée : une pièce déjà en place n'est pas revalidée (autre espace, corbeille).
+  const stored = await db
+    .select({ id: userDatabaseRows.id, cells: userDatabaseRows.cells })
+    .from(userDatabaseRows)
+    .where(
+      and(
+        eq(userDatabaseRows.databaseId, databaseId),
+        inArray(
+          userDatabaseRows.id,
+          parsed.data.rows.map((r) => r.id)
+        )
+      )
+    );
+  const storedById = new Map(stored.map((r) => [r.id, (r.cells ?? {}) as Record<string, unknown>]));
+  for (const row of parsed.data.rows) {
+    const guard = await validateAttachmentCells(databaseId, row.cells, scope.user, scope.orgId, storedById.get(row.id));
+    if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
+  }
+
+  const ctx = rowContextFromRequest(request, scope.user);
   const results = [];
   for (const row of parsed.data.rows) {
-    // Merge cells: get existing row, merge with new cells
-    const [existing] = await db
-      .select()
-      .from(userDatabaseRows)
-      .where(eq(userDatabaseRows.id, row.id))
-      .limit(1);
+    // « Avant » pour value_changed : lu avec la valeur enregistrée du garde (une
+    // seule requête pour tout le lot, best-effort hors du merge sous verrou de
+    // ligne ; un PATCH concurrent peut le rendre légèrement obsolète, tolérable).
+    const beforeCells = storedById.get(row.id) ?? {};
 
-    if (!existing) continue;
+    // Merge atomique sous le verrou de ligne natif Postgres (cf. row-writes).
+    const updated = await mergeDatabaseRowCells(databaseId, row.id, row.cells, {}, undefined, ctx);
 
-    const mergedCells = {
-      ...((existing.cells ?? {}) as Record<string, unknown>),
-      ...row.cells,
-    };
-
-    const [updated] = await db
-      .update(userDatabaseRows)
-      .set({ cells: mergedCells, updatedAt: new Date() })
-      .where(eq(userDatabaseRows.id, row.id))
-      .returning();
-
-    if (updated) results.push(updated);
+    if (updated) {
+      results.push(updated);
+      dispatchRowEvents({
+        databaseId,
+        rowId: updated.id,
+        before: beforeCells,
+        after: updated.cells as Record<string, unknown>,
+      });
+    }
   }
 
   return NextResponse.json(results);
 }
 
-const deleteRowSchema = z.object({
-  rowId: z.string().uuid(),
-});
+const deleteRowsSchema = z.union([
+  z.object({ rowIds: z.array(z.string().uuid()).min(1).max(500) }),
+  z.object({ rowId: z.string().uuid() }),
+]);
 
 export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ databaseId: string }> }
 ) {
-  const user = await getSessionUser();
-  if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
-
   const { databaseId } = await params;
-  const { database, allowed } = await getDatabaseWithAccess(databaseId, user);
-  if (!database) return NextResponse.json({ error: "Base introuvable" }, { status: 404 });
-  if (!allowed) return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+  let scope: Awaited<ReturnType<typeof requireOrgScoped>>;
+  try {
+    scope = await requireOrgScoped({
+      resource: { type: "database", id: databaseId },
+      minPermission: "editor",
+    });
+  } catch (e) {
+    if (e instanceof OrgScopeError) return e.response;
+    throw e;
+  }
 
-  const body = await request.json();
-  const parsed = deleteRowSchema.safeParse(body);
+  const body = await request.json().catch(() => null);
+  const parsed = deleteRowsSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
   }
+  const rowIds = "rowIds" in parsed.data ? parsed.data.rowIds : [parsed.data.rowId];
 
-  await db
-    .delete(userDatabaseRows)
-    .where(eq(userDatabaseRows.id, parsed.data.rowId));
+  // Garde-fou : toutes les lignes doivent appartenir à cette base (404 muet sinon).
+  let deleted;
+  try {
+    deleted = await deleteDatabaseRows(
+      databaseId,
+      rowIds,
+      undefined,
+      rowContextFromRequest(request, scope.user)
+    );
+  } catch (e) {
+    const res = rowBatchErrorResponse(e);
+    if (res) return res;
+    throw e;
+  }
 
-  return NextResponse.json({ ok: true });
+  for (const row of deleted) {
+    dispatchRowEvents({ databaseId, rowId: row.id, before: row.cells, after: null });
+  }
+
+  return NextResponse.json({ ok: true, deleted });
 }

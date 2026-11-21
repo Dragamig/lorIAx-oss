@@ -3,29 +3,11 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { Plus, X, Search, Link2 } from "lucide-react";
 import type { DbRow, DbColumn } from "./types";
+import { getRowDisplayName } from "./row-display-name";
 
 // ─── Relation helpers ────────────────────────────────────────────────────────
 
-export function getRowDisplayName(row: DbRow, targetColumns?: DbColumn[]): string {
-  const cells = row.cells ?? {};
-
-  // Priorite : premiere colonne par position (celle visible par l'usager)
-  if (targetColumns && targetColumns.length > 0) {
-    for (const col of targetColumns) {
-      const val = cells[col.id];
-      if (val != null && val !== "") return String(val);
-    }
-  }
-
-  // Fallback : premiere valeur non vide dans les cellules
-  for (const val of Object.values(cells)) {
-    if (val != null && val !== "" && typeof val !== "boolean" && !Array.isArray(val)) {
-      return String(val);
-    }
-  }
-
-  return `Ligne ${row.position + 1}`;
-}
+export { getRowDisplayName };
 
 // ─── Relation Picker ─────────────────────────────────────────────────────────
 
@@ -99,7 +81,7 @@ export function RelationPicker({
       </div>
 
       {open && (
-        <div className="absolute top-full left-0 mt-1 z-50 w-56 rounded-md border bg-popover text-popover-foreground shadow-md">
+        <div className="absolute top-full left-0 mt-1 z-50 w-56 rounded-md border bg-popover text-popover-foreground shadow-md" data-row-control>
           <div className="p-2 border-b">
             <div className="flex items-center gap-1.5 px-2 py-1 rounded border bg-background">
               <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
@@ -107,6 +89,17 @@ export function RelationPicker({
                 autoFocus
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    e.stopPropagation();
+                    setOpen(false);
+                    setSearch("");
+                  } else if (e.key === "Enter" && available.length > 0) {
+                    e.preventDefault();
+                    onChange([...selected, available[0].id]);
+                    setSearch("");
+                  }
+                }}
                 placeholder="Rechercher..."
                 className="flex-1 text-xs bg-transparent outline-none"
               />

@@ -11,11 +11,20 @@ export function colLetterToIndex(letters: string): number {
 export function parseRange(range: string): { startRow: number; endRow: number; startCol: number; endCol: number } | null {
   const m = range.trim().match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/i);
   if (!m) return null;
+
+  const startRow = parseInt(m[2]) - 1;
+  const endRow = parseInt(m[4]) - 1;
+
+  // Validate parsed row numbers are non-negative and reasonable
+  if (startRow < 0 || endRow < 0 || startRow >= 10000 || endRow >= 10000) {
+    return null;
+  }
+
   return {
     startCol: colLetterToIndex(m[1]),
-    startRow: parseInt(m[2]) - 1,
+    startRow,
     endCol: colLetterToIndex(m[3]),
-    endRow: parseInt(m[4]) - 1,
+    endRow,
   };
 }
 

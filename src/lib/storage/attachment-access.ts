@@ -1,94 +1,89 @@
 import { db } from "@/lib/db";
-import { attachments, documents } from "@/lib/db/schema";
+import { videoProjects } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { checkDocumentViewAccess, checkSpaceViewAccess } from "@/lib/auth/check-access";
+import { checkSpaceReadAccess } from "@/lib/auth/check-access";
+import { getMediaByStorageKey, resolveMediaAccess } from "@/lib/media/access";
 import type { SessionUser } from "@/types";
 
 /**
- * H8 - Access control for stored attachments.
+ * Contrôle d'accès aux objets du bucket servis par `/api/attachments/[...key]`
+ * et `/api/attachments/signed`.
  *
- * The attachment routes used to hand any S3 object key straight to the bucket, so a
- * guessed or observed key was readable by any authenticated account. Every read now
- * has to go through this module: the key is resolved in the `attachments` table, then
- * the owning document (or, failing that, the owning space) drives the decision with
- * the regular access helpers. A key that is not registered in the table is refused.
+ * La table `media` fait autorité pour la correspondance clé → périmètre, par
+ * le résolveur d'accès unique `resolveMediaAccess`. Une liste blanche de
+ * familles de clés sans ligne `media` complète le dispositif.
+ *
+ * Principe : refus par défaut. Toute famille de clés non listée est refusée.
  */
 
-export interface ResolvedAttachment {
-  id: string;
-  storageKey: string;
-  filename: string;
-  mimeType: string;
-  spaceId: string;
-  documentId: string | null;
-}
-
-export type AttachmentAccessResult =
-  | { ok: true; attachment: ResolvedAttachment }
-  /** Key unknown to the database: never serve it. */
-  | { ok: false; reason: "not_found" }
-  /** Key known but the caller may not read the owning document or space. */
-  | { ok: false; reason: "forbidden" };
-
-/** Look up an attachment by its S3 object key. */
-async function findByStorageKey(storageKey: string): Promise<ResolvedAttachment | null> {
-  const [row] = await db
-    .select({
-      id: attachments.id,
-      storageKey: attachments.storageKey,
-      filename: attachments.filename,
-      mimeType: attachments.mimeType,
-      spaceId: attachments.spaceId,
-      documentId: attachments.documentId,
-    })
-    .from(attachments)
-    .where(eq(attachments.storageKey, storageKey))
-    .limit(1);
-
-  return row ?? null;
-}
+/** Familles lisibles par tout utilisateur authentifié de l'instance. */
+const READABLE_PREFIXES = [
+  "avatars/", // photo de profil d'un membre
+  "branding/", // logo + favicon de l'instance
+];
 
 /**
- * Read permission on an attachment.
- *
- * Attached to a document: the document view check applies (RBAC + classification).
- * Attached to a space only (database blocks, orphaned attachments after a document
- * deletion): the decision is delegated to checkSpaceViewAccess() in "member" mode,
- * the very rule that governs the database rows carrying those attachments
- * (src/app/api/databases/[databaseId]/route.ts). Reimplementing it here with
- * getSpacePermission() made the attachment stricter than the row that displays it:
- * a user whose access comes from a team permission saw the cell and got a 403 when
- * opening it.
+ * Familles explicitement refusées ici : elles ont leurs propres routes, qui
+ * portent leurs propres contrôles (organisation, projet, espace). Les laisser
+ * passer par `/api/attachments` serait un contournement de ces contrôles.
  */
-async function canRead(user: SessionUser, attachment: ResolvedAttachment): Promise<boolean> {
-  if (attachment.documentId) {
-    const [doc] = await db
-      .select({ id: documents.id, spaceId: documents.spaceId })
-      .from(documents)
-      .where(eq(documents.id, attachment.documentId))
-      .limit(1);
+const DENIED_PREFIXES = [
+  "studio/", // /api/studio/images/[id]
+  "meeting-rooms/", // /api/meeting-rooms/[id]/...
+  "designs/", // /api/designs/[id]
+  "automations/", // /api/databases/.../runs/[runId]/document
+];
 
-    // The document may have been moved to another space since the upload, so the
-    // check uses the document's current space, not the one stored on the attachment.
-    if (doc) return checkDocumentViewAccess(user, doc.spaceId, doc.id);
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Détermine si `user` peut lire l'objet `key` du bucket.
+ *
+ * 1. Une ligne `media` portant cette `storageKey` fait autorité : le verdict
+ *    est celui de `resolveMediaAccess` en lecture (organisation, corbeille,
+ *    espace ou média hors espace).
+ * 2. Repli historique : clé préfixée d'un UUID d'espace → contrôle d'espace.
+ * 3. Médias du banc de montage (`video-editor/{projectId}/...`) → contrôle de
+ *    l'espace du projet (imports Pexels et exports, sans ligne `media`).
+ * 4. `avatars/` et `branding/` → lecture autorisée.
+ * 5. Tout le reste → refus.
+ */
+export async function canReadStorageKey(
+  user: SessionUser,
+  key: string
+): Promise<boolean> {
+  if (!key || key.includes("..")) return false;
+
+  const segments = key.split("/");
+  // Un objet à la racine du bucket n'appartient à aucun périmètre connu.
+  if (segments.length < 2) return false;
+
+  if (DENIED_PREFIXES.some((p) => key.startsWith(p))) return false;
+
+  const mediaRow = await getMediaByStorageKey(key);
+  if (mediaRow) {
+    return (await resolveMediaAccess(user, mediaRow, "read")).allowed;
   }
 
-  return checkSpaceViewAccess(user, attachment.spaceId, "member");
-}
+  if (READABLE_PREFIXES.some((p) => key.startsWith(p))) return true;
 
-/**
- * Resolve an S3 object key into an attachment the caller is allowed to read.
- * Single entry point for the attachment serving routes.
- */
-export async function resolveReadableAttachment(
-  user: SessionUser,
-  storageKey: string
-): Promise<AttachmentAccessResult> {
-  const attachment = await findByStorageKey(storageKey);
-  if (!attachment) return { ok: false, reason: "not_found" };
+  const [first, second] = segments;
 
-  const allowed = await canRead(user, attachment);
-  if (!allowed) return { ok: false, reason: "forbidden" };
+  if (first === "video-editor") {
+    if (!UUID_RE.test(second)) return false;
+    const [project] = await db
+      .select({ spaceId: videoProjects.spaceId })
+      .from(videoProjects)
+      .where(eq(videoProjects.id, second))
+      .limit(1);
+    if (!project) return false;
+    return checkSpaceReadAccess(user, project.spaceId);
+  }
 
-  return { ok: true, attachment };
+  if (UUID_RE.test(first)) {
+    return checkSpaceReadAccess(user, first);
+  }
+
+  return false;
 }

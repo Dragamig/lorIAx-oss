@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react";
 import { X } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { stopMouse } from "../../utils/stop-mouse";
 
 interface ParticipantChipsProps {
   participants: string[];
@@ -59,6 +60,7 @@ export function ParticipantChips({
           <Input
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
+            onMouseDown={stopMouse}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();

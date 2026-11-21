@@ -33,8 +33,15 @@ export function useCalendarEvents(
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // Sérialisation des entrées : on ne refetch que si les valeurs changent
+  // réellement (et non à chaque nouvelle référence d'objet créée par le parent).
+  const calendarKey = calendarIds.join(",");
+  const startISO = start.toISOString();
+  const endISO = end.toISOString();
+
   const fetchEvents = useCallback(async () => {
-    if (calendarIds.length === 0) {
+    const ids = calendarKey ? calendarKey.split(",") : [];
+    if (ids.length === 0) {
       setEvents([]);
       return;
     }
@@ -42,11 +49,9 @@ export function useCalendarEvents(
     setLoading(true);
     try {
       const allEvents: CalendarEvent[] = [];
-      const startISO = start.toISOString();
-      const endISO = end.toISOString();
 
       await Promise.all(
-        calendarIds.map(async (calId) => {
+        ids.map(async (calId) => {
           const res = await fetch(
             `/api/calendars/${calId}/events?start=${startISO}&end=${endISO}`
           );
@@ -74,7 +79,7 @@ export function useCalendarEvents(
     } finally {
       setLoading(false);
     }
-  }, [calendarIds.join(","), start.toISOString(), end.toISOString()]);
+  }, [calendarKey, startISO, endISO]);
 
   useEffect(() => {
     fetchEvents();

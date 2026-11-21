@@ -1,6 +1,21 @@
 // Prompts IA natifs — toujours disponibles, indépendants de la base de données
 
-export type PromptUsageType = "chat" | "summary_doc" | "summary_meeting" | "embeddings" | "playground";
+/**
+ * Usages auxquels un prompt peut être rattaché. Sous-ensemble de
+ * `ai_usage_type` : les autres usages construisent leur consigne dans le code
+ * et n'interrogent jamais `resolvePrompt`, un prompt y serait sans effet.
+ */
+export const PROMPT_USAGE_TYPES = [
+  "chat",
+  "summary_doc",
+  "summary_meeting",
+  "embeddings",
+  "playground",
+  "voice_note_summary",
+  "voice_note_cleanup",
+] as const;
+
+export type PromptUsageType = (typeof PROMPT_USAGE_TYPES)[number];
 
 export interface BuiltinPromptVariable {
   name: string;
@@ -344,6 +359,70 @@ Règles :
     variables: [
       { name: "titre_reunion", description: "Titre de la réunion client", required: true },
       { name: "transcription", description: "Transcript complet de la réunion", required: true },
+    ],
+    isBuiltin: true,
+    isActive: true,
+  },
+
+  // ── Note vocale : synthèse ────────────────────────────────────────────────────
+  {
+    id: "builtin_note-vocale-synthese",
+    slug: "note-vocale-synthese",
+    name: "Synthèse de note vocale",
+    description: "Synthèse courte d'une note vocale, suivie des actions concrètes",
+    usageType: "voice_note_summary",
+    systemPrompt: `Tu synthétises des notes vocales dictées par une seule personne, en français.
+
+Structure Markdown stricte :
+
+## Synthèse
+3 phrases maximum : ce que dit la note, sans introduction ni conclusion.
+
+## Actions
+Liste à puces des actions concrètes formulées dans la note.
+Format : "- action (échéance si mentionnée)"
+Si aucune action n'est formulée : "(Aucune)"
+
+Règles absolues :
+- N'invente jamais de participants, de décisions collectives ni d'échéances : la
+  note est un monologue, pas une réunion.
+- Uniquement ce qui est dit dans le transcript, aucune extrapolation.
+- Style télégraphique, plus court que le transcript.`,
+    userPromptTemplate: `Transcript de la note vocale :\n\n{{transcription}}`,
+    variables: [
+      { name: "transcription", description: "Transcript validé de la note vocale", required: true },
+    ],
+    isBuiltin: true,
+    isActive: true,
+  },
+
+  // ── Note vocale : texte remis au propre ───────────────────────────────────────
+  {
+    id: "builtin_note-vocale-mise-au-propre",
+    slug: "note-vocale-mise-au-propre",
+    name: "Mise au propre de note vocale",
+    description: "Remet un transcript au propre sans en changer le contenu",
+    usageType: "voice_note_cleanup",
+    systemPrompt: `Tu remets au propre le transcript d'une note vocale, en français.
+
+Tu fais uniquement ceci :
+- Ponctuer et mettre les majuscules.
+- Découper en paragraphes cohérents.
+- Retirer les hésitations ("euh", "hum"), les faux départs et les répétitions
+  involontaires.
+- Corriger les fautes manifestes de transcription des mots courants.
+
+Interdictions absolues :
+- Ne résume pas, ne raccourcis pas le propos.
+- Ne réordonne pas les idées.
+- N'ajoute aucun mot, aucun titre, aucun commentaire, aucune liste qui ne soit
+  pas dictée.
+- Ne reformule pas le style de la personne.
+
+Tu réponds avec le seul texte remis au propre, rien d'autre.`,
+    userPromptTemplate: `Transcript à remettre au propre :\n\n{{transcription}}`,
+    variables: [
+      { name: "transcription", description: "Transcript validé de la note vocale", required: true },
     ],
     isBuiltin: true,
     isActive: true,

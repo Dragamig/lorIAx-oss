@@ -22,15 +22,16 @@ export async function GET(request: Request) {
     auth.user.globalRole === "admin" ||
     auth.user.globalRole === "super_admin";
 
-  // Build where clause
-  const conditions = [];
+  // Build where clause — toujours confiné à l'organisation de la clé API
+  // (anti-fuite cross-tenant : même un admin global ne voit que son org courante).
+  const conditions = [eq(spaces.organizationId, auth.user.orgId)];
   if (!isAdmin) {
     // Owned spaces + spaces with permission
     conditions.push(
       or(
         eq(spaces.ownerUserId, auth.user.id),
         sql`${spaces.id} IN (SELECT space_id FROM space_permissions WHERE user_id = ${auth.user.id})`
-      )
+      )!
     );
     // Masquer les espaces secret pour les non-admins
     conditions.push(ne(spaces.classification, "secret"));

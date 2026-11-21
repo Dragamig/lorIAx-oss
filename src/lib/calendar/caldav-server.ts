@@ -5,10 +5,23 @@ import {
   calendarEventAttendees,
   users,
 } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, or, isNull } from "drizzle-orm";
 import { generateICalendar } from "@/lib/calendar/ical";
 import { checkCalendarAccess } from "@/lib/calendar/permissions";
-import type { SessionUser } from "@/types";
+import { getRequestOrgId } from "@/lib/org/get-request-org";
+import {
+  AUTH_ACCOUNT_TIERS,
+  AUTH_FAILURE_TIERS,
+  AUTH_IP_TIERS,
+  authIdentityBucket,
+  consumeQuota,
+  getClientIpOrNull,
+  ipKeyPart,
+  peekQuotaExceeded,
+  resetQuota,
+} from "@/lib/rate-limit";
+import { hasScope, type ApiKeyScope } from "@/lib/auth/api-key";
+import type { SessionUser, UserCapability } from "@/types";
 import crypto from "crypto";
 
 // ---------------------------------------------------------------------------
@@ -79,43 +92,180 @@ function computeCTag(dates: Date[]): string {
 // Auth helper — Basic Auth for CalDAV
 // ---------------------------------------------------------------------------
 
+/**
+ * Frein de bruteforce de la voie CalDAV : on ne fait PAS payer le succès.
+ *
+ * AZ-23 : ce chemin accepte le mot de passe COMPLET du compte et n'avait aucun
+ * frein, alors que le formulaire de connexion, lui, en a un (AZ-04). Il offrait
+ * donc un bruteforce hors de portée de la surveillance du formulaire.
+ *
+ * La première version consommait un jeton à CHAQUE requête, avant même la
+ * vérification du mot de passe, avec des paliers de 5 par minute, 10 par quart
+ * d'heure et 20 par heure. Elle verrouillait de vrais clients. Il faut pour le
+ * voir regarder la forme réelle du protocole, telle que la sert
+ * `src/app/api/caldav/[...path]/route.ts` : toutes les méthodes sauf la
+ * découverte OPTIONS passent par `authenticateCalDAV`, et un client de bureau
+ * ou de téléphone enchaîne, à chaque cycle de synchronisation, un PROPFIND sur
+ * le principal, un PROPFIND sur la maison de calendriers, un PROPFIND de
+ * propriétés (dont le CTag) sur chaque calendrier, un REPORT de synchronisation
+ * puis un GET par événement modifié. Cinq requêtes authentifiées par cycle est
+ * un plancher, pas un pic. Un envoi initial, lui, fait un PUT PAR ÉVÉNEMENT :
+ * un agenda de cent entrées, c'est cent requêtes authentifiées en rafale. Avec
+ * une synchronisation toutes les quinze minutes, le palier horaire de vingt
+ * tombait dès la première heure, et le palier par adresse ne rattrapait rien
+ * puisqu'il était du même ordre.
+ *
+ * Le frein ne compte donc QUE les échecs d'authentification, et un succès remet
+ * les seaux du compte à zéro. Un client qui présente des identifiants valides
+ * peut enchaîner autant de requêtes que le protocole en demande ; un attaquant
+ * qui se trompe reste bloqué. Les paliers eux-mêmes sont ceux de la connexion,
+ * partagés avec elle (`AUTH_FAILURE_TIERS`, `AUTH_ACCOUNT_TIERS`,
+ * `AUTH_IP_TIERS`) : une règle de sécurité recopiée diverge.
+ *
+ * Le déni de service processeur reste fermé : la consultation des seaux est
+ * faite AVANT la lecture en base et avant le calcul bcrypt, et chaque échec
+ * consomme un jeton. Cinq calculs bcrypt par minute et par couple compte plus
+ * adresse en est le plafond.
+ */
+
+/**
+ * Scopes qui ouvrent la voie CalDAV à une clé d'API.
+ *
+ * AZ-23 : toute clé valide était acceptée, quels que soient ses scopes. Une clé
+ * créée avec le seul scope `search` donnait donc un accès complet au
+ * calendrier. CalDAV expose au minimum la lecture des calendriers : le scope
+ * `calendars:read` est exigé, `calendars:write` valant permission plus large.
+ */
+const CALDAV_SCOPES: readonly ApiKeyScope[] = ["calendars:read", "calendars:write"];
+
+/** Les clés de quota d'une tentative d'authentification CalDAV. */
+function caldavQuotaKeys(identity: string, ip: string | null) {
+  const bucket = authIdentityBucket(identity);
+  return {
+    couple: `caldav:acct:${bucket}:${ipKeyPart(ip)}`,
+    account: `caldav:acct:${bucket}`,
+    ip: ip ? `caldav:${ipKeyPart(ip)}` : null,
+  };
+}
+
+/** Consultation seule : aucun jeton consommé, donc un succès ne coûte rien. */
+async function isCalDavQuotaExceeded(identity: string, ip: string | null): Promise<boolean> {
+  const keys = caldavQuotaKeys(identity, ip);
+  if (await peekQuotaExceeded(keys.couple, AUTH_FAILURE_TIERS)) return true;
+  if (await peekQuotaExceeded(keys.account, AUTH_ACCOUNT_TIERS)) return true;
+  if (keys.ip && (await peekQuotaExceeded(keys.ip, AUTH_IP_TIERS))) return true;
+  return false;
+}
+
+/** Comptabilise un échec d'authentification CalDAV. */
+async function recordCalDavFailure(identity: string, ip: string | null): Promise<void> {
+  const keys = caldavQuotaKeys(identity, ip);
+  await consumeQuota(keys.couple, AUTH_FAILURE_TIERS);
+  await consumeQuota(keys.account, AUTH_ACCOUNT_TIERS);
+  if (keys.ip) await consumeQuota(keys.ip, AUTH_IP_TIERS);
+}
+
+/**
+ * Remet à zéro les seaux du compte après une authentification réussie. Le seau
+ * par adresse seule n'est pas effacé : un attaquant disposant d'un compte à lui
+ * pourrait sinon nettoyer son compteur d'échecs entre deux salves.
+ */
+async function resetCalDavQuota(identity: string, ip: string | null): Promise<void> {
+  const keys = caldavQuotaKeys(identity, ip);
+  await resetQuota(keys.couple, AUTH_FAILURE_TIERS);
+  await resetQuota(keys.account, AUTH_ACCOUNT_TIERS);
+}
+
+/**
+ * Authentification de la voie CalDAV, en authentification basique ou par clé
+ * d'API.
+ *
+ * Trois gardes, absentes avant AZ-23 :
+ *  - un frein de bruteforce, consulté AVANT la lecture en base et avant le
+ *    calcul bcrypt, sur la variante asynchrone donc sur le compteur partagé
+ *    (AZ-26), et qui ne compte que les échecs (voir plus haut) ;
+ *  - le respect de `mustResetPassword` : un compte dont le mot de passe doit
+ *    être changé n'a pas d'accès applicatif, il n'a aucune raison d'en avoir un
+ *    par CalDAV, qui serait précisément le contournement de la contrainte ;
+ *  - l'exigence d'un scope de calendrier sur le chemin par clé d'API.
+ *
+ * L'adresse IP est lue par `getClientIpOrNull` : sans en-tête exploitable elle
+ * vaut absence, et le seau porte alors la marque `noip`, distincte de celle des
+ * clients identifiés. Compter la constante « adresse inconnue » comme une
+ * adresse ferait de quelques échecs de n'importe qui un déni de service global
+ * (AZ-25).
+ */
 export async function authenticateCalDAV(
   request: Request
 ): Promise<SessionUser | null> {
   const authHeader = request.headers.get("authorization");
   if (!authHeader) return null;
 
+  const ip = getClientIpOrNull(request);
+
   // Basic Auth
   if (authHeader.startsWith("Basic ")) {
     const decoded = Buffer.from(authHeader.slice(6), "base64").toString("utf-8");
-    const [email, password] = decoded.split(":");
+    const separator = decoded.indexOf(":");
+    if (separator <= 0) return null;
+    const email = decoded.slice(0, separator).toLowerCase();
+    const password = decoded.slice(separator + 1);
     if (!email || !password) return null;
+
+    if (await isCalDavQuotaExceeded(email, ip)) return null;
 
     const bcrypt = (await import("bcryptjs")).default;
     const user = await db
       .select()
       .from(users)
-      .where(eq(users.email, email.toLowerCase()))
+      .where(eq(users.email, email))
       .limit(1);
 
-    if (user.length === 0 || !user[0].passwordHash) return null;
+    if (user.length === 0 || !user[0].passwordHash) {
+      await recordCalDavFailure(email, ip);
+      return null;
+    }
     const valid = await bcrypt.compare(password, user[0].passwordHash);
-    if (!valid) return null;
+    if (!valid) {
+      await recordCalDavFailure(email, ip);
+      return null;
+    }
+
+    // Le mot de passe était juste : ce n'est pas un échec d'authentification,
+    // le seau n'a pas à s'en nourrir. Le refus tient à la contrainte de
+    // changement de mot de passe, que rien ne permet de contourner en insistant.
+    await resetCalDavQuota(email, ip);
+    if (user[0].mustResetPassword) return null;
 
     return {
       id: user[0].id,
       email: user[0].email,
       name: user[0].name,
       globalRole: user[0].globalRole as SessionUser["globalRole"],
+      capabilities: (user[0].capabilities ?? []) as UserCapability[],
       avatarUrl: user[0].avatarUrl,
     };
   }
 
   // Bearer token (API key)
   if (authHeader.startsWith("Bearer ")) {
+    const apiKey = authHeader.slice(7);
+    // La clé elle-même tient lieu d'identité : un client synchronisant avec une
+    // clé valide ne consomme rien, une clé refusée nourrit son propre seau.
+    if (await isCalDavQuotaExceeded(apiKey, ip)) return null;
+
     const { resolveApiKey } = await import("@/lib/auth/api-key");
-    const resolved = await resolveApiKey(authHeader.slice(7));
-    if (!resolved) return null;
+    const resolved = await resolveApiKey(apiKey);
+    if (!resolved) {
+      await recordCalDavFailure(apiKey, ip);
+      return null;
+    }
+
+    const scopes = resolved.scopes ?? [];
+    if (!CALDAV_SCOPES.some((scope) => hasScope(scopes, scope))) {
+      await recordCalDavFailure(apiKey, ip);
+      return null;
+    }
 
     const user = await db
       .select()
@@ -123,17 +273,52 @@ export async function authenticateCalDAV(
       .where(eq(users.id, resolved.userId))
       .limit(1);
 
-    if (user.length === 0) return null;
+    if (user.length === 0) {
+      await recordCalDavFailure(apiKey, ip);
+      return null;
+    }
+    await resetCalDavQuota(apiKey, ip);
+    if (user[0].mustResetPassword) return null;
     return {
       id: user[0].id,
       email: user[0].email,
       name: user[0].name,
       globalRole: user[0].globalRole as SessionUser["globalRole"],
+      capabilities: (user[0].capabilities ?? []) as UserCapability[],
       avatarUrl: user[0].avatarUrl,
     };
   }
 
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Organisation de la requête CalDAV
+// ---------------------------------------------------------------------------
+
+/**
+ * Organisation de la requête CalDAV, pour le cloisonnement multi-tenant.
+ *
+ * La voie CalDAV n'a ni session NextAuth ni contexte applicatif : elle
+ * s'authentifie en Basic Auth ou par clé d'API. Elle a en revanche un
+ * sous-domaine, et le proxy (`src/proxy.ts`) injecte `x-org-slug` sur
+ * `/api/caldav/**` exactement comme sur les autres routes d'API. L'organisation
+ * est donc lisible ici par le chemin normal du produit, `getRequestOrgId`, qui
+ * applique le contrôle d'appartenance et rend `null` si l'organisation est
+ * introuvable, inactive, ou si le compte n'en est pas membre.
+ *
+ * Aucun repli permissif n'est inventé : hors contexte de requête Next
+ * (`headers()` indisponible), on rend `null`, et `checkCalendarAccess` traduit
+ * ce `null` en refus. Un client de bureau sur l'apex tombe sur l'organisation
+ * partagée par défaut et garde ses calendriers personnels (org-neutres) ; sur
+ * `acme.example.com`, il ne voit que les calendriers d'`acme`.
+ */
+async function caldavOrgId(user: SessionUser): Promise<string | null> {
+  try {
+    return await getRequestOrgId(user);
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -206,11 +391,23 @@ export async function handlePropfind(
   }
 
   if (path.type === "home" || (path.type === "calendar" && !path.calendarSlug)) {
-    // List all accessible calendars
-    const userCalendars = await db
-      .select()
-      .from(calendars)
-      .where(eq(calendars.ownerUserId, user.id));
+    // Calendriers du compte, confinés à l'organisation de la requête : les
+    // siens dans cette organisation, plus ses calendriers personnels
+    // (org-neutres). Même couple que `getAccessibleCalendarIds` et que
+    // `checkCalendarAccess`, pour qu'un client ne puisse pas monter un
+    // calendrier d'un autre tenant qui lui serait ensuite refusé.
+    const orgId = await caldavOrgId(user);
+    const userCalendars = orgId
+      ? await db
+          .select()
+          .from(calendars)
+          .where(
+            and(
+              eq(calendars.ownerUserId, user.id),
+              or(eq(calendars.organizationId, orgId), isNull(calendars.organizationId))
+            )
+          )
+      : [];
 
     let responses = wrapResponse(
       `${caldavBase}/${path.principalId}/`,
@@ -276,7 +473,7 @@ export async function handlePropfind(
 
     if (cal.length === 0) return { status: 404, body: "Calendar not found" };
 
-    const hasAccess = await checkCalendarAccess(user.id, cal[0].id, "read");
+    const hasAccess = await checkCalendarAccess(user.id, cal[0].id, "read", await caldavOrgId(user));
     if (!hasAccess) return { status: 403, body: "Forbidden" };
 
     const events = await db
@@ -341,7 +538,7 @@ export async function handleReport(
 
   if (cal.length === 0) return { status: 404, body: "Calendar not found" };
 
-  const hasAccess = await checkCalendarAccess(user.id, cal[0].id, "read");
+  const hasAccess = await checkCalendarAccess(user.id, cal[0].id, "read", await caldavOrgId(user));
   if (!hasAccess) return { status: 403, body: "Forbidden" };
 
   const events = await db
@@ -408,7 +605,7 @@ export async function handleGetEvent(
 
   if (cal.length === 0) return { status: 404, body: "Calendar not found", headers: {} };
 
-  const hasAccess = await checkCalendarAccess(user.id, cal[0].id, "read");
+  const hasAccess = await checkCalendarAccess(user.id, cal[0].id, "read", await caldavOrgId(user));
   if (!hasAccess) return { status: 403, body: "Forbidden", headers: {} };
 
   const uid = path.eventFilename.replace(/\.ics$/, "");
@@ -467,7 +664,7 @@ export async function handlePutEvent(
 
   if (cal.length === 0) return { status: 404, body: "Calendar not found", headers: {} };
 
-  const hasAccess = await checkCalendarAccess(user.id, cal[0].id, "write");
+  const hasAccess = await checkCalendarAccess(user.id, cal[0].id, "write", await caldavOrgId(user));
   if (!hasAccess) return { status: 403, body: "Forbidden", headers: {} };
 
   const { parseICalendar } = await import("@/lib/calendar/ical");
@@ -566,7 +763,7 @@ export async function handleDeleteEvent(
 
   if (cal.length === 0) return { status: 404, body: "Calendar not found" };
 
-  const hasAccess = await checkCalendarAccess(user.id, cal[0].id, "write");
+  const hasAccess = await checkCalendarAccess(user.id, cal[0].id, "write", await caldavOrgId(user));
   if (!hasAccess) return { status: 403, body: "Forbidden" };
 
   const uid = path.eventFilename.replace(/\.ics$/, "");

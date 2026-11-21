@@ -6,8 +6,6 @@ import {
   syncLogs,
   userDatabaseColumns,
   userDatabaseRows,
-  userDatabases,
-  attachments,
 } from "@/lib/db/schema";
 import type { ExternalProvider, ExternalRow, ColumnMapping, SyncResult } from "./base";
 import { contentHash } from "./base";
@@ -15,38 +13,18 @@ import { airtableProvider } from "./airtable/client";
 import { notionProvider } from "./notion/client";
 import { decrypt } from "@/lib/crypto";
 import { uploadFile } from "@/lib/storage/s3";
-import { resolveDownloadedStorageType } from "@/lib/storage/safe-content-type";
-import { safeFetch } from "@/lib/security/safe-fetch";
-import logger from "@/lib/logger";
+import { resolveDownloadedStorageType } from "@/lib/storage/downloaded-content-type";
 import { randomUUID } from "crypto";
+import { assertMediaCells } from "@/lib/databases/attachment-cell-guard";
+import { setRowChangeContext } from "@/lib/databases/row-change-context";
+import { safeExternalFetch } from "@/lib/security/outbound-fetch";
 
 /**
  * ARCH-08 — Déchiffre les credentials stockés en BDD.
- * Si ENCRYPTION_KEY n'est pas configurée, retourne la valeur brute
- * (rétrocompatibilité avec les credentials non chiffrés).
+ * ENCRYPTION_KEY est obligatoire (cf. lib/env.ts) ; pas de fallback en clair.
  */
 function decryptCredentials(credentialsEnc: string): string {
-  if (!process.env.ENCRYPTION_KEY) return credentialsEnc;
-  try {
-    return decrypt(credentialsEnc);
-  } catch {
-    // Credentials probablement stockés en clair (avant migration)
-    return credentialsEnc;
-  }
-}
-
-/**
- * Résumé des incidents non bloquants d'une synchronisation, ou `null` s'il n'y en a
- * pas. Retourné tel quel dans `syncLogs.errorMessage` et `syncError`, colonnes que
- * l'interface affiche : un abandon silencieux ferait disparaître une pièce jointe
- * derrière un statut « OK ».
- */
-function summarizeErrors(errors: string[]): string | null {
-  if (errors.length === 0) return null;
-
-  const shown = errors.slice(0, 5).join(" ; ");
-  const rest = errors.length - 5;
-  return rest > 0 ? `${shown} ; et ${rest} autre(s)` : shown;
+  return decrypt(credentialsEnc);
 }
 
 function getProvider(name: string): ExternalProvider {
@@ -57,7 +35,8 @@ function getProvider(name: string): ExternalProvider {
 
 // ─── Pull : externe → LorIAx ────────────────────────────────────────────────
 
-export async function syncPull(mappingId: string): Promise<SyncResult> {
+export async function syncPull(mappingId: string, opts: { releaseLock?: boolean } = {}): Promise<SyncResult> {
+  const releaseLock = opts.releaseLock ?? true;
   const [mapping] = await db
     .select()
     .from(externalDatabaseMappings)
@@ -107,18 +86,6 @@ export async function syncPull(mappingId: string): Promise<SyncResult> {
     // Index des colonnes LorIAx par id (utilisé pour le re-upload attachment)
     const loriaxColsById = new Map(loriaxCols.map((c) => [c.id, c]));
 
-    // Espace et propriétaire de la base cible : nécessaires pour enregistrer les
-    // fichiers re-uploadés dans la table `attachments` (contrôle d'accès H8).
-    // L'ancien appel passait l'id de la base comme spaceId, ce qui ne correspondait
-    // à aucun espace réel.
-    const [targetDatabase] = await db
-      .select({ spaceId: userDatabases.spaceId, createdBy: userDatabases.createdBy })
-      .from(userDatabases)
-      .where(eq(userDatabases.id, mapping.userDatabaseId))
-      .limit(1);
-
-    if (!targetDatabase) throw new Error("Base de données cible introuvable");
-
     // Traiter chaque ligne externe
     for (const extRow of externalRows) {
       try {
@@ -133,25 +100,33 @@ export async function syncPull(mappingId: string): Promise<SyncResult> {
           if (!Array.isArray(rawFiles) || rawFiles.length === 0) continue;
           cells[colMapping.loriaxColumnId] = await downloadAndReupload(
             rawFiles as { url: string; filename: string }[],
-            targetDatabase.spaceId,
-            targetDatabase.createdBy,
-            result.errors
+            mapping.userDatabaseId
           );
         }
+
+        // Garde des cellules médias : la source externe n'a aucune identité
+        // LorIAx, donc aucune référence à un média interne n'est acceptée (seuls
+        // les fichiers re-téléversés ci-dessus et les URL externes passent).
+        // Une ligne refusée est comptée en erreur, la synchronisation continue.
+        await assertMediaCells(mapping.userDatabaseId, cells, { user: null, orgId: "" });
 
         const hash = contentHash(cells);
         const existing = trackingByExternalId.get(extRow.externalId);
 
         if (!existing) {
           // Nouvelle ligne → créer
-          const [newRow] = await db
-            .insert(userDatabaseRows)
-            .values({
-              databaseId: mapping.userDatabaseId,
-              cells,
-              position: 0,
-            })
-            .returning();
+          const newRow = await db.transaction(async (tx) => {
+            await setRowChangeContext(tx, { source: "sync" });
+            const [inserted] = await tx
+              .insert(userDatabaseRows)
+              .values({
+                databaseId: mapping.userDatabaseId,
+                cells,
+                position: 0,
+              })
+              .returning();
+            return inserted;
+          });
 
           await db.insert(externalRowTracking).values({
             mappingId,
@@ -164,10 +139,13 @@ export async function syncPull(mappingId: string): Promise<SyncResult> {
           result.rowsCreated++;
         } else if (existing.contentHash !== hash) {
           // Ligne modifiée → mettre à jour
-          await db
-            .update(userDatabaseRows)
-            .set({ cells, updatedAt: new Date() })
-            .where(eq(userDatabaseRows.id, existing.loriaxRowId));
+          await db.transaction(async (tx) => {
+            await setRowChangeContext(tx, { source: "sync" });
+            await tx
+              .update(userDatabaseRows)
+              .set({ cells, updatedAt: new Date() })
+              .where(eq(userDatabaseRows.id, existing.loriaxRowId));
+          });
 
           await db
             .update(externalRowTracking)
@@ -189,25 +167,23 @@ export async function syncPull(mappingId: string): Promise<SyncResult> {
 
     // Lignes supprimées en externe → supprimer en local
     for (const [, orphan] of trackingByExternalId) {
-      await db
-        .delete(userDatabaseRows)
-        .where(eq(userDatabaseRows.id, orphan.loriaxRowId));
+      await db.transaction(async (tx) => {
+        await setRowChangeContext(tx, { source: "sync" });
+        await tx
+          .delete(userDatabaseRows)
+          .where(eq(userDatabaseRows.id, orphan.loriaxRowId));
+      });
       await db
         .delete(externalRowTracking)
         .where(eq(externalRowTracking.id, orphan.id));
       result.rowsDeleted++;
     }
 
-    // Fin de parcours. Un fichier abandonné en cours de route écrase la cellule de
-    // sa ligne : la synchronisation ne peut pas se déclarer en succès sans le dire,
-    // sinon la pièce jointe disparaît et le journal affiche « OK ».
-    const partialMessage = summarizeErrors(result.errors);
-
+    // Succès
     await db
       .update(syncLogs)
       .set({
-        status: partialMessage ? "partial" : "success",
-        errorMessage: partialMessage,
+        status: "success",
         rowsCreated: result.rowsCreated,
         rowsUpdated: result.rowsUpdated,
         rowsDeleted: result.rowsDeleted,
@@ -218,10 +194,12 @@ export async function syncPull(mappingId: string): Promise<SyncResult> {
     await db
       .update(externalDatabaseMappings)
       .set({
-        isSyncing: false,
+        // releaseLock=false : appelé depuis syncBidirectional, on garde le
+        // verrou pour empêcher une 2e requête de s'intercaler entre pull et push.
+        isSyncing: !releaseLock,
         lastSyncAt: new Date(),
         lastSyncDirection: "pull",
-        syncError: partialMessage,
+        syncError: null,
         updatedAt: new Date(),
       })
       .where(eq(externalDatabaseMappings.id, mappingId));
@@ -234,6 +212,7 @@ export async function syncPull(mappingId: string): Promise<SyncResult> {
       .set({ status: "error", errorMessage: message, completedAt: new Date() })
       .where(eq(syncLogs.id, log.id));
 
+    // En erreur on libère toujours, pour ne pas bloquer indéfiniment.
     await db
       .update(externalDatabaseMappings)
       .set({ isSyncing: false, syncError: message, updatedAt: new Date() })
@@ -377,15 +356,11 @@ export async function syncPush(mappingId: string): Promise<SyncResult> {
       }
     }
 
-    // Fin de parcours, même règle que le pull : les incidents non bloquants sont
-    // persistés plutôt que balayés par un statut « success ».
-    const partialMessage = summarizeErrors(result.errors);
-
+    // Succès
     await db
       .update(syncLogs)
       .set({
-        status: partialMessage ? "partial" : "success",
-        errorMessage: partialMessage,
+        status: "success",
         rowsCreated: result.rowsCreated,
         rowsUpdated: result.rowsUpdated,
         rowsDeleted: result.rowsDeleted,
@@ -399,7 +374,7 @@ export async function syncPush(mappingId: string): Promise<SyncResult> {
         isSyncing: false,
         lastSyncAt: new Date(),
         lastSyncDirection: "push",
-        syncError: partialMessage,
+        syncError: null,
         updatedAt: new Date(),
       })
       .where(eq(externalDatabaseMappings.id, mappingId));
@@ -424,32 +399,30 @@ export async function syncPush(mappingId: string): Promise<SyncResult> {
 // ─── Bidirectionnel ──────────────────────────────────────────────────────────
 
 export async function syncBidirectional(mappingId: string): Promise<SyncResult> {
-  const pullResult = await syncPull(mappingId);
+  // releaseLock=false sur le pull : maintient isSyncing=true jusqu'à la fin
+  // du push, sinon une 2e requête peut s'intercaler dans la fenêtre où le
+  // flag est false entre pull et push (l'UPDATE atomique de la route ne
+  // couvre que l'acquisition initiale, pas la durée du sync asynchrone).
+  const pullResult = await syncPull(mappingId, { releaseLock: false });
   const pushResult = await syncPush(mappingId);
 
-  const merged: SyncResult = {
+  return {
     rowsCreated: pullResult.rowsCreated + pushResult.rowsCreated,
     rowsUpdated: pullResult.rowsUpdated + pushResult.rowsUpdated,
     rowsDeleted: pullResult.rowsDeleted + pushResult.rowsDeleted,
     errors: [...pullResult.errors, ...pushResult.errors],
   };
-
-  // Le push s'ouvre en remettant `syncError` a null et le referme avec le resume de
-  // ses seules erreurs : si seul le pull a abandonne un fichier, la colonne finissait
-  // vide et la pastille ne s'allumait pas. Le cumul des deux sens est donc reecrit
-  // ici, apres coup. Les deux journaux gardent chacun leur propre statut.
-  await db
-    .update(externalDatabaseMappings)
-    .set({ syncError: summarizeErrors(merged.errors), updatedAt: new Date() })
-    .where(eq(externalDatabaseMappings.id, mappingId));
-
-  return merged;
 }
 
 // ─── Récupérer le schéma externe ─────────────────────────────────────────────
 
-export async function fetchExternalSchema(provider: string, externalId: string, credentialsEnc: string) {
-  return getProvider(provider).fetchSchema(externalId, decryptCredentials(credentialsEnc));
+/**
+ * Récupère le schéma externe.
+ * `credentials` est ici un secret en clair fourni par l'utilisateur (action `schema`
+ * lors de la configuration). Aucun stockage : passé directement au provider.
+ */
+export async function fetchExternalSchema(provider: string, externalId: string, credentials: string) {
+  return getProvider(provider).fetchSchema(externalId, credentials);
 }
 
 // ─── Helpers de mapping ──────────────────────────────────────────────────────
@@ -500,106 +473,37 @@ function mapLoriaxToExternal(
   return result;
 }
 
-/**
- * Télécharge des fichiers externes et les re-uploade vers Garage S3.
- *
- * H8 : Chaque objet stocké est également enregistré dans la table `attachments` :
- * c'est elle qui porte désormais le contrôle d'accès des routes de lecture, une clé
- * absente de la table n'est plus servie.
- *
- * Le tableau retourné ÉCRASE la cellule de la ligne synchronisée : un fichier qui
- * n'y figure pas disparaît de l'interface. Tout abandon doit donc remonter dans
- * `errors`, sans quoi la synchronisation se déclare en succès en ayant vidé une
- * cellule.
- */
-async function downloadAndReupload(
+/** Télécharge des fichiers externes et les re-uploade vers Garage S3 */
+export async function downloadAndReupload(
   files: { url: string; filename: string; expiry?: string }[],
-  spaceId: string,
-  uploadedBy: string,
-  errors: string[]
+  spaceId: string
 ): Promise<{ key: string; filename: string; mimeType: string; size: number }[]> {
   const MAX_SIZE = 20 * 1024 * 1024; // 20 Mo
   const results: { key: string; filename: string; mimeType: string; size: number }[] = [];
 
   for (const file of files) {
     try {
-      // L'URL vient de la base externe : pour une propriété Notion "files" de
-      // type "external", elle est saisie librement par l'utilisateur. Le corps
-      // récupéré finit sur S3 puis rattaché à une ligne LorIAx, donc restitué :
-      // c'est une lecture arbitraire du réseau, pas un SSRF aveugle. Aucune
-      // dérogation réseau privé, et le plafond de taille est appliqué pendant
-      // le transfert et non après coup.
-      const res = await safeFetch(file.url, {
-        timeoutMs: 30000,
-        maxBytes: MAX_SIZE,
-      });
-      if (!res.ok) {
-        errors.push(
-          `Fichier « ${file.filename} » non récupéré (réponse ${res.status} de la source)`
-        );
-        continue;
-      }
+      // SSRF : l'URL provient de la réponse JSON du provider externe (Airtable,
+      // Notion). Un provider compromis ou une réponse forgée peut pointer vers
+      // 169.254.169.254 (metadata cloud) ou un réseau interne. safeExternalFetch
+      // valide la forme, résout le DNS (anti-rebinding), revalide chaque
+      // redirection et borne la taille sur les octets réellement reçus.
+      const res = await safeExternalFetch(file.url, { timeoutMs: 30000, maxBytes: MAX_SIZE });
+      if (!res.ok) continue;
 
       const buffer = Buffer.from(await res.arrayBuffer());
+      if (buffer.length > MAX_SIZE) continue;
 
-      // H9 : le `Content-Type` renvoye par le serveur distant n'est pas une source
-      // de verite. L'URL etant saisie librement dans la base externe, un serveur
-      // controle par l'attaquant annoncerait `image/svg+xml` ou `text/html`, et
-      // l'objet serait ensuite distribue par URL presignee sur l'origine de
-      // stockage, donc rendu en ligne.
-      //
-      // La decision part des OCTETS et non du nom : pour une propriete Notion
-      // `files` en mode external, `filename` vaut `f.name`, un libelle libre
-      // souvent depourvu d'extension. Un contenu non typable est stocke inerte
-      // plutot que refuse : refuser reviendrait a vider la cellule de la ligne
-      // synchronisee, la neutralisation suffit a fermer le vecteur.
-      const { ext, contentType, contentDisposition, neutralizedReason } =
-        await resolveDownloadedStorageType(file.filename, buffer);
-
-      if (neutralizedReason) {
-        const motif =
-          neutralizedReason === "active"
-            ? "format exécutable neutralisé"
-            : "type de contenu non reconnu";
-        errors.push(
-          `Fichier « ${file.filename} » conservé en binaire non prévisualisable (${motif})`
-        );
-        logger.info(
-          { filename: file.filename, reason: neutralizedReason },
-          "[sync] Fichier externe stocké en binaire opaque"
-        );
-      }
-
+      // H9 : ni le Content-Type distant ni l'extension annoncee ne font foi (une URL
+      // externe peut servir du SVG ou du HTML actif). Type et extension viennent
+      // des octets reels, tout format actif est neutralise en binaire opaque.
+      const { ext, contentType: mimeType } = await resolveDownloadedStorageType(file.filename, buffer);
       const key = `${spaceId}/sync-${randomUUID()}.${ext}`;
 
-      await uploadFile(key, buffer, contentType, { contentDisposition });
-
-      await db.insert(attachments).values({
-        spaceId,
-        filename: file.filename.slice(0, 500),
-        mimeType: contentType.slice(0, 255),
-        sizeBytes: buffer.length,
-        storageKey: key,
-        uploadedBy,
-      });
-
-      results.push({
-        key,
-        filename: file.filename,
-        mimeType: contentType,
-        size: buffer.length,
-      });
-    } catch (err) {
-      // Erreur sur un fichier (cible refusée, trop volumineuse, injoignable) :
-      // on journalise côté serveur, on le signale dans le compte rendu de
-      // synchronisation, et on continue les autres.
-      errors.push(
-        `Fichier « ${file.filename} » non récupéré (cible refusée, trop volumineuse ou injoignable)`
-      );
-      logger.warn(
-        { err, filename: file.filename },
-        "[sync] Téléchargement de fichier externe refusé"
-      );
+      await uploadFile(key, buffer, mimeType);
+      results.push({ key, filename: file.filename, mimeType, size: buffer.length });
+    } catch {
+      // Erreur sur un fichier → on continue les autres
     }
   }
 

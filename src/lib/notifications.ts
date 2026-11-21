@@ -5,7 +5,7 @@ import { sendEmail } from "@/lib/email/send";
 import { notificationEmail } from "@/lib/email/templates/notification";
 import logger from "@/lib/logger";
 
-type NotificationType = "mention" | "comment" | "reply" | "share" | "calendar_reminder" | "calendar_invitation";
+type NotificationType = "mention" | "comment" | "reply" | "share" | "calendar_reminder" | "calendar_invitation" | "task_assigned" | "automation" | "media";
 
 interface CreateNotificationParams {
   userId: string;
@@ -13,6 +13,8 @@ interface CreateNotificationParams {
   title: string;
   message?: string;
   documentId?: string;
+  databaseId?: string;
+  rowId?: string;
   actorId?: string;
 }
 
@@ -20,6 +22,10 @@ interface CreateNotificationParams {
  * Send an email notification in the background (fire-and-forget).
  */
 async function sendNotificationEmail(params: CreateNotificationParams) {
+  // Notifications de la médiathèque : in-app uniquement (pas de document à lier).
+  if (params.type === "media") return;
+  // Notifications de ligne : in-app uniquement, aucun courriel.
+  if (params.databaseId) return;
   try {
     // Fetch user email + name
     const [user] = await db
@@ -94,6 +100,8 @@ export async function createNotification(params: CreateNotificationParams) {
     title: params.title,
     message: params.message || null,
     documentId: params.documentId || null,
+    databaseId: params.databaseId || null,
+    rowId: params.rowId || null,
     actorId: params.actorId || null,
   });
 
@@ -122,6 +130,8 @@ export async function createNotifications(
       title: params.title,
       message: params.message || null,
       documentId: params.documentId || null,
+      databaseId: params.databaseId || null,
+      rowId: params.rowId || null,
       actorId: params.actorId || null,
     }))
   );

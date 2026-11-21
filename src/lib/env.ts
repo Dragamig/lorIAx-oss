@@ -1,10 +1,11 @@
 import { z } from "zod";
+import { getEnvHooks } from "@/lib/modules/hooks.env";
 
 /**
  * Validation des variables d'environnement au démarrage.
  * Crash-fast si une variable obligatoire est manquante.
  */
-const envSchema = z.object({
+const baseEnvSchema = z.object({
   // Base de données [REQUIRED]
   DATABASE_URL: z.string().min(1, "DATABASE_URL est obligatoire"),
 
@@ -104,24 +105,43 @@ const envSchema = z.object({
     .optional()
     .transform((v) => (v ? Number(v) : undefined)),
 
-  // License [OPTIONAL]
-  LICENSE_PUBLIC_KEY: z.string().optional(), // PEM RSA public key (base64 or raw format)
-  LICENSE_PRIVATE_KEY: z.string().optional(), // PEM RSA private key — superadmin seulement
-  LICENSE_MANAGER_URL: z.string().url().optional(), // URL du service license manager
-
   // Redis — Rate limiting partagé multi-instance [OPTIONAL]
   // Si défini, le rate limiting utilise Redis (production multi-instance, Docker, serverless).
   // Sinon, fallback sur le backend in-memory (développement, instance unique).
   REDIS_URL: z.string().url().optional(),
+
+  // Webhooks sortants — cibles privées [OPTIONAL]
+  // Par défaut, une URL de webhook pointant une adresse privée, un nom en
+  // .local/.internal ou localhost est refusée à l'écriture ET à l'émission
+  // (protection anti-SSRF, constat INJ-07). Sur une instance auto-hébergée,
+  // un webhook vers un service interne (ex: http://n8n:5678) est un usage
+  // légitime : cette variable lève l'exception pour les webhooks uniquement.
+  // Absente, le comportement ne change pas. Le protocole reste toujours
+  // limité à http et https, avec ou sans cette variable.
+  WEBHOOK_ALLOW_PRIVATE_TARGETS: z
+    .string()
+    .default("false")
+    .transform((v) => v === "true"),
 });
 
-export type Env = z.infer<typeof envSchema>;
+/**
+ * Variables ajoutées par le module commercial (lib/commercial/env.ts), absentes
+ * du schéma quand le module est exclu. Typées ici pour les lecteurs du noyau.
+ */
+export interface ModuleEnv {
+  LICENSE_PUBLIC_KEY?: string;
+}
+
+export type Env = z.infer<typeof baseEnvSchema> & ModuleEnv;
 
 let _env: Env | undefined;
 
 export function validateEnv(): Env {
   if (_env) return _env;
 
+  // Schéma de base étendu par les variables des modules inclus. La forme est lue
+  // depuis la feuille env (jamais via getHooks ni le baril serveur : cycle).
+  const envSchema = baseEnvSchema.extend(getEnvHooks().shape);
   const result = envSchema.safeParse(process.env);
 
   if (!result.success) {
@@ -133,6 +153,6 @@ export function validateEnv(): Env {
     );
   }
 
-  _env = result.data;
+  _env = result.data as unknown as Env;
   return _env;
 }

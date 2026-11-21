@@ -22,10 +22,35 @@ export async function generateStaticParams() {
   }));
 }
 
+// Dev only: Service Worker "kill switch" served in place of the real worker.
+// It removes itself, purges caches and reloads open tabs; it has no fetch handler.
+const DEV_KILL_SWITCH = `self.addEventListener("install", () => self.skipWaiting());
+self.addEventListener("activate", (event) => {
+  event.waitUntil((async () => {
+    try {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    } catch (e) {}
+    await self.registration.unregister();
+    const clients = await self.clients.matchAll({ type: "window" });
+    clients.forEach((c) => { try { c.navigate(c.url); } catch (e) {} });
+  })());
+});
+`;
+
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ path: string | string[] }> }
 ) {
+  if (process.env.NODE_ENV !== "production") {
+    return new Response(DEV_KILL_SWITCH, {
+      headers: {
+        "Content-Type": "application/javascript; charset=utf-8",
+        "Cache-Control": "no-store",
+        "Service-Worker-Allowed": "/",
+      },
+    });
+  }
   const resolved = await params;
   const flatPath = Array.isArray(resolved.path)
     ? resolved.path.join("/")

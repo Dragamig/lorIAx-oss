@@ -1,25 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { streamText, convertToModelMessages } from "ai";
 import { getSessionUser } from "@/lib/auth/get-user";
-import { getDefaultProvider } from "@/lib/ai/provider";
-import { getLanguageModelForUsage } from "@/lib/ai/provider-resolver";
+import { getLanguageModelForUsageInOrg, isAnyAIProviderConfigured } from "@/lib/ai/provider-resolver";
+import { getRequestOrgId } from "@/lib/org/get-request-org";
 import { checkQuota } from "@/lib/ai/quota-checker";
 import { logAIUsage } from "@/lib/ai/usage-logger";
 import { getSystemPrompt, interpolatePrompt } from "@/lib/ai/prompt-resolver";
-import { searchSemantic, isEmbeddingConfigured } from "@/lib/ai/embeddings";
+import { searchSemantic, isEmbeddingConfiguredAsync } from "@/lib/ai/embeddings";
+import { rerankCandidates, fetchLimitForRerank } from "@/lib/ai/rerank";
 import { db } from "@/lib/db";
 import { documents } from "@/lib/db/schema";
-import { ilike, or, and, inArray, notInArray } from "drizzle-orm";
+import { ilike, or, and, inArray, notInArray, sql, asc } from "drizzle-orm";
 import { getAccessibleSpaceIds, isGlobalAdmin } from "@/lib/auth/check-access";
-import { checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
-
-function isAIConfigured(): boolean {
-  const provider = getDefaultProvider();
-  if (provider.name === "claude") return !!process.env.ANTHROPIC_API_KEY;
-  if (provider.name === "openai") return !!process.env.OPENAI_API_KEY;
-  if (provider.name === "ollama") return !!process.env.OLLAMA_BASE_URL;
-  return false;
-}
+import { checkRateLimitAsync, RATE_LIMITS } from "@/lib/rate-limit";
+import { recordOnboardingEvent } from "@/lib/onboarding/progress";
 
 /**
  * Neutralise les marqueurs de contrôle dans le contenu RAG
@@ -52,14 +46,14 @@ async function _POST(request: NextRequest) {
   }
 
   // SEC-03 — Rate limiting sur l'endpoint IA
-  const rateLimitResult = checkRateLimit(`chat:${user.id}`, RATE_LIMITS.ai);
+  const rateLimitResult = await checkRateLimitAsync(`chat:${user.id}`, RATE_LIMITS.ai);
   if (!rateLimitResult.success) {
     return new Response("Trop de requêtes. Réessayez dans quelques instants.", {
       status: 429,
     });
   }
 
-  if (!isAIConfigured()) {
+  if (!(await isAnyAIProviderConfigured())) {
     // SEC-11 — Message d'erreur générique
     return new Response("Service IA non disponible", { status: 503 });
   }
@@ -86,55 +80,63 @@ async function _POST(request: NextRequest) {
       .join("") ||
     "";
 
-  // SEC-01 — Déterminer les espaces accessibles pour filtrer le RAG
+  // Onboarding : badge « Première question à l'IA » dès qu'une vraie question part.
+  if (lastMessage.trim().length > 0) {
+    recordOnboardingEvent(user.id, "ai").catch(() => {});
+  }
+
+  // SEC-01 — Espaces accessibles dans l'org courante pour filtrer le RAG.
+  // Liste autoritative (admins inclus) → aucun document d'une autre org.
   const admin = isGlobalAdmin(user);
-  const spaceIds = admin ? [] : await getAccessibleSpaceIds(user);
+  const spaceIds = await getAccessibleSpaceIds(user);
+
+  // Cloisonnement AZ-06 (lot 6) : la portée de sélection du fournisseur d'IA
+  // est celle de la requête, pas celle de l'instance. `null` = organisation non
+  // résolue ou accès refusé : on se limite alors aux fournisseurs de portée
+  // instance, jamais à ceux d'un tenant voisin.
+  const orgId = await getRequestOrgId(user);
 
   // RAG : recherche sémantique si disponible, sinon fallback ILIKE
   let contextDocs = "";
 
-  if (lastMessage.length > 3) {
-    if (isEmbeddingConfigured()) {
+  // Aucun espace accessible → aucun contexte (fail-closed).
+  if (lastMessage.length > 3 && spaceIds.length > 0) {
+    if (await isEmbeddingConfiguredAsync()) {
       try {
-        const semanticResults = await searchSemantic(lastMessage, 5);
+        // Recherche sémantique scopée sur les espaces accessibles.
+        const semanticResults = await searchSemantic(lastMessage, 5, {
+          spaceIds,
+          viewerId: user.id,
+          isGlobalAdmin: admin,
+          organizationId: orgId,
+        });
 
         if (semanticResults.length > 0) {
-          if (admin) {
-            contextDocs = semanticResults
-              .map((r) => sanitizeRagContent(r.chunkText))
-              .join("\n\n---\n\n");
-          } else {
-            // Filtrer les résultats sémantiques par espace accessible
+          // Retirer les documents « secret » pour les non-admins.
+          let allowed = semanticResults;
+          if (!admin) {
             const docIds = [
               ...new Set(semanticResults.map((r) => r.documentId)),
             ];
-            const accessibleDocs = await db
+            const docs = await db
               .select({
                 id: documents.id,
-                spaceId: documents.spaceId,
                 classification: documents.classification,
               })
               .from(documents)
               .where(inArray(documents.id, docIds));
-
-            const accessibleDocIds = new Set(
-              accessibleDocs
-                .filter(
-                  (d) =>
-                    spaceIds.includes(d.spaceId) &&
-                    d.classification !== "secret"
-                )
+            const blocked = new Set(
+              docs
+                .filter((d) => d.classification === "secret")
                 .map((d) => d.id)
             );
+            allowed = semanticResults.filter((r) => !blocked.has(r.documentId));
+          }
 
-            const filtered = semanticResults.filter((r) =>
-              accessibleDocIds.has(r.documentId)
-            );
-            if (filtered.length > 0) {
-              contextDocs = filtered
-                .map((r) => sanitizeRagContent(r.chunkText))
-                .join("\n\n---\n\n");
-            }
+          if (allowed.length > 0) {
+            contextDocs = allowed
+              .map((r) => sanitizeRagContent(r.chunkText))
+              .join("\n\n---\n\n");
           }
         }
       } catch {
@@ -146,33 +148,47 @@ async function _POST(request: NextRequest) {
     if (!contextDocs) {
       const pattern = `%${lastMessage.slice(0, 100)}%`;
 
-      // SEC-01 — Filtrage par espace + classification
+      // SEC-01 — Filtrage par espace (org courante) + classification
       const conditions = [
         or(
           ilike(documents.title, pattern),
           ilike(documents.contentText, pattern)
         ),
+        inArray(documents.spaceId, spaceIds),
       ];
-
-      if (!admin && spaceIds.length > 0) {
-        conditions.push(inArray(documents.spaceId, spaceIds));
-      }
 
       if (!admin) {
         conditions.push(notInArray(documents.classification, ["secret"]));
       }
 
+      // Troncature côté SQL : seuls les 1500 premiers caractères servent
+      // (reclassement puis extrait de contexte), inutile de rapatrier le
+      // texte entier de chaque document candidat.
       const relevantDocs = await db
         .select({
           title: documents.title,
-          contentText: documents.contentText,
+          contentText: sql<string>`substring(${documents.contentText}, 1, 1500)`,
         })
         .from(documents)
         .where(and(...conditions))
-        .limit(5);
+        // Ordre stable : sans ORDER BY, l'ensemble des candidats soumis au
+        // reclassement pourrait varier d'un appel à l'autre pour une même
+        // recherche, et avec lui le résultat final et la clé de cache du
+        // reclassement (cf. le même correctif dans searchKbFallback).
+        .orderBy(asc(documents.id))
+        .limit(fetchLimitForRerank(5));
 
-      if (relevantDocs.length > 0) {
-        contextDocs = relevantDocs
+      // Le repli ILIKE ne classe rien par pertinence : reclassement avant usage.
+      const reclasses = await rerankCandidates(lastMessage, relevantDocs, {
+        getText: (doc) => `${doc.title}\n\n${(doc.contentText || "").slice(0, 1500)}`,
+        topN: 5,
+        surface: "chat",
+        userId: user.id,
+        organizationId: orgId,
+      });
+
+      if (reclasses.length > 0) {
+        contextDocs = reclasses
           .map(
             (d) =>
               `## ${sanitizeRagContent(d.title)}\n${sanitizeRagContent(
@@ -201,12 +217,12 @@ ${contextDocs}
 
   let languageModel, providerId, modelName;
   try {
-    const resolved = await getLanguageModelForUsage("chat");
+    const resolved = await getLanguageModelForUsageInOrg("chat", orgId);
     languageModel = resolved.languageModel;
     providerId = resolved.providerId;
     modelName = resolved.model;
   } catch (err) {
-    console.error("[AI chat] getLanguageModelForUsage error:", err);
+    console.error("[AI chat] getLanguageModelForUsageInOrg error:", err);
     return new Response(`Erreur provider: ${err instanceof Error ? err.message : String(err)}`, { status: 503 });
   }
 

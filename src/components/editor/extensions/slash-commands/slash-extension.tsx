@@ -5,7 +5,7 @@ import { ReactRenderer } from "@tiptap/react";
 import Suggestion from "@tiptap/suggestion";
 import type { SuggestionProps, SuggestionKeyDownProps } from "@tiptap/suggestion";
 import type { Editor, Range } from "@tiptap/core";
-import { PluginKey } from "@tiptap/pm/state";
+import { PluginKey, NodeSelection, Selection, TextSelection } from "@tiptap/pm/state";
 import tippy, { type Instance as TippyInstance } from "tippy.js";
 
 import { commands, defaultAliases } from "./commands";
@@ -21,6 +21,44 @@ export function setCustomAliases(aliases: Record<string, string[]>) {
 
 function getEffectiveAliases(title: string): string[] {
   return _customAliases[title] ?? defaultAliases[title] ?? [];
+}
+
+// Modules actifs chargés depuis /api/modules/active — null = pas encore chargé
+// (on n'occulte alors aucune commande, pour éviter un flash de menu incomplet).
+let _activeModules: Set<string> | null = null;
+
+export function setActiveModules(ids: string[]) {
+  _activeModules = new Set(ids);
+}
+
+/**
+ * Rend la main à l'usager après l'insertion d'un bloc.
+ *
+ * Les blocs de l'éditeur sont des nœuds atomiques : après `insertContent`,
+ * ProseMirror laisse une sélection de nœud sur le bloc inséré, et le navigateur
+ * peint alors tout son contenu comme sélectionné. L'usager vient pourtant
+ * seulement de créer le bloc, il s'attend à le voir au repos.
+ *
+ * On place donc un simple curseur juste après le bloc, dans le nœud de texte
+ * qui suit s'il en existe un, sinon dans un paragraphe créé pour l'occasion
+ * (cas du bloc inséré en fin de document, qui serait autrement impossible à
+ * quitter au clavier).
+ *
+ * Sans effet quand la commande ne laisse pas de sélection de nœud, ce qui est
+ * le cas de toutes les commandes de texte (titres, listes, citations).
+ */
+function placerCurseurApresBloc(editor: Editor): void {
+  const selection = editor.state.selection;
+  if (!(selection instanceof NodeSelection)) return;
+
+  const apres = selection.to;
+  const suivante = Selection.near(editor.state.doc.resolve(apres), 1);
+
+  if (suivante instanceof TextSelection && suivante.from >= apres) {
+    editor.chain().setTextSelection(suivante.from).focus().run();
+    return;
+  }
+  editor.chain().createParagraphNear().focus().run();
 }
 
 export const SlashCommands = Extension.create({
@@ -41,6 +79,7 @@ export const SlashCommands = Extension.create({
           props: SuggestionProps;
         }) => {
           props.command({ editor, range });
+          placerCurseurApresBloc(editor);
         },
       },
     };
@@ -58,6 +97,7 @@ export const SlashCommands = Extension.create({
           return commands.filter(
             (item) =>
               (!isMobile || !item.desktopOnly) &&
+              (!item.module || _activeModules === null || _activeModules.has(item.module)) &&
               (item.title.toLowerCase().includes(q) ||
               item.description.toLowerCase().includes(q) ||
               getEffectiveAliases(item.title).some((alias) => alias.toLowerCase().includes(q)))

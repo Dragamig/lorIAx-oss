@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { calendarExternalFeeds } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getSessionUser } from "@/lib/auth/get-user";
 import { z } from "zod";
 
@@ -29,7 +29,12 @@ export async function POST(request: Request) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
 
-  const body = await request.json();
+  let body;
+  try {
+    body = await request.json();
+  } catch (error) {
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+  }
   const parsed = createFeedSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
@@ -56,9 +61,23 @@ export async function DELETE(request: Request) {
   const { id } = await request.json();
   if (!id) return NextResponse.json({ error: "id requis" }, { status: 400 });
 
-  await db
+  // Cloisonnement (AZ-20) : l'appartenance fait partie de la clause `where` de
+  // la suppression elle-même, jamais d'un test préalable. Aucune fenêtre entre
+  // la vérification et l'effacement, et un identifiant appartenant à un autre
+  // utilisateur ne supprime rien.
+  const supprimes = await db
     .delete(calendarExternalFeeds)
-    .where(eq(calendarExternalFeeds.id, id));
+    .where(
+      and(
+        eq(calendarExternalFeeds.id, id),
+        eq(calendarExternalFeeds.userId, user.id)
+      )
+    )
+    .returning({ id: calendarExternalFeeds.id });
+
+  if (supprimes.length === 0) {
+    return NextResponse.json({ error: "Flux introuvable" }, { status: 404 });
+  }
 
   return NextResponse.json({ success: true });
 }

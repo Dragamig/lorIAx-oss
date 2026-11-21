@@ -240,7 +240,8 @@ export default function EventPickerDialog({
 
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.error || "Erreur lors de la création");
+        const errorMessage = typeof data === 'object' && 'error' in data ? data.error : "Erreur lors de la création";
+        throw new Error(errorMessage);
       }
 
       const event = await res.json();

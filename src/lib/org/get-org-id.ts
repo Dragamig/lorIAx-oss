@@ -1,37 +1,40 @@
-import { unstable_cache } from "next/cache";
+/**
+ * Résolution d'organisation SANS session.
+ *
+ * Ce module portait `getOrgId`, qui traduisait un slug d'organisation en
+ * identifiant sans contrôler aucune appartenance. Le slug vient du header
+ * `x-org-slug`, réécrit par le proxy depuis l'hôte de la requête, et le cookie
+ * de session est valide sur tous les sous-domaines : appelé depuis une route
+ * authentifiée, ce helper laissait un membre d'un tenant agir sur les données
+ * d'un autre (audit du 2026-08-19, constats P0-6, AZ-02, AZ-12, INJ-23, puis la
+ * création d'espace dans un tenant tiers trouvée pendant le lot 2).
+ *
+ * `getOrgId` et `getOrgSlugFromHeaders` ont été retirés le 2026-08-20, une fois
+ * leur dernier appelant authentifié basculé. Le helper n'est plus disponible :
+ * la classe de défauts est fermée par l'absence de l'outil, pas seulement par
+ * la discipline de ses appelants. Ne les réintroduisez pas.
+ *
+ * Pour toute route ou tout composant serveur AUTHENTIFIÉ, utiliser :
+ * - `requireOrgScoped` (`@/lib/auth/require-org-scoped`) : appartenance à
+ *   l'organisation ET seuil de permission sur la ressource, erreur typée à
+ *   renvoyer telle quelle ;
+ * - `resolveRequestOrg` / `getRequestOrgId` (`@/lib/org/resolve-request-org`,
+ *   `@/lib/org/get-request-org`) : résolution seule, avec contrôle
+ *   d'appartenance, `null` = aucun accès (fail-closed), à traduire en 404.
+ */
+
 import { db } from "@/lib/db";
 import { organizations } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
-import { asc } from "drizzle-orm";
-
-async function fetchOrgId(slug: string): Promise<string> {
-  const [org] = await db
-    .select({ id: organizations.id, isActive: organizations.isActive })
-    .from(organizations)
-    .where(eq(organizations.slug, slug))
-    .limit(1);
-
-  if (!org) throw new Error("Organisation introuvable");
-  if (!org.isActive) throw new Error("Organisation désactivée");
-  return org.id;
-}
-
-export const getOrgId = unstable_cache(fetchOrgId, ["org-id"], {
-  revalidate: 60,
-  tags: ["org"],
-});
-
-export async function getOrgSlugFromHeaders(
-  headersFn: () => Promise<Headers> | Headers,
-): Promise<string> {
-  const h = await headersFn();
-  return h.get("x-org-slug") ?? "default";
-}
+import { eq, asc } from "drizzle-orm";
 
 /**
- * Récupère l'ID de la première organisation active (utile pendant le wizard setup
- * ou dans les contextes sans session, ex. LDAP sync).
- * En mode mono-tenant, il n'y a qu'une seule organisation.
+ * Identifiant de l'organisation partagée par défaut, c'est-à-dire la première
+ * organisation active. C'est le tenant mutualisé historique, servi sur l'apex
+ * et sur `www`, et il n'y en a qu'une en mode mono-tenant.
+ *
+ * Ne dépend d'aucune entrée de la requête : rien à contrôler, donc utilisable
+ * dans les contextes sans session (assistant d'installation, synchronisation
+ * LDAP, tâches de fond) comme dans les résolveurs cloisonnés.
  */
 export async function getDefaultOrgId(): Promise<string> {
   const [org] = await db

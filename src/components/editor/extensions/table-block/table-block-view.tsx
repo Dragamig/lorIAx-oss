@@ -31,6 +31,25 @@ export function TableBlockView({
     [node.attrs.tablePreset]
   );
 
+  // Largeurs de colonnes calculées depuis les attributs `colwidth` des cellules
+  // de la 1re ligne. Indispensable : en remplaçant la TableView native de
+  // prosemirror-tables par ce NodeView React, on perd la gestion du <colgroup>
+  // dont dépend le plugin columnResizing. On le reconstruit ici pour que le
+  // redimensionnement natif s'applique réellement (avec table-layout: fixed).
+  const colWidths = useMemo(() => {
+    const widths: (number | null)[] = [];
+    const firstRow = node.firstChild;
+    if (!firstRow) return widths;
+    firstRow.forEach((cell) => {
+      const colspan = (cell.attrs.colspan as number) || 1;
+      const colwidth = cell.attrs.colwidth as number[] | null;
+      for (let i = 0; i < colspan; i++) {
+        widths.push(colwidth && colwidth[i] ? colwidth[i] : null);
+      }
+    });
+    return widths;
+  }, [node]);
+
   const handleTogglePreset = useCallback(
     (key: string) => {
       const next = togglePreset(presets, key);
@@ -65,10 +84,15 @@ export function TableBlockView({
 
   return (
     <NodeViewWrapper className={wrapperClasses}>
-      <div className="table-block" contentEditable={false}>
-        {/* Toolbar — visible on hover or selection, hidden when not editable */}
+      <div className="table-block">
+        {/* Toolbar — visible on hover or selection, hidden when not editable.
+            contentEditable={false} sur les seuls contrôles : le contenu du
+            tableau (NodeViewContent) doit rester éditable. */}
         {editable && (
-          <div className={`table-block-toolbar ${selected ? "is-visible" : ""}`}>
+          <div
+            className={`table-block-toolbar ${selected ? "is-visible" : ""}`}
+            contentEditable={false}
+          >
             <div className="flex items-center gap-2">
               <TableIcon className="h-3.5 w-3.5 text-muted-foreground" />
 
@@ -118,14 +142,28 @@ export function TableBlockView({
           </div>
         )}
 
-        {/* Table content rendered by TipTap */}
+        {/* Table content rendered by TipTap — vrai <table> pour l'affichage
+            grille et le redimensionnement de colonnes. */}
         <div className="table-block-content">
-          <NodeViewContent as="div" />
+          <div className="table-block-scroll">
+            <table className="table-block-table">
+              <colgroup>
+                {colWidths.map((w, i) => (
+                  <col
+                    key={i}
+                    style={w ? { width: `${w}px` } : undefined}
+                  />
+                ))}
+              </colgroup>
+              <NodeViewContent<"tbody"> as="tbody" />
+            </table>
+          </div>
 
           {/* Add column button (right edge) */}
           {editable && (
             <button
               onClick={handleAddColumn}
+              contentEditable={false}
               className={`table-block-add-col ${selected ? "is-visible" : ""}`}
               title="Ajouter une colonne"
             >
@@ -138,6 +176,7 @@ export function TableBlockView({
         {editable && (
           <button
             onClick={handleAddRow}
+            contentEditable={false}
             className={`table-block-add-row ${selected ? "is-visible" : ""}`}
             title="Ajouter une ligne"
           >

@@ -2,17 +2,18 @@
 
 import { useState, useEffect, useRef } from "react";
 import { Menu, ChevronsLeft } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { AppSidebar } from "@/components/sidebar/app-sidebar";
 import { MobileHeader } from "@/components/layout/mobile-header";
 import { BottomTabs } from "@/components/layout/bottom-tabs";
-import { usePathname } from "next/navigation";
+import { usePathname } from "@/i18n/routing";
+import { useTranslations } from "next-intl";
 import { useSidebarResize } from "@/hooks/use-sidebar-resize";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { NetworkStatusBanner } from "@/components/network-status-banner";
 import { syncManager } from "@/lib/offline/sync-manager";
 
 export function ResponsiveLayout({ children }: { children: React.ReactNode }) {
+  const t = useTranslations("shell.sidebar");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const isMobile = useIsMobile();
   const [mounted, setMounted] = useState(false);
@@ -72,7 +73,7 @@ export function ResponsiveLayout({ children }: { children: React.ReactNode }) {
             transition: !mounted || isDragging ? "none" : "width 200ms ease",
           }}
         >
-          {/* Contenu sidebar (overflow caché pendant le pliage) */}
+          {/* Sidebar content (overflow hidden during collapse) */}
           <div
             className="h-full overflow-hidden"
             style={{
@@ -84,7 +85,7 @@ export function ResponsiveLayout({ children }: { children: React.ReactNode }) {
             <AppSidebar />
           </div>
 
-          {/* Bouton plier — visible au survol de la sidebar */}
+          {/* Collapse button — visible on sidebar hover */}
           {!collapsed && (
             <button
               onClick={toggleCollapsed}
@@ -92,13 +93,13 @@ export function ResponsiveLayout({ children }: { children: React.ReactNode }) {
                 opacity-0 group-hover/sidebar:opacity-100
                 hover:bg-sidebar-accent text-sidebar-foreground/60 hover:text-sidebar-foreground
                 transition-opacity duration-150"
-              title="Plier la barre latérale"
+              title={t("collapseAria")}
             >
               <ChevronsLeft className="h-4 w-4" />
             </button>
           )}
 
-          {/* Poignée de redimensionnement */}
+          {/* Resize handle */}
           {!collapsed && (
             <div
               className="absolute top-0 right-0 w-1 h-full cursor-col-resize z-20
@@ -119,7 +120,7 @@ export function ResponsiveLayout({ children }: { children: React.ReactNode }) {
         </div>
       )}
 
-      {/* Sidebar mobile (comportement inchangé) */}
+      {/* Mobile sidebar (behavior unchanged) */}
       {isMobile && (
         <div
           className={`
@@ -132,29 +133,33 @@ export function ResponsiveLayout({ children }: { children: React.ReactNode }) {
         </div>
       )}
 
-      {/* Header mobile — toujours rendu, masqué sur desktop via CSS */}
+      {/* Mobile header — always rendered, hidden on desktop via CSS */}
       <MobileHeader onOpenMenu={() => setSidebarOpen(true)} />
 
       {/* Contenu principal */}
-      <main className="flex-1 overflow-y-auto relative min-w-0 pt-14 pb-[calc(4rem+env(safe-area-inset-bottom))] md:pt-0 md:pb-0">
+      <main
+        className={`flex-1 overflow-y-auto relative min-w-0 pt-14 pb-[calc(4rem+env(safe-area-inset-bottom))] md:pt-0 md:pb-0 transition-[padding] duration-200 ${
+          !isMobile && collapsed ? "md:pl-4" : ""
+        }`}
+      >
 
-        {/* Bouton déplier sidebar (desktop, quand pliée) */}
+        {/* Expand sidebar tab (desktop, when collapsed) */}
         {!isMobile && collapsed && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="fixed top-3 left-3 z-30 h-9 w-9 bg-card/80 backdrop-blur-sm border border-border shadow-sm"
+          <button
             onClick={toggleCollapsed}
-            title="Déplier la barre latérale"
+            title={t("expandAria")}
+            className="group fixed top-3 left-0 z-30 h-10 w-4 flex items-center justify-center
+              hover:bg-accent/40 transition-colors rounded-r-md"
           >
-            <Menu className="h-5 w-5" />
-          </Button>
+            <span className="absolute inset-y-0 left-0 w-px bg-border group-hover:bg-primary/60 transition-colors" />
+            <Menu className="h-3.5 w-3.5 text-foreground/40 group-hover:text-foreground transition-colors" />
+          </button>
         )}
 
         {children}
       </main>
 
-      {/* Bottom tabs mobile — toujours rendu, masqué sur desktop via CSS */}
+      {/* Mobile bottom tabs — always rendered, hidden on desktop via CSS */}
       <BottomTabs />
       </div>
     </div>

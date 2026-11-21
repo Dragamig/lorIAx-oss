@@ -22,7 +22,16 @@ export async function POST(
   const [webhook] = await db
     .select()
     .from(webhooks)
-    .where(and(eq(webhooks.id, id), eq(webhooks.userId, auth.user.id)))
+    .where(
+      and(
+        eq(webhooks.id, id),
+        eq(webhooks.userId, auth.user.id),
+        // Cloisonnement par organisation : un même compte peut être membre de
+        // plusieurs organisations, le seul `userId` laisserait voir depuis
+        // l'une les webhooks créés dans l'autre (constat du lot 6).
+        eq(webhooks.organizationId, auth.user.orgId)
+      )
+    )
     .limit(1);
 
   if (!webhook) return apiError("Webhook introuvable", 404);
@@ -36,7 +45,9 @@ export async function POST(
       title: "Test webhook — LorIAx",
       test: true,
     },
-    auth.user.id
+    auth.user.id,
+    // Organisation de l'événement : celle de la clé d'API qui déclenche le test.
+    auth.user.orgId
   );
 
   return apiSuccess({ sent: true });

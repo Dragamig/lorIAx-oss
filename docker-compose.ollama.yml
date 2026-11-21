@@ -1,0 +1,23 @@
+# Overlay optionnel : Ollama self-hosted.
+# Usage : docker compose -f docker-compose.yml -f docker-compose.ollama.yml up -d
+# Le provider Ollama de l'app pointe alors sur http://ollama:11434 (a regler dans .env).
+# Le reseau "backend" est defini par la stack principale (docker-compose.yml) ; il est
+# repris ici par simple reference, comme docker-compose.livekit.yml (pas de bloc external).
+services:
+  ollama:
+    image: ollama/ollama:latest
+    pull_policy: always
+    restart: unless-stopped
+    volumes:
+      - ollama-data:/root/.ollama
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  ollama-data:

@@ -9,7 +9,22 @@ import { streamText } from "ai";
 import { logAIUsage } from "@/lib/ai/usage-logger";
 import { getSessionUser } from "@/lib/auth/get-user";
 import { hasGlobalRole } from "@/lib/auth/rbac";
+import { resolveProviderScope } from "../providers/scope";
 
+/**
+ * Bac à sable d'inférence (audit AZ-06, lot 6).
+ *
+ * La route chargeait le fournisseur par identifiant nu, déchiffrait sa clé
+ * d'API et exécutait l'inférence : l'administrateur de l'organisation A
+ * consommait donc la clé de l'organisation B, facturée à B, en devinant ou en
+ * relevant un identifiant. C'est exactement le trou que le module de portée
+ * referme sur les quatre verbes de `/api/admin/ai/providers` ; il est appliqué
+ * ici, en lecture (`write: false`), comme sur la détection de modèles d'un
+ * fournisseur enregistré : un fournisseur de portée instance reste utilisable
+ * par un admin d'organisation, c'est la configuration partagée qui sert déjà à
+ * toute l'inférence de l'instance, alors qu'un fournisseur d'un AUTRE tenant
+ * rend un 404 muet, avant tout déchiffrement.
+ */
 export async function POST(request: NextRequest) {
   const user = await getSessionUser();
   if (!user || !hasGlobalRole(user.globalRole, "admin")) {
@@ -33,6 +48,11 @@ export async function POST(request: NextRequest) {
       { status: 400 }
     );
   }
+
+  // Confrontation de portée AVANT tout chargement complet : la suite déchiffre
+  // une clé d'API et la dépense.
+  const scope = await resolveProviderScope(user, providerId, false);
+  if (!scope.ok) return scope.response;
 
   // Load provider
   const [provider] = await db

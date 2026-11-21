@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
+import { stopMouse } from "../../utils/stop-mouse";
 
 interface SpeakerMappingProps {
   speakers: Array<{ id: string; firstWords: string }>;
@@ -46,6 +47,7 @@ export function SpeakerMapping({
             <select
               value={mapping[speaker.id] || ""}
               onChange={(e) => handleChange(speaker.id, e.target.value)}
+              onMouseDown={stopMouse}
               className="h-6 rounded bg-primary text-primary-foreground px-2 text-xs border-0 cursor-pointer"
             >
               {participants.map((p) => (

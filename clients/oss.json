@@ -1,0 +1,9 @@
+{
+  "client": "oss",
+  "plan": "enterprise",
+  "modules": [],
+  "exclude": ["studiovideo", "commercial"],
+  "meta": {
+    "label": "lorIAx-oss"
+  }
+}

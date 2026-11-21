@@ -1,13 +1,21 @@
 import type { DbColumn, DbRow, CellValue } from "./types";
+import {
+  toDate,
+  addToDate,
+  diffUnit,
+  formatDate,
+  startOfDay,
+} from "./date-helpers";
 
 export function evaluateFormula(
   formula: string,
   row: DbRow,
-  columns: DbColumn[]
+  columns: DbColumn[],
+  opts?: { now?: Date }
 ): CellValue {
   try {
     const tokens = tokenize(formula.trim());
-    const parser = new Parser(tokens, row, columns);
+    const parser = new Parser(tokens, row, columns, opts?.now ?? new Date());
     return parser.parse();
   } catch {
     return "#ERREUR";
@@ -37,7 +45,15 @@ function tokenize(input: string): Token[] {
     if (input[i] === '"') {
       i++;
       let str = "";
-      while (i < input.length && input[i] !== '"') str += input[i++];
+      while (i < input.length && input[i] !== '"') {
+        if (input[i] === '\\' && i + 1 < input.length) {
+          // Escape sequence: consume backslash and next char
+          i++;
+          str += input[i++];
+        } else {
+          str += input[i++];
+        }
+      }
       i++;
       tokens.push({ type: "string", value: str });
       continue;
@@ -68,11 +84,19 @@ class Parser {
   private pos = 0;
   private row: DbRow;
   private columns: DbColumn[];
+  private now: Date;
 
-  constructor(tokens: Token[], row: DbRow, columns: DbColumn[]) {
+  constructor(tokens: Token[], row: DbRow, columns: DbColumn[], now: Date) {
     this.tokens = tokens;
     this.row = row;
     this.columns = columns;
+    this.now = now;
+  }
+
+  // Formate une date en date seule à minuit, sinon en date-heure ISO locale.
+  private formatAuto(d: Date): string {
+    const midnight = d.getHours() === 0 && d.getMinutes() === 0 && d.getSeconds() === 0;
+    return formatDate(d, midnight ? "YYYY-MM-DD" : "YYYY-MM-DDTHH:mm:ss");
   }
 
   private peek(): Token | undefined { return this.tokens[this.pos]; }
@@ -205,7 +229,63 @@ class Parser {
       case "or": return args.some(Boolean);
       case "not": return !args[0];
       case "empty": return args[0] == null || args[0] === "" || (Array.isArray(args[0]) && args[0].length === 0);
-      case "now": return new Date().toISOString().slice(0, 10);
+      // ─── Dates (parité Airtable) ──────────────────────────────────────────
+      case "today": return formatDate(this.now, "YYYY-MM-DD");
+      case "now": return formatDate(this.now, "YYYY-MM-DDTHH:mm:ss");
+      case "dateadd": {
+        // dateadd(date, n, unit) → date décalée. date omise/invalide ⇒ maintenant.
+        const base = toDate(args[0]) ?? this.now;
+        return this.formatAuto(addToDate(base, Number(args[1]) || 0, args[2]));
+      }
+      case "datetime_diff": {
+        // datetime_diff(d1, d2, unit) → d1 - d2 dans l'unité, tronqué.
+        const a = toDate(args[0]);
+        const b = toDate(args[1]);
+        if (!a || !b) return 0;
+        return diffUnit(a, b, args[2]);
+      }
+      case "datetime_format": {
+        // datetime_format(date, fmt) → chaîne formatée (défaut YYYY-MM-DD).
+        const d = toDate(args[0]) ?? this.now;
+        return formatDate(d, String(args[1] ?? "YYYY-MM-DD"));
+      }
+      case "year": { const d = toDate(args[0]); return d ? d.getFullYear() : null; }
+      case "month": { const d = toDate(args[0]); return d ? d.getMonth() + 1 : null; }
+      case "day": { const d = toDate(args[0]); return d ? d.getDate() : null; }
+      case "weekday": {
+        // weekday(date, [startOfWeek]) → 0..6. Défaut dimanche=0 (Airtable) ;
+        // "Monday"/"lundi" ⇒ lundi=0.
+        const d = toDate(args[0]);
+        if (!d) return null;
+        const dow = d.getDay(); // 0 = dimanche
+        const start = String(args[1] ?? "").toLowerCase();
+        if (start === "monday" || start === "lundi") return (dow + 6) % 7;
+        return dow;
+      }
+      case "is_before": {
+        const a = toDate(args[0]);
+        const b = toDate(args[1]);
+        return a && b ? a.getTime() < b.getTime() : false;
+      }
+      case "is_after": {
+        const a = toDate(args[0]);
+        const b = toDate(args[1]);
+        return a && b ? a.getTime() > b.getTime() : false;
+      }
+      case "is_same": {
+        // is_same(d1, d2, [unit]) → égalité à la granularité de l'unité.
+        // Sans unité : égalité exacte (millisecondes).
+        const a = toDate(args[0]);
+        const b = toDate(args[1]);
+        if (!a || !b) return false;
+        const unit = String(args[2] ?? "").toLowerCase();
+        if (!unit) return a.getTime() === b.getTime();
+        if (["y", "year", "years"].includes(unit)) return a.getFullYear() === b.getFullYear();
+        if (["mo", "month", "months", "m"].includes(unit))
+          return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
+        // défaut : jour
+        return startOfDay(a) === startOfDay(b);
+      }
       case "hour":
         // hour("14:30") → 14
         return parseInt(String(args[0] ?? "00:00").split(":")[0], 10) || 0;
@@ -235,9 +315,11 @@ class Parser {
         const mm = (normalized % 60).toString().padStart(2, "0");
         return `${hh}:${mm}`;
       }
-      case "nowtime":
+      case "nowtime": {
         // nowTime() → heure actuelle "HH:MM"
-        return new Date().toTimeString().slice(0, 5);
+        const now = new Date();
+        return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      }
       default: return null;
     }
   }

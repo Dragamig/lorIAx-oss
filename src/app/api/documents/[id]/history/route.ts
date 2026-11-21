@@ -16,6 +16,11 @@ export async function GET(
   const { id } = await params;
   const sha = request.nextUrl.searchParams.get("sha");
 
+  // Validate sha format before use (prevent git command injection)
+  if (sha && !/^[a-f0-9]{40}$|^[a-f0-9]{64}$/.test(sha)) {
+    return NextResponse.json({ error: "Format de SHA invalide" }, { status: 400 });
+  }
+
   const [doc] = await db
     .select()
     .from(documents)

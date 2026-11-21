@@ -2,11 +2,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { systemSettings } from "@/lib/db/schema";
-import { guardSetupAccess } from "@/lib/setup/guards";
+import { guardSetupRoute } from "@/lib/setup/guards";
 
 export async function POST(request: NextRequest) {
-  const access = await guardSetupAccess();
-  if (!access.allowed) return access.response;
+  const blocked = await guardSetupRoute(request);
+  if (blocked) return blocked;
 
   const body = await request.json();
   const { website, sector, presentation, values } = body;

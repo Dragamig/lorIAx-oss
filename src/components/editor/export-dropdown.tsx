@@ -61,9 +61,12 @@ export function ExportDropdown({ title }: ExportDropdownProps) {
     setOpen(false);
     // Set a temporary title for the print dialog
     const originalTitle = document.title;
-    document.title = title;
-    window.print();
-    document.title = originalTitle;
+    try {
+      document.title = title;
+      window.print();
+    } finally {
+      document.title = originalTitle;
+    }
   }
 
   return (

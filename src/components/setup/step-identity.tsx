@@ -1,11 +1,13 @@
 "use client";
 
 import { useState, useRef } from "react";
+import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2, ArrowRight, Building2, X, ImageIcon } from "lucide-react";
-import type { SetupData } from "@/app/(setup)/setup/page";
+import type { SetupData } from "@/app/[locale]/(setup)/setup/page";
+import { setupFetch } from "@/lib/setup/client";
 
 interface StepIdentityProps {
   data: SetupData;
@@ -26,6 +28,7 @@ function ImageUpload({
   value: string | null;
   onChange: (url: string | null) => void;
 }) {
+  const t = useTranslations("setup.identity");
   const [uploading, setUploading] = useState(false);
   const [preview, setPreview] = useState<string | null>(value);
   const [uploadError, setUploadError] = useState("");
@@ -39,21 +42,21 @@ function ImageUpload({
       formData.append("file", file);
       formData.append("type", type);
 
-      const res = await fetch("/api/setup/upload", {
+      const res = await setupFetch("/api/setup/upload", {
         method: "POST",
         body: formData,
       });
 
       if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.error || "Erreur");
+        throw new Error(err.error || t("errors.uploadError"));
       }
 
       const { url } = await res.json();
       setPreview(url);
       onChange(url);
     } catch (err) {
-      setUploadError(err instanceof Error ? err.message : "Erreur d'upload");
+      setUploadError(err instanceof Error ? err.message : t("errors.uploadError"));
     } finally {
       setUploading(false);
     }
@@ -78,7 +81,7 @@ function ImageUpload({
             alt={label}
             className={`rounded bg-white ${type === "favicon" ? "h-8 w-8" : "h-12 max-w-[120px] object-contain"}`}
           />
-          <span className="text-sm text-muted-foreground flex-1">Image chargée</span>
+          <span className="text-sm text-muted-foreground flex-1">{t("imageLoaded")}</span>
           <Button variant="ghost" size="sm" onClick={handleRemove}>
             <X className="h-4 w-4" />
           </Button>
@@ -94,7 +97,7 @@ function ImageUpload({
             <ImageIcon className="h-6 w-6 text-muted-foreground" />
           )}
           <span className="text-sm text-muted-foreground">
-            {uploading ? "Envoi en cours..." : "Cliquez pour choisir une image"}
+            {uploading ? t("uploading") : t("clickToChoose")}
           </span>
         </div>
       )}
@@ -116,6 +119,7 @@ function ImageUpload({
 }
 
 export function StepIdentity({ data, onUpdate, onNext }: StepIdentityProps) {
+  const t = useTranslations("setup.identity");
   const [name, setName] = useState(data.identity.name);
   const [description, setDescription] = useState(data.identity.description);
   const [logoUrl, setLogoUrl] = useState<string | null>(data.identity.logoUrl);
@@ -125,14 +129,14 @@ export function StepIdentity({ data, onUpdate, onNext }: StepIdentityProps) {
 
   async function handleNext() {
     if (!name.trim()) {
-      setError("Le nom de l'organisation est obligatoire");
+      setError(t("errors.orgNameRequired"));
       return;
     }
 
     setSaving(true);
     setError("");
     try {
-      const res = await fetch("/api/setup/identity", {
+      const res = await setupFetch("/api/setup/identity", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -145,7 +149,7 @@ export function StepIdentity({ data, onUpdate, onNext }: StepIdentityProps) {
 
       if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.error || "Erreur");
+        throw new Error(err.error || t("errors.unexpectedError"));
       }
 
       onUpdate({
@@ -156,7 +160,7 @@ export function StepIdentity({ data, onUpdate, onNext }: StepIdentityProps) {
       });
       onNext();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur inattendue");
+      setError(err instanceof Error ? err.message : t("errors.unexpectedError"));
     } finally {
       setSaving(false);
     }
@@ -166,46 +170,46 @@ export function StepIdentity({ data, onUpdate, onNext }: StepIdentityProps) {
     <div className="space-y-6">
       <div className="text-center">
         <Building2 className="h-12 w-12 text-primary mx-auto mb-3" />
-        <h2 className="text-2xl font-bold">Identité de l&apos;organisation</h2>
+        <h2 className="text-2xl font-bold">{t("title")}</h2>
         <p className="text-muted-foreground mt-1">
-          Ces informations seront affichées dans l&apos;interface.
+          {t("description")}
         </p>
       </div>
 
       <div className="space-y-4">
         <div className="space-y-2">
-          <Label htmlFor="org-name">Nom de l&apos;organisation *</Label>
+          <Label htmlFor="org-name">{t("orgNameLabel")}</Label>
           <Input
             id="org-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Mon organisation"
+            placeholder={t("orgNamePlaceholder")}
             autoFocus
           />
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="org-desc">Description courte</Label>
+          <Label htmlFor="org-desc">{t("orgDescLabel")}</Label>
           <textarea
             id="org-desc"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="Quelques mots sur votre organisation..."
+            placeholder={t("orgDescPlaceholder")}
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm min-h-[80px] resize-y"
           />
         </div>
 
         <div className="grid grid-cols-2 gap-4">
           <ImageUpload
-            label="Logo"
-            hint="JPG, PNG, WebP ou SVG. Max 2 Mo."
+            label={t("logoLabel")}
+            hint={t("logoHint")}
             type="logo"
             value={logoUrl}
             onChange={setLogoUrl}
           />
           <ImageUpload
-            label="Favicon"
-            hint="Petite icône du navigateur. Sera redimensionnée à 32x32."
+            label={t("faviconLabel")}
+            hint={t("faviconHint")}
             type="favicon"
             value={faviconUrl}
             onChange={setFaviconUrl}
@@ -222,7 +226,7 @@ export function StepIdentity({ data, onUpdate, onNext }: StepIdentityProps) {
           ) : (
             <ArrowRight className="h-4 w-4" />
           )}
-          Suivant
+          {t("next")}
         </Button>
       </div>
     </div>

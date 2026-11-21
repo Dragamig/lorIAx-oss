@@ -1,0 +1,528 @@
+{
+  "format": "bento/slides",
+  "version": 1,
+  "title": "Compte rendu de réunion",
+  "size": {
+    "width": 1280,
+    "height": 720
+  },
+  "theme": {
+    "background": "#FFFFFF",
+    "color": "#1E2A3A",
+    "accent": "#F7A600",
+    "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+  },
+  "slides": [
+    {
+      "id": "meeting-s1",
+      "background": "#1E2A3A",
+      "transition": "fade",
+      "notes": "Indiquer l'objet, la date et la personne qui rédige le compte rendu.",
+      "elements": [
+        {
+          "id": "meeting-s1-kicker",
+          "type": "text",
+          "x": 96,
+          "y": 236,
+          "w": 900,
+          "h": 32,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "COMPTE RENDU",
+          "fontSize": 16,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 600,
+          "color": "#F7A600",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25,
+          "letterSpacing": 3,
+          "role": "kicker"
+        },
+        {
+          "id": "meeting-s1-bar",
+          "type": "shape",
+          "shape": "rect",
+          "x": 96,
+          "y": 284,
+          "w": 64,
+          "h": 6,
+          "rotation": 0,
+          "opacity": 1,
+          "fill": "#F7A600",
+          "stroke": "transparent",
+          "strokeWidth": 0,
+          "radius": 2
+        },
+        {
+          "id": "meeting-s1-title",
+          "type": "text",
+          "x": 96,
+          "y": 304,
+          "w": 1088,
+          "h": 120,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Objet de la réunion",
+          "fontSize": 60,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 700,
+          "color": "#FFFFFF",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.15,
+          "role": "title"
+        },
+        {
+          "id": "meeting-s1-sub",
+          "type": "text",
+          "x": 96,
+          "y": 436,
+          "w": 1088,
+          "h": 48,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Date · Lieu ou lien · Rédacteur",
+          "fontSize": 24,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 400,
+          "color": "#C9D3E0",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25,
+          "role": "subtitle"
+        }
+      ]
+    },
+    {
+      "id": "meeting-s2",
+      "background": "#FFFFFF",
+      "transition": "fade",
+      "notes": "Lister les présents, les excusés et les points prévus.",
+      "elements": [
+        {
+          "id": "meeting-s2-title",
+          "type": "text",
+          "x": 96,
+          "y": 56,
+          "w": 1088,
+          "h": 68,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Participants et ordre du jour",
+          "fontSize": 38,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 700,
+          "color": "#1E2A3A",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25,
+          "role": "title"
+        },
+        {
+          "id": "meeting-s2-rule",
+          "type": "shape",
+          "shape": "rect",
+          "x": 96,
+          "y": 134,
+          "w": 1088,
+          "h": 3,
+          "rotation": 0,
+          "opacity": 1,
+          "fill": "#F7A600",
+          "stroke": "transparent",
+          "strokeWidth": 0,
+          "radius": 2
+        },
+        {
+          "id": "meeting-s2-left-head",
+          "type": "text",
+          "x": 96,
+          "y": 168,
+          "w": 520,
+          "h": 40,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Participants",
+          "fontSize": 22,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 700,
+          "color": "#1E2A3A",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25
+        },
+        {
+          "id": "meeting-s2-left",
+          "type": "text",
+          "x": 96,
+          "y": 220,
+          "w": 520,
+          "h": 404,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "• Prénom Nom, fonction<br>• Prénom Nom, fonction<br>• Excusé : Prénom Nom",
+          "fontSize": 22,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 400,
+          "color": "#45566B",
+          "align": "left",
+          "valign": "top",
+          "lineHeight": 1.6,
+          "role": "body"
+        },
+        {
+          "id": "meeting-s2-right-head",
+          "type": "text",
+          "x": 664,
+          "y": 168,
+          "w": 520,
+          "h": 40,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Ordre du jour",
+          "fontSize": 22,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 700,
+          "color": "#1E2A3A",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25
+        },
+        {
+          "id": "meeting-s2-right",
+          "type": "text",
+          "x": 664,
+          "y": 220,
+          "w": 520,
+          "h": 404,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "• Point 1 : suivi des actions précédentes<br>• Point 2 : sujet principal<br>• Point 3 : questions diverses",
+          "fontSize": 22,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 400,
+          "color": "#45566B",
+          "align": "left",
+          "valign": "top",
+          "lineHeight": 1.6,
+          "role": "body"
+        }
+      ]
+    },
+    {
+      "id": "meeting-s3",
+      "background": "#FFFFFF",
+      "transition": "fade",
+      "notes": "Résumer les échanges, sans les retranscrire.",
+      "elements": [
+        {
+          "id": "meeting-s3-title",
+          "type": "text",
+          "x": 96,
+          "y": 56,
+          "w": 1088,
+          "h": 68,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Points abordés",
+          "fontSize": 38,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 700,
+          "color": "#1E2A3A",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25,
+          "role": "title"
+        },
+        {
+          "id": "meeting-s3-rule",
+          "type": "shape",
+          "shape": "rect",
+          "x": 96,
+          "y": 134,
+          "w": 1088,
+          "h": 3,
+          "rotation": 0,
+          "opacity": 1,
+          "fill": "#F7A600",
+          "stroke": "transparent",
+          "strokeWidth": 0,
+          "radius": 2
+        },
+        {
+          "id": "meeting-s3-body",
+          "type": "text",
+          "x": 96,
+          "y": 168,
+          "w": 1088,
+          "h": 456,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "• Point 1 : ce qui a été dit, en une ou deux phrases<br>• Point 2 : les options discutées et les arguments retenus<br>• Point 3 : les questions restées ouvertes",
+          "fontSize": 26,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 400,
+          "color": "#45566B",
+          "align": "left",
+          "valign": "top",
+          "lineHeight": 1.6,
+          "role": "body"
+        }
+      ]
+    },
+    {
+      "id": "meeting-s4",
+      "background": "#FFFFFF",
+      "transition": "fade",
+      "notes": "Une décision par ligne, formulée sans ambiguïté.",
+      "elements": [
+        {
+          "id": "meeting-s4-title",
+          "type": "text",
+          "x": 96,
+          "y": 56,
+          "w": 1088,
+          "h": 68,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Décisions",
+          "fontSize": 38,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 700,
+          "color": "#1E2A3A",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25,
+          "role": "title"
+        },
+        {
+          "id": "meeting-s4-rule",
+          "type": "shape",
+          "shape": "rect",
+          "x": 96,
+          "y": 134,
+          "w": 1088,
+          "h": 3,
+          "rotation": 0,
+          "opacity": 1,
+          "fill": "#F7A600",
+          "stroke": "transparent",
+          "strokeWidth": 0,
+          "radius": 2
+        },
+        {
+          "id": "meeting-s4-body",
+          "type": "text",
+          "x": 96,
+          "y": 168,
+          "w": 1088,
+          "h": 456,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "• Décision 1, avec la personne qui l'a validée<br>• Décision 2, avec sa date d'effet<br>• Exemple : le lancement est reporté au 15 du mois prochain",
+          "fontSize": 26,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 400,
+          "color": "#45566B",
+          "align": "left",
+          "valign": "top",
+          "lineHeight": 1.6,
+          "role": "body"
+        }
+      ]
+    },
+    {
+      "id": "meeting-s5",
+      "background": "#FFFFFF",
+      "transition": "fade",
+      "notes": "Chaque action a un seul responsable et une échéance.",
+      "elements": [
+        {
+          "id": "meeting-s5-title",
+          "type": "text",
+          "x": 96,
+          "y": 56,
+          "w": 1088,
+          "h": 68,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Actions",
+          "fontSize": 38,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 700,
+          "color": "#1E2A3A",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25,
+          "role": "title"
+        },
+        {
+          "id": "meeting-s5-rule",
+          "type": "shape",
+          "shape": "rect",
+          "x": 96,
+          "y": 134,
+          "w": 1088,
+          "h": 3,
+          "rotation": 0,
+          "opacity": 1,
+          "fill": "#F7A600",
+          "stroke": "transparent",
+          "strokeWidth": 0,
+          "radius": 2
+        },
+        {
+          "id": "meeting-s5-table",
+          "type": "table",
+          "x": 96,
+          "y": 176,
+          "w": 1088,
+          "h": 192,
+          "rotation": 0,
+          "opacity": 1,
+          "header": true,
+          "columns": [
+            {
+              "w": 2.4
+            },
+            {
+              "w": 1.2
+            },
+            {
+              "w": 1
+            }
+          ],
+          "rows": [
+            {
+              "cells": [
+                {
+                  "html": "Action"
+                },
+                {
+                  "html": "Responsable"
+                },
+                {
+                  "html": "Échéance"
+                }
+              ]
+            },
+            {
+              "cells": [
+                {
+                  "html": "Envoyer le devis révisé au client"
+                },
+                {
+                  "html": "Prénom Nom"
+                },
+                {
+                  "html": "Vendredi"
+                }
+              ]
+            },
+            {
+              "cells": [
+                {
+                  "html": "Mettre à jour le planning du projet"
+                },
+                {
+                  "html": "Prénom Nom"
+                },
+                {
+                  "html": "Fin de semaine"
+                }
+              ]
+            },
+            {
+              "cells": [
+                {
+                  "html": "Préparer la démonstration"
+                },
+                {
+                  "html": "Prénom Nom"
+                },
+                {
+                  "html": "Prochaine réunion"
+                }
+              ]
+            }
+          ],
+          "style": {
+            "headerBg": "#1E2A3A",
+            "headerColor": "#FFFFFF",
+            "zebra": "rgba(30,42,58,0.05)",
+            "borderColor": "rgba(30,42,58,0.14)",
+            "borderWidth": 1,
+            "cellPadX": 16,
+            "cellPadY": 11,
+            "fontSize": 18,
+            "color": "#1E2A3A",
+            "radius": 10
+          }
+        }
+      ]
+    },
+    {
+      "id": "meeting-s6",
+      "background": "#FFFFFF",
+      "transition": "fade",
+      "notes": "Préciser la date et ce que chacun doit préparer.",
+      "elements": [
+        {
+          "id": "meeting-s6-bar",
+          "type": "shape",
+          "shape": "rect",
+          "x": 96,
+          "y": 236,
+          "w": 64,
+          "h": 6,
+          "rotation": 0,
+          "opacity": 1,
+          "fill": "#F7A600",
+          "stroke": "transparent",
+          "strokeWidth": 0,
+          "radius": 2
+        },
+        {
+          "id": "meeting-s6-title",
+          "type": "text",
+          "x": 96,
+          "y": 256,
+          "w": 1088,
+          "h": 88,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Prochaine réunion",
+          "fontSize": 48,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 700,
+          "color": "#1E2A3A",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25,
+          "role": "title"
+        },
+        {
+          "id": "meeting-s6-body",
+          "type": "text",
+          "x": 96,
+          "y": 360,
+          "w": 1088,
+          "h": 200,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Date et heure<br>Lieu ou lien de visioconférence<br>Points à préparer d'ici là",
+          "fontSize": 24,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 400,
+          "color": "#45566B",
+          "align": "left",
+          "valign": "top",
+          "lineHeight": 1.6,
+          "role": "body"
+        }
+      ]
+    }
+  ],
+  "modified": "2026-11-16T00:00:00.000Z"
+}

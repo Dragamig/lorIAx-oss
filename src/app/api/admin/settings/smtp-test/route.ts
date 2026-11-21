@@ -1,13 +1,32 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/get-user";
-import { hasGlobalRole } from "@/lib/auth/rbac";
+import { canCrossOrgBoundary, INSTANCE_ADMIN_ONLY_MESSAGE } from "@/lib/auth/rbac";
 import { getEmailConfig, verifySmtp } from "@/lib/email/provider";
 import logger from "@/lib/logger";
 
+/**
+ * AZ-08, porte dérobée par l'exercice de la configuration.
+ *
+ * La clé `email` (relais SMTP de l'instance) n'est plus ni lisible ni
+ * modifiable par un administrateur d'organisation. Cette route la faisait
+ * encore EXERCER : elle ouvrait la connexion sortante avec les identifiants de
+ * l'instance et envoyait un courriel à l'appelant. Cela vaut oracle sur le
+ * relais partagé (existe-t-il, répond-il, l'authentification passe-t-elle) et
+ * expose l'adresse d'expédition de tous les tenants. Le test d'une
+ * configuration d'instance appartient à l'administration d'instance.
+ *
+ * Les paramètres de connexion viennent tous de la base (`getEmailConfig`) :
+ * la route n'accepte aucun corps, donc aucun identifiant fourni par
+ * l'appelant. Ne jamais en accepter, ce serait un oracle de connexion
+ * sortante arbitraire (SSRF authentifiée).
+ */
 export async function POST() {
   const user = await getSessionUser();
-  if (!user || !hasGlobalRole(user.globalRole, "admin")) {
-    return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+  if (!user || !canCrossOrgBoundary(user.globalRole)) {
+    return NextResponse.json(
+      { error: INSTANCE_ADMIN_ONLY_MESSAGE },
+      { status: 403 }
+    );
   }
 
   try {

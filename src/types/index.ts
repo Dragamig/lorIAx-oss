@@ -9,7 +9,6 @@ import type {
   spacePermissions,
   documentPermissions,
   templates,
-  attachments,
   documentEmbeddings,
   aiProviders,
   activityLog,
@@ -28,6 +27,9 @@ import type {
   meetingParticipants,
   visioPermissions,
   favorites,
+  meetingRooms,
+  meetingRoomPermissions,
+  meetingRoomBookings,
 } from "@/lib/db/schema";
 
 // Select types (lecture depuis la BDD)
@@ -40,7 +42,6 @@ export type DocumentLink = InferSelectModel<typeof documentLinks>;
 export type SpacePermission = InferSelectModel<typeof spacePermissions>;
 export type DocumentPermission = InferSelectModel<typeof documentPermissions>;
 export type Template = InferSelectModel<typeof templates>;
-export type Attachment = InferSelectModel<typeof attachments>;
 export type DocumentEmbedding = InferSelectModel<typeof documentEmbeddings>;
 export type AiProvider = InferSelectModel<typeof aiProviders>;
 export type ActivityLogEntry = InferSelectModel<typeof activityLog>;
@@ -55,7 +56,6 @@ export type NewTeam = InferInsertModel<typeof teams>;
 export type NewSpace = InferInsertModel<typeof spaces>;
 export type NewDocument = InferInsertModel<typeof documents>;
 export type NewTemplate = InferInsertModel<typeof templates>;
-export type NewAttachment = InferInsertModel<typeof attachments>;
 export type NewUserDatabase = InferInsertModel<typeof userDatabases>;
 export type NewUserDatabaseColumn = InferInsertModel<typeof userDatabaseColumns>;
 export type NewUserDatabaseRow = InferInsertModel<typeof userDatabaseRows>;
@@ -87,6 +87,29 @@ export type Favorite = InferSelectModel<typeof favorites>;
 export type NewFavorite = InferInsertModel<typeof favorites>;
 export type EntityType = 'document' | 'space' | 'template' | 'calendar_event' | 'meeting';
 
+// Meeting Room types (Sprint 12)
+export type MeetingRoom = InferSelectModel<typeof meetingRooms>;
+export type NewMeetingRoom = InferInsertModel<typeof meetingRooms>;
+export type MeetingRoomPermission = InferSelectModel<typeof meetingRoomPermissions>;
+export type NewMeetingRoomPermission = InferInsertModel<typeof meetingRoomPermissions>;
+export type MeetingRoomBooking = InferSelectModel<typeof meetingRoomBookings>;
+export type NewMeetingRoomBooking = InferInsertModel<typeof meetingRoomBookings>;
+export type MeetingRoomPrincipalType = "user" | "team" | "role";
+export type MeetingRoomBookingStatus = "confirmed" | "cancelled";
+
+export interface OpeningHoursSlot {
+  from: string; // "HH:MM"
+  to: string;   // "HH:MM"
+}
+export type DayOfWeek = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
+export type OpeningHours = Record<DayOfWeek, OpeningHoursSlot[]>;
+
+export interface BookingAttendee {
+  userId?: string;
+  email?: string;
+  displayName?: string;
+}
+
 export interface ResolvedFavorite {
   id: string;
   entityType: EntityType;
@@ -100,7 +123,22 @@ export interface ResolvedFavorite {
 }
 
 // Types applicatifs
-export type UserRole = "super_admin" | "admin" | "editor" | "viewer";
+export type UserRole =
+  | "super_admin"
+  | "admin"
+  | "editor"
+  | "viewer"
+  | "facility_manager"
+  | "automation_manager"
+  | "template_doc_editor"
+  | "template_graphic_editor";
+
+export type UserCapability =
+  | "facility_manager"
+  | "automation_manager"
+  | "template_doc_editor"
+  | "template_graphic_editor";
+
 export type SpaceType = "personal" | "team" | "organization";
 export type DocVisibility = "private" | "team" | "public";
 export type ClassificationLevel = "public" | "internal" | "confidential" | "secret";
@@ -126,7 +164,9 @@ export interface SessionUser {
   email: string;
   name: string;
   globalRole: UserRole;
+  capabilities: UserCapability[];
   avatarUrl?: string | null;
+  mustResetPassword?: boolean;
 }
 
 export interface GraphNode {

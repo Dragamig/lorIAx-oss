@@ -14,6 +14,7 @@ import {
   DB_VERSION,
 } from "./constants";
 import { openDB } from "idb";
+import { logger } from "../logger";
 
 // ─── Higher-level cache operations ───────────────────────────────────────────
 
@@ -25,12 +26,15 @@ export async function populateSpacesCache(
 ): Promise<void> {
   try {
     await Promise.all(
-      spaces.map((space) =>
-        cacheSpace(space.slug as string, space),
-      ),
+      spaces.map((space) => {
+        if (typeof space.slug !== 'string') {
+          return Promise.resolve();
+        }
+        return cacheSpace(space.slug, space);
+      }),
     );
-  } catch {
-    // IndexedDB unavailable — silently ignore
+  } catch (err) {
+    logger.error({ err }, '[cache] IndexedDB error in populateSpacesCache');
   }
 }
 
@@ -43,8 +47,8 @@ export async function populateDocTreeCache(
 ): Promise<void> {
   try {
     await cacheDocumentTree(spaceSlug, docs);
-  } catch {
-    // IndexedDB unavailable — silently ignore
+  } catch (err) {
+    logger.error({ err }, '[cache] IndexedDB error in populateDocTreeCache');
   }
 }
 
@@ -64,8 +68,8 @@ export async function populateDocumentCache(
 ): Promise<void> {
   try {
     await cacheDocument(docId, data);
-  } catch {
-    // IndexedDB unavailable — silently ignore
+  } catch (err) {
+    logger.error({ err }, '[cache] IndexedDB error in populateDocumentCache');
   }
 }
 
@@ -101,8 +105,8 @@ export async function evictStaleEntries(maxAgeDays: number = MAX_CACHE_AGE_DAYS)
 
       await tx.done;
     }
-  } catch {
-    // IndexedDB unavailable — silently ignore
+  } catch (err) {
+    logger.error({ err }, '[cache] IndexedDB error in evictStaleEntries');
   }
 }
 

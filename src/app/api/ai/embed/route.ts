@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/get-user";
-import { indexDocument, isEmbeddingConfigured } from "@/lib/ai/embeddings";
-import { checkRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { db } from "@/lib/db";
 import { documents } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { checkDocumentViewAccess } from "@/lib/auth/check-access";
+import { checkDocumentEditAccess } from "@/lib/auth/check-access";
+import { indexDocument, isEmbeddingConfiguredAsync } from "@/lib/ai/embeddings";
+import { checkRateLimitAsync, RATE_LIMITS } from "@/lib/rate-limit";
 import logger from "@/lib/logger";
 
 export async function POST(request: NextRequest) {
@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Rate limiting par utilisateur
-  const rl = checkRateLimit(`embed:${user.id}`, RATE_LIMITS.embed);
+  const rl = await checkRateLimitAsync(`embed:${user.id}`, RATE_LIMITS.embed);
   if (!rl.success) {
     return NextResponse.json(
       { error: "Trop de requêtes d'indexation. Réessayez dans quelques instants." },
@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (!isEmbeddingConfigured()) {
+  if (!(await isEmbeddingConfiguredAsync())) {
     return NextResponse.json(
       { error: "Aucun provider d'embeddings configuré. Ajoutez OPENAI_API_KEY ou configurez Ollama." },
       { status: 503 }
@@ -37,13 +37,13 @@ export async function POST(request: NextRequest) {
 
   const { documentId } = await request.json();
 
-  if (!documentId) {
+  if (!documentId || typeof documentId !== "string") {
     return NextResponse.json({ error: "documentId requis" }, { status: 400 });
   }
 
-  // Meme trou que sur /api/ai/summarize : la route acceptait n'importe quel identifiant.
-  // Indexer un document, c'est en decouper le contenu dans la table d'embeddings, donc
-  // le rendre atteignable par la recherche semantique. Le droit de lecture est exige.
+  // Contrôle d'accès avant toute indexation : sans lui, n'importe quel
+  // utilisateur authentifié pouvait forcer la réindexation (et tester
+  // l'existence) de n'importe quel document, y compris d'une autre organisation.
   const [doc] = await db
     .select({ id: documents.id, spaceId: documents.spaceId })
     .from(documents)
@@ -51,11 +51,11 @@ export async function POST(request: NextRequest) {
     .limit(1);
 
   if (!doc) {
-    return NextResponse.json({ error: "Document non trouve" }, { status: 404 });
+    return NextResponse.json({ error: "Document introuvable" }, { status: 404 });
   }
 
-  const canView = await checkDocumentViewAccess(user, doc.spaceId, doc.id);
-  if (!canView) {
+  const canEdit = await checkDocumentEditAccess(user, doc.spaceId, doc.id);
+  if (!canEdit) {
     return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
   }
 

@@ -59,7 +59,7 @@ export function LinkDialog({ open, onOpenChange, onConfirm, initialUrl = "" }: L
     searchTimeoutRef.current = setTimeout(async () => {
       setSearching(true);
       try {
-        const res = await fetch(`/api/search?q=${encodeURIComponent(query.trim())}&limit=8`);
+        const res = await fetch(`/api/search?q=${encodeURIComponent(query.trim())}&limit=8&rerank=0`);
         const data = await res.json();
         const items = Array.isArray(data) ? data : data?.results || [];
         setResults(

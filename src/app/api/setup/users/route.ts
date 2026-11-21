@@ -2,12 +2,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { users, spaces, teams, teamMembers } from "@/lib/db/schema";
+import { organizationMembers } from "@/lib/db/schema-org";
 import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import slugify from "slugify";
 import { initRepository } from "@/lib/git/repository";
 import { ensurePersonalCalendar } from "@/lib/calendar/auto-provision";
-import { guardSetupAccess } from "@/lib/setup/guards";
+import { guardSetupRoute } from "@/lib/setup/guards";
 import logger from "@/lib/logger";
 import { getDefaultOrgId } from "@/lib/org/get-org-id";
 
@@ -23,8 +24,8 @@ const VALID_ROLES = ["super_admin", "admin", "editor", "viewer"];
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function POST(request: NextRequest) {
-  const access = await guardSetupAccess();
-  if (!access.allowed) return access.response;
+  const blocked = await guardSetupRoute(request);
+  if (blocked) return blocked;
 
   try {
     const body = await request.json();
@@ -110,6 +111,16 @@ export async function POST(request: NextRequest) {
           globalRole: role,
         })
         .returning({ id: users.id, email: users.email, name: users.name });
+
+      // Rattacher le compte à l'organisation (cloisonnement multi-tenant).
+      await db
+        .insert(organizationMembers)
+        .values({
+          organizationId: orgId,
+          userId: newUser.id,
+          role: role === "super_admin" || role === "admin" ? "admin" : "member",
+        })
+        .onConflictDoNothing();
 
       // Create personal space
       const baseSlug = slugify(name, { lower: true, strict: true });

@@ -4,21 +4,24 @@ import { spaces, spacePermissions, teamMembers, users } from "@/lib/db/schema";
 import { eq, or, inArray, and } from "drizzle-orm";
 import { getSessionUser } from "@/lib/auth/get-user";
 import { hasGlobalRole } from "@/lib/auth/rbac";
-import slugify from "slugify";
-import { initRepository } from "@/lib/git/repository";
-import { logActivity } from "@/lib/activity";
 import { z } from "zod";
-import { getLicenseFromDB } from "@/lib/license/validate";
-import { checkSpacesLimit } from "@/lib/license/metering";
-import { headers } from "next/headers";
-import { getOrgId, getOrgSlugFromHeaders } from "@/lib/org/get-org-id";
+import { getRequestOrgId } from "@/lib/org/get-request-org";
+import logger from "@/lib/logger";
+import { assertSpaceQuota, insertSpace, afterSpaceCreated } from "@/lib/spaces/create-space";
 
 export async function GET() {
   const user = await getSessionUser();
-  if (!user) return NextResponse.json([], { status: 401 });
+  if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
 
-  const orgSlug = await getOrgSlugFromHeaders(headers);
-  const orgId = await getOrgId(orgSlug);
+  // Cloisonnement multi-tenant : l'organisation du sous-domaine n'est résolue
+  // que si l'utilisateur en est membre. `getOrgId` traduisait le slug sans
+  // aucun contrôle, donc un membre du tenant A listait et créait des espaces
+  // dans l'organisation du tenant B en rejouant sa requête sur le
+  // sous-domaine de celui-ci (fail-closed : `null` = aucun accès, 404).
+  const orgId = await getRequestOrgId(user);
+  if (!orgId) {
+    return NextResponse.json({ error: "Organisation introuvable" }, { status: 404 });
+  }
 
   // Helper : enrichir les espaces avec l'avatar du propriétaire
   async function withOwnerAvatars(spaceList: (typeof spaces.$inferSelect)[]) {
@@ -116,8 +119,15 @@ export async function POST(request: Request) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
 
-  const orgSlug = await getOrgSlugFromHeaders(headers);
-  const orgId = await getOrgId(orgSlug);
+  // Cloisonnement multi-tenant : l'organisation du sous-domaine n'est résolue
+  // que si l'utilisateur en est membre. `getOrgId` traduisait le slug sans
+  // aucun contrôle, donc un membre du tenant A listait et créait des espaces
+  // dans l'organisation du tenant B en rejouant sa requête sur le
+  // sous-domaine de celui-ci (fail-closed : `null` = aucun accès, 404).
+  const orgId = await getRequestOrgId(user);
+  if (!orgId) {
+    return NextResponse.json({ error: "Organisation introuvable" }, { status: 404 });
+  }
 
   const body = await request.json();
   const parsed = createSpaceSchema.safeParse(body);
@@ -129,13 +139,15 @@ export async function POST(request: Request) {
 
   // Seuls les admins peuvent creer des espaces organisation
   if (type === "organization" && !hasGlobalRole(user.globalRole, "admin")) {
-    return NextResponse.json({ error: "Permission refusée" }, { status: 403 });
+    return NextResponse.json(
+      { error: "Seuls les administrateurs peuvent créer des espaces d'organisation" },
+      { status: 403 }
+    );
   }
 
-  // Vérifier le quota espaces de la licence (hors espaces personnels)
+  // Vérifier le quota espaces de l'organisation (hors espaces personnels)
   if (type !== "personal") {
-    const license = await getLicenseFromDB();
-    const spacesStatus = await checkSpacesLimit(license);
+    const spacesStatus = await assertSpaceQuota(orgId);
     if (spacesStatus.exceeded) {
       return NextResponse.json(
         { error: `Quota d'espaces atteint (${spacesStatus.current}/${spacesStatus.max}). Mettez à niveau votre licence.` },
@@ -144,33 +156,24 @@ export async function POST(request: Request) {
     }
   }
 
-  const slug = slugify(name, { lower: true, strict: true });
-  const gitRepoPath = `${type}/${slug}-${Date.now()}`;
+  let space: typeof spaces.$inferSelect;
+  try {
+    space = await insertSpace(db, { orgId, userId: user.id, name, type, description, icon, ownerTeamId });
+  } catch (err) {
+    logger.error({ err }, "[spaces] Erreur lors de la création de l'espace");
+    return NextResponse.json(
+      { error: "Erreur lors de la création de l'espace dans la base de données" },
+      { status: 500 }
+    );
+  }
 
-  const [space] = await db
-    .insert(spaces)
-    .values({
-      name,
-      slug,
-      type,
-      description,
-      icon,
-      ownerUserId: type !== "team" ? user.id : undefined,
-      ownerTeamId: type === "team" ? ownerTeamId : undefined,
-      gitRepoPath,
-      organizationId: orgId,
-    })
-    .returning();
-
-  await initRepository(gitRepoPath);
-
-  logActivity({
-    userId: user.id,
-    action: "create",
-    entityType: "space",
-    entityId: space.id,
-    metadata: { name, type },
-  });
+  const { gitOk } = await afterSpaceCreated(space, user.id);
+  if (!gitOk) {
+    return NextResponse.json(
+      { error: "Erreur lors de l'initialisation du repository git" },
+      { status: 500 }
+    );
+  }
 
   return NextResponse.json(space, { status: 201 });
 }

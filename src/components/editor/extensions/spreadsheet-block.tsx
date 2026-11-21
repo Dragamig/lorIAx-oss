@@ -60,6 +60,12 @@ export function SpreadsheetBlockView({
     setEditingTitle(false);
   }, [titleDraft, updateAttributes]);
 
+  // Espace courant — indispensable côté API : c'est la prise de contrôle
+  // d'accès du tableur (un tableur sans espace n'est lisible par personne).
+  const spaceId =
+    ((editor?.storage as unknown as Record<string, unknown> | undefined)
+      ?.metaContext as { spaceId?: string } | undefined)?.spaceId ?? "";
+
   const handleOpen = useCallback(async () => {
     if (!editable) return;
 
@@ -71,7 +77,7 @@ export function SpreadsheetBlockView({
         await fetch(`/api/spreadsheet/${newSheetId}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ data: [] }),
+          body: JSON.stringify({ data: [], spaceId }),
         });
         updateAttributes({ sheetId: newSheetId });
       } catch {
@@ -83,7 +89,7 @@ export function SpreadsheetBlockView({
     }
 
     setModalOpen(true);
-  }, [editable, sheetId, updateAttributes]);
+  }, [editable, sheetId, spaceId, updateAttributes]);
 
   const handleClose = useCallback(
     (updatedData?: { rowCount: number; colCount: number; chartRange?: string; chartType?: string }) => {
@@ -237,6 +243,7 @@ export function SpreadsheetBlockView({
       {modalOpen && (sheetId || initializing) && createPortal(
         <SpreadsheetModal
           sheetId={sheetId}
+          spaceId={spaceId}
           title={title || "Tableur"}
           initialChartRange={chartRange}
           initialChartType={chartType}

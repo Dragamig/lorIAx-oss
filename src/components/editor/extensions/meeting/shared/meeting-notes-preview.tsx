@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react";
 import { Loader2, ChevronDown, ChevronRight, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { SyncedContent } from "../../synced-block/synced-content";
 
 interface MeetingNotesPreviewProps {
   meetingId: string;
@@ -71,8 +72,11 @@ export function MeetingNotesPreview({
               Chargement du compte-rendu...
             </div>
           ) : content ? (
-            <div className="prose prose-sm dark:prose-invert max-h-80 overflow-y-auto whitespace-pre-wrap text-sm">
-              {content}
+            <div className="max-h-80 overflow-y-auto text-sm">
+              {/* Rendu markdown via le meme sous-editeur TipTap lecture seule que
+                  les blocs synchronises : titres, gras et blocs repliables sont
+                  affiches formates au lieu d'apparaitre en syntaxe brute. */}
+              <SyncedContent markdown={content} />
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">Compte-rendu introuvable.</p>

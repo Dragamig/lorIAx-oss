@@ -6,6 +6,7 @@ import { Video, ExternalLink, Loader2, AlertCircle, Mic } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MeetingToolbar } from "./shared/meeting-toolbar";
 import { MeetingNotesPreview } from "./shared/meeting-notes-preview";
+import { MeetingTranscriptPreview } from "./shared/meeting-transcript-preview";
 import { MeetingStatusSection } from "./shared/meeting-status-section";
 
 export function MeetingBlockView({
@@ -142,7 +143,10 @@ export function MeetingBlockView({
         </div>
       )}
       {status === "completed" && (
-        <MeetingNotesPreview meetingId={meetingId} notesDocumentId={notesDocumentId} status={status} />
+        <>
+          <MeetingNotesPreview meetingId={meetingId} notesDocumentId={notesDocumentId} status={status} />
+          <MeetingTranscriptPreview meetingId={meetingId} status={status} />
+        </>
       )}
       {status === "failed" && (
         <div className="flex items-center gap-1 text-xs text-destructive">

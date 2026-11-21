@@ -17,7 +17,10 @@ function getInitialWidth(): number {
       const w = parseInt(saved, 10);
       if (w >= MIN_WIDTH && w <= MAX_WIDTH) return w;
     }
-  } catch { /* SSR ou localStorage indisponible */ }
+  } catch (e) {
+    if (process.env.NODE_ENV === "development")
+      console.warn("localStorage error:", e);
+  }
   return DEFAULT_WIDTH;
 }
 

@@ -1,0 +1,610 @@
+{
+  "format": "bento/slides",
+  "version": 1,
+  "title": "Point d'avancement",
+  "size": {
+    "width": 1280,
+    "height": 720
+  },
+  "theme": {
+    "background": "#FFFFFF",
+    "color": "#1E2A3A",
+    "accent": "#F7A600",
+    "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+  },
+  "slides": [
+    {
+      "id": "status-s1",
+      "background": "#1E2A3A",
+      "transition": "fade",
+      "notes": "Indiquer le projet et la période couverte par ce point.",
+      "elements": [
+        {
+          "id": "status-s1-kicker",
+          "type": "text",
+          "x": 96,
+          "y": 236,
+          "w": 900,
+          "h": 32,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "POINT D'AVANCEMENT",
+          "fontSize": 16,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 600,
+          "color": "#F7A600",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25,
+          "letterSpacing": 3,
+          "role": "kicker"
+        },
+        {
+          "id": "status-s1-bar",
+          "type": "shape",
+          "shape": "rect",
+          "x": 96,
+          "y": 284,
+          "w": 64,
+          "h": 6,
+          "rotation": 0,
+          "opacity": 1,
+          "fill": "#F7A600",
+          "stroke": "transparent",
+          "strokeWidth": 0,
+          "radius": 2
+        },
+        {
+          "id": "status-s1-title",
+          "type": "text",
+          "x": 96,
+          "y": 304,
+          "w": 1088,
+          "h": 120,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Nom du projet",
+          "fontSize": 60,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 700,
+          "color": "#FFFFFF",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.15,
+          "role": "title"
+        },
+        {
+          "id": "status-s1-sub",
+          "type": "text",
+          "x": 96,
+          "y": 436,
+          "w": 1088,
+          "h": 48,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Période couverte · Auteur · Date",
+          "fontSize": 24,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 400,
+          "color": "#C9D3E0",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25,
+          "role": "subtitle"
+        }
+      ]
+    },
+    {
+      "id": "status-s2",
+      "background": "#FFFFFF",
+      "transition": "fade",
+      "notes": "Trois lignes au plus. Le lecteur pressé s'arrête ici.",
+      "elements": [
+        {
+          "id": "status-s2-title",
+          "type": "text",
+          "x": 96,
+          "y": 56,
+          "w": 1088,
+          "h": 68,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Synthèse",
+          "fontSize": 38,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 700,
+          "color": "#1E2A3A",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25,
+          "role": "title"
+        },
+        {
+          "id": "status-s2-rule",
+          "type": "shape",
+          "shape": "rect",
+          "x": 96,
+          "y": 134,
+          "w": 1088,
+          "h": 3,
+          "rotation": 0,
+          "opacity": 1,
+          "fill": "#F7A600",
+          "stroke": "transparent",
+          "strokeWidth": 0,
+          "radius": 2
+        },
+        {
+          "id": "status-s2-body",
+          "type": "text",
+          "x": 96,
+          "y": 168,
+          "w": 1088,
+          "h": 456,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "• État général : dans les délais, à surveiller ou en retard<br>• Fait marquant de la période<br>• Exemple : la recette a commencé avec une semaine d'avance",
+          "fontSize": 26,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 400,
+          "color": "#45566B",
+          "align": "left",
+          "valign": "top",
+          "lineHeight": 1.6,
+          "role": "body"
+        }
+      ]
+    },
+    {
+      "id": "status-s3",
+      "background": "#FFFFFF",
+      "transition": "fade",
+      "notes": "Reprendre les chantiers du planning et mettre à jour les pourcentages.",
+      "elements": [
+        {
+          "id": "status-s3-title",
+          "type": "text",
+          "x": 96,
+          "y": 56,
+          "w": 1088,
+          "h": 68,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Avancement par chantier",
+          "fontSize": 38,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 700,
+          "color": "#1E2A3A",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25,
+          "role": "title"
+        },
+        {
+          "id": "status-s3-rule",
+          "type": "shape",
+          "shape": "rect",
+          "x": 96,
+          "y": 134,
+          "w": 1088,
+          "h": 3,
+          "rotation": 0,
+          "opacity": 1,
+          "fill": "#F7A600",
+          "stroke": "transparent",
+          "strokeWidth": 0,
+          "radius": 2
+        },
+        {
+          "id": "status-s3-table",
+          "type": "table",
+          "x": 96,
+          "y": 176,
+          "w": 1088,
+          "h": 238,
+          "rotation": 0,
+          "opacity": 1,
+          "header": true,
+          "columns": [
+            {
+              "w": 2
+            },
+            {
+              "w": 1.2
+            },
+            {
+              "w": 1
+            }
+          ],
+          "rows": [
+            {
+              "cells": [
+                {
+                  "html": "Chantier"
+                },
+                {
+                  "html": "État"
+                },
+                {
+                  "html": "Avancement"
+                }
+              ]
+            },
+            {
+              "cells": [
+                {
+                  "html": "Cadrage"
+                },
+                {
+                  "html": "Terminé"
+                },
+                {
+                  "html": "100 %"
+                }
+              ]
+            },
+            {
+              "cells": [
+                {
+                  "html": "Développement"
+                },
+                {
+                  "html": "En cours"
+                },
+                {
+                  "html": "60 %"
+                }
+              ]
+            },
+            {
+              "cells": [
+                {
+                  "html": "Recette"
+                },
+                {
+                  "html": "En cours"
+                },
+                {
+                  "html": "20 %"
+                }
+              ]
+            },
+            {
+              "cells": [
+                {
+                  "html": "Déploiement"
+                },
+                {
+                  "html": "À venir"
+                },
+                {
+                  "html": "0 %"
+                }
+              ]
+            }
+          ],
+          "style": {
+            "headerBg": "#1E2A3A",
+            "headerColor": "#FFFFFF",
+            "zebra": "rgba(30,42,58,0.05)",
+            "borderColor": "rgba(30,42,58,0.14)",
+            "borderWidth": 1,
+            "cellPadX": 16,
+            "cellPadY": 11,
+            "fontSize": 18,
+            "color": "#1E2A3A",
+            "radius": 10
+          }
+        }
+      ]
+    },
+    {
+      "id": "status-s4",
+      "background": "#FFFFFF",
+      "transition": "fade",
+      "notes": "Rester factuel : des livrables et des jalons, pas des activités.",
+      "elements": [
+        {
+          "id": "status-s4-title",
+          "type": "text",
+          "x": 96,
+          "y": 56,
+          "w": 1088,
+          "h": 68,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Réalisé et à venir",
+          "fontSize": 38,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 700,
+          "color": "#1E2A3A",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25,
+          "role": "title"
+        },
+        {
+          "id": "status-s4-rule",
+          "type": "shape",
+          "shape": "rect",
+          "x": 96,
+          "y": 134,
+          "w": 1088,
+          "h": 3,
+          "rotation": 0,
+          "opacity": 1,
+          "fill": "#F7A600",
+          "stroke": "transparent",
+          "strokeWidth": 0,
+          "radius": 2
+        },
+        {
+          "id": "status-s4-left-head",
+          "type": "text",
+          "x": 96,
+          "y": 168,
+          "w": 520,
+          "h": 40,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Réalisé sur la période",
+          "fontSize": 22,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 700,
+          "color": "#1E2A3A",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25
+        },
+        {
+          "id": "status-s4-left",
+          "type": "text",
+          "x": 96,
+          "y": 220,
+          "w": 520,
+          "h": 404,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "• Livrable ou jalon atteint<br>• Livrable ou jalon atteint<br>• Exemple : maquettes validées par le client",
+          "fontSize": 22,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 400,
+          "color": "#45566B",
+          "align": "left",
+          "valign": "top",
+          "lineHeight": 1.6,
+          "role": "body"
+        },
+        {
+          "id": "status-s4-right-head",
+          "type": "text",
+          "x": 664,
+          "y": 168,
+          "w": 520,
+          "h": 40,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Prévu pour la période suivante",
+          "fontSize": 22,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 700,
+          "color": "#1E2A3A",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25
+        },
+        {
+          "id": "status-s4-right",
+          "type": "text",
+          "x": 664,
+          "y": 220,
+          "w": 520,
+          "h": 404,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "• Livrable ou jalon visé<br>• Livrable ou jalon visé<br>• Exemple : démarrage des tests utilisateurs",
+          "fontSize": 22,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 400,
+          "color": "#45566B",
+          "align": "left",
+          "valign": "top",
+          "lineHeight": 1.6,
+          "role": "body"
+        }
+      ]
+    },
+    {
+      "id": "status-s5",
+      "background": "#FFFFFF",
+      "transition": "fade",
+      "notes": "Lister les risques ouverts, leur impact et l'action en cours.",
+      "elements": [
+        {
+          "id": "status-s5-title",
+          "type": "text",
+          "x": 96,
+          "y": 56,
+          "w": 1088,
+          "h": 68,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Risques et points d'attention",
+          "fontSize": 38,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 700,
+          "color": "#1E2A3A",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25,
+          "role": "title"
+        },
+        {
+          "id": "status-s5-rule",
+          "type": "shape",
+          "shape": "rect",
+          "x": 96,
+          "y": 134,
+          "w": 1088,
+          "h": 3,
+          "rotation": 0,
+          "opacity": 1,
+          "fill": "#F7A600",
+          "stroke": "transparent",
+          "strokeWidth": 0,
+          "radius": 2
+        },
+        {
+          "id": "status-s5-table",
+          "type": "table",
+          "x": 96,
+          "y": 176,
+          "w": 1088,
+          "h": 192,
+          "rotation": 0,
+          "opacity": 1,
+          "header": true,
+          "columns": [
+            {
+              "w": 2
+            },
+            {
+              "w": 1
+            },
+            {
+              "w": 2
+            }
+          ],
+          "rows": [
+            {
+              "cells": [
+                {
+                  "html": "Risque"
+                },
+                {
+                  "html": "Impact"
+                },
+                {
+                  "html": "Action prévue"
+                }
+              ]
+            },
+            {
+              "cells": [
+                {
+                  "html": "Retard de livraison d'un fournisseur"
+                },
+                {
+                  "html": "Fort"
+                },
+                {
+                  "html": "Relance et solution de repli à l'étude"
+                }
+              ]
+            },
+            {
+              "cells": [
+                {
+                  "html": "Disponibilité limitée des testeurs"
+                },
+                {
+                  "html": "Moyen"
+                },
+                {
+                  "html": "Créneaux réservés deux semaines à l'avance"
+                }
+              ]
+            },
+            {
+              "cells": [
+                {
+                  "html": "Périmètre d'une demande à préciser"
+                },
+                {
+                  "html": "Faible"
+                },
+                {
+                  "html": "Atelier prévu avec le demandeur"
+                }
+              ]
+            }
+          ],
+          "style": {
+            "headerBg": "#1E2A3A",
+            "headerColor": "#FFFFFF",
+            "zebra": "rgba(30,42,58,0.05)",
+            "borderColor": "rgba(30,42,58,0.14)",
+            "borderWidth": 1,
+            "cellPadX": 16,
+            "cellPadY": 11,
+            "fontSize": 18,
+            "color": "#1E2A3A",
+            "radius": 10
+          }
+        }
+      ]
+    },
+    {
+      "id": "status-s6",
+      "background": "#FFFFFF",
+      "transition": "fade",
+      "notes": "Dire clairement ce qui est attendu du comité, et pour quand.",
+      "elements": [
+        {
+          "id": "status-s6-title",
+          "type": "text",
+          "x": 96,
+          "y": 56,
+          "w": 1088,
+          "h": 68,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Décisions attendues",
+          "fontSize": 38,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 700,
+          "color": "#1E2A3A",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25,
+          "role": "title"
+        },
+        {
+          "id": "status-s6-rule",
+          "type": "shape",
+          "shape": "rect",
+          "x": 96,
+          "y": 134,
+          "w": 1088,
+          "h": 3,
+          "rotation": 0,
+          "opacity": 1,
+          "fill": "#F7A600",
+          "stroke": "transparent",
+          "strokeWidth": 0,
+          "radius": 2
+        },
+        {
+          "id": "status-s6-body",
+          "type": "text",
+          "x": 96,
+          "y": 168,
+          "w": 1088,
+          "h": 456,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "• Décision 1 : la question posée et la date limite<br>• Décision 2 : les options possibles et la recommandation<br>• Exemple : valider le report de la mise en service au 1er du mois",
+          "fontSize": 26,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 400,
+          "color": "#45566B",
+          "align": "left",
+          "valign": "top",
+          "lineHeight": 1.6,
+          "role": "body"
+        }
+      ]
+    }
+  ],
+  "modified": "2026-11-16T00:00:00.000Z"
+}

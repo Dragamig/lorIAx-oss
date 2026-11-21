@@ -1,14 +1,29 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/get-user";
-import { hasGlobalRole } from "@/lib/auth/rbac";
+import { canCrossOrgBoundary, INSTANCE_ADMIN_ONLY_MESSAGE } from "@/lib/auth/rbac";
 import { getEmailConfig, verifyResend } from "@/lib/email/provider";
 import { Resend } from "resend";
 import logger from "@/lib/logger";
 
+/**
+ * AZ-08, porte dérobée par l'exercice de la configuration.
+ *
+ * Même raisonnement que /api/admin/settings/smtp-test : la clé `email` porte
+ * ici la clé d'API Resend de l'instance. La route la faisait valider par
+ * Resend puis envoyait un courriel avec, sans jamais que l'appelant ait le
+ * droit de la lire. Réservée à l'administration d'instance.
+ *
+ * Les paramètres viennent de la base (`getEmailConfig`), aucun corps n'est
+ * lu : pas d'identifiant fourni par l'appelant, et il ne faut pas en
+ * accepter.
+ */
 export async function POST() {
   const user = await getSessionUser();
-  if (!user || !hasGlobalRole(user.globalRole, "admin")) {
-    return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+  if (!user || !canCrossOrgBoundary(user.globalRole)) {
+    return NextResponse.json(
+      { error: INSTANCE_ADMIN_ONLY_MESSAGE },
+      { status: 403 }
+    );
   }
 
   try {

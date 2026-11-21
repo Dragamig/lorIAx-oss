@@ -1,0 +1,161 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+const h = vi.hoisted(() => ({
+  existing: null as Record<string, unknown> | null,
+  used: 0,
+  limit: 1000 as number | null,
+  inserted: [] as Record<string, unknown>[],
+  updated: [] as Record<string, unknown>[],
+  order: [] as string[],
+  forArgs: [] as unknown[][],
+}));
+
+vi.mock("@/lib/db", () => {
+  const tx = {
+    execute: () => {
+      h.order.push("lock");
+      return Promise.resolve();
+    },
+    select: (cols?: unknown) => ({
+      from: () => ({
+        where: () => {
+          if (cols) return Promise.resolve([{ total: String(h.used) }]);
+          const rows = () => Promise.resolve(h.existing ? [h.existing] : []);
+          return Object.assign(rows(), {
+            for: (...a: unknown[]) => {
+              h.forArgs.push(a);
+              return rows();
+            },
+          });
+        },
+      }),
+    }),
+    insert: () => ({
+      values: (v: Record<string, unknown>) => ({
+        returning: () => {
+          h.inserted.push(v);
+          return Promise.resolve([{ id: "new", ...v }]);
+        },
+      }),
+    }),
+    update: () => ({
+      set: (v: Record<string, unknown>) => {
+        h.updated.push(v);
+        return {
+          where: () => ({
+            returning: () => Promise.resolve([{ ...h.existing, ...v }]),
+            then: (r: (x: unknown) => unknown) => r(undefined),
+          }),
+        };
+      },
+    }),
+  };
+  return { db: { transaction: (fn: (t: unknown) => unknown) => fn(tx) } };
+});
+
+import { reserveMediaRow, restoreMediaRow } from "./reserve";
+import { registerHooks, resetHooksForTests } from "@/lib/modules/hooks";
+import { beforeEach as hooksBeforeEach } from "vitest";
+hooksBeforeEach(() => {
+  resetHooksForTests();
+  registerHooks({ usage: { checkUsersLimit: async () => { throw new Error('unused'); }, checkSpacesLimit: async () => { throw new Error('unused'); }, getOrgStorageLimitBytes: async (...a: unknown[]) => h.limit } });
+});
+
+
+const values = {
+  storageKey: "video-editor/p/exports/j.mp4",
+  filename: "a.mp4",
+  mimeType: "video/mp4",
+  kind: "video" as const,
+  uploadedBy: "u1",
+};
+
+beforeEach(() => {
+  h.existing = null;
+  h.used = 0;
+  h.limit = 1000;
+  h.inserted.length = 0;
+  h.updated.length = 0;
+  h.order.length = 0;
+  h.forArgs.length = 0;
+});
+
+describe("reserveMediaRow", () => {
+  it("insère sous verrou et force l'organisation et la taille", async () => {
+    const r = await reserveMediaRow({ orgId: "o1", sizeBytes: 100, values });
+    expect(r.ok).toBe(true);
+    expect(h.order[0]).toBe("lock");
+    expect(h.inserted[0]).toMatchObject({ organizationId: "o1", sizeBytes: 100 });
+  });
+
+  it("refuse en 507 au-delà du quota, sans insertion", async () => {
+    h.used = 950;
+    const r = await reserveMediaRow({ orgId: "o1", sizeBytes: 100, values });
+    expect(r).toMatchObject({ ok: false, status: 507, error: "Quota de stockage atteint" });
+    expect(h.inserted).toHaveLength(0);
+  });
+
+  it("réécriture d'une clé connue : met à jour au lieu de dupliquer, quota sur la différence", async () => {
+    h.existing = { id: "m1", organizationId: "o1", sizeBytes: 400 };
+    h.used = 900; // 900 + 100 (delta) = 1000, accepté ; 900 + 500 (taille brute) aurait été refusé
+    const r = await reserveMediaRow({ orgId: "o1", sizeBytes: 500, values, replaceExisting: true });
+    expect(r).toMatchObject({ ok: true, previous: { id: "m1", sizeBytes: 400 } });
+    expect(h.inserted).toHaveLength(0);
+    expect(h.updated[0]).toMatchObject({ sizeBytes: 500 });
+    expect(h.updated[0].updatedAt).toBeInstanceOf(Date);
+  });
+
+  it("réécriture dépassant le quota avec son surplus : refusée", async () => {
+    h.existing = { id: "m1", organizationId: "o1", sizeBytes: 400 };
+    h.used = 950;
+    const r = await reserveMediaRow({ orgId: "o1", sizeBytes: 500, values, replaceExisting: true });
+    expect(r.ok).toBe(false);
+    expect(h.updated).toHaveLength(0);
+  });
+
+  it("clé existante d'une autre organisation : erreur, aucune écriture", async () => {
+    h.existing = { id: "m1", organizationId: "o2", sizeBytes: 1 };
+    await expect(
+      reserveMediaRow({ orgId: "o1", sizeBytes: 5, values, replaceExisting: true }),
+    ).rejects.toThrow();
+    expect(h.updated).toHaveLength(0);
+  });
+
+  it("réécriture : la ligne est verrouillée FOR UPDATE (face à une purge concurrente)", async () => {
+    h.existing = { id: "m1", organizationId: "o1", sizeBytes: 400, deletedAt: null };
+    await reserveMediaRow({ orgId: "o1", sizeBytes: 500, values, replaceExisting: true });
+    expect(h.forArgs).toEqual([["update"]]);
+  });
+
+  it("réécriture visant une ligne en corbeille : refusée, aucune écriture", async () => {
+    h.existing = { id: "m1", organizationId: "o1", sizeBytes: 400, deletedAt: new Date("2026-01-01") };
+    await expect(
+      reserveMediaRow({ orgId: "o1", sizeBytes: 5, values, replaceExisting: true }),
+    ).rejects.toThrow(/corbeille/);
+    expect(h.updated).toHaveLength(0);
+    expect(h.inserted).toHaveLength(0);
+  });
+
+  it("replaceExisting sans ligne : insère", async () => {
+    const r = await reserveMediaRow({ orgId: "o1", sizeBytes: 5, values, replaceExisting: true });
+    expect(r).toMatchObject({ ok: true, previous: null });
+    expect(h.inserted).toHaveLength(1);
+  });
+
+  it("restoreMediaRow : rétablit taille, checksum et updatedAt sous le verrou", async () => {
+    const previous = {
+      id: "m1",
+      organizationId: "o1",
+      sizeBytes: 400,
+      checksumSha256: "c".repeat(64),
+      updatedAt: new Date("2026-01-01"),
+    };
+    await restoreMediaRow(previous as never);
+    expect(h.order).toEqual(["lock"]);
+    expect(h.updated[0]).toEqual({
+      sizeBytes: 400,
+      checksumSha256: previous.checksumSha256,
+      updatedAt: previous.updatedAt,
+    });
+  });
+});

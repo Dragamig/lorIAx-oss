@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { visioPermissions } from "@/lib/db/schema";
+import { visioPermissions, spaces } from "@/lib/db/schema";
 import { eq, and, isNull } from "drizzle-orm";
 import { getSpacePermission } from "@/lib/auth/check-access";
 import type { PermissionLevel, VisioAction } from "@/types";
@@ -13,11 +13,29 @@ const DEFAULTS: Record<VisioAction, Record<PermissionLevel, boolean>> = {
   modify_cancel:            { viewer: false, editor: false, admin: true },
 };
 
+/**
+ * Autorisation visio pour une action donnée dans un espace.
+ *
+ * `orgId` est explicite et obligatoire : il vient de l'appelant
+ * (`getRequestOrgId`). L'organisation est vérifiée EN PREMIER, avant toute
+ * lecture de rôle : `getSpacePermission` seul ne filtre pas l'organisation, un
+ * espace d'un autre tenant pouvait donc être évalué. Un espace hors de
+ * l'organisation courante renvoie `false` sans autre examen.
+ */
 export async function checkVisioPermission(
   userId: string,
   spaceId: string,
-  action: VisioAction
+  action: VisioAction,
+  orgId: string
 ): Promise<boolean> {
+  // Cloisonnement d'abord : l'espace doit relever de l'organisation courante
+  const [space] = await db
+    .select({ id: spaces.id })
+    .from(spaces)
+    .where(and(eq(spaces.id, spaceId), eq(spaces.organizationId, orgId)))
+    .limit(1);
+  if (!space) return false;
+
   const userRole = await getSpacePermission(userId, spaceId);
   if (!userRole) return false;
   if (userRole === "admin") return true;

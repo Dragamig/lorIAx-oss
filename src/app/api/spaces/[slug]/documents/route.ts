@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import {
   documents,
-  spaces,
   templates,
   documentLabels,
   labels,
@@ -14,49 +13,43 @@ import { eq, isNull, and, asc, desc, inArray } from "drizzle-orm";
 import { getSessionUser } from "@/lib/auth/get-user";
 import { writeDocument } from "@/lib/storage/filesystem";
 import { commitFile } from "@/lib/git/repository";
+import logger from "@/lib/logger";
 import slugify from "slugify";
 import { logActivity } from "@/lib/activity";
-import {
-  checkSpaceViewAccess,
-  checkSpaceEditAccess,
-  buildDocumentVisibilityFilter,
-} from "@/lib/auth/check-access";
-import { isClassificationAllowed } from "@/lib/auth/classification";
+import { getSpacePermission } from "@/lib/auth/check-access";
 import { z } from "zod";
 import { getBuiltinTemplateById } from "@/lib/templates/builtin";
 import { templateContentToYjsState } from "@/lib/editor/template-to-yjs";
 import { randomUUID } from "crypto";
+import { isClassificationAllowed } from "@/lib/auth/classification";
+import { canViewByClassification } from "@/lib/auth/rbac";
 import type { ClassificationLevel } from "@/types";
+import { recordIfRealSpace } from "@/lib/onboarding/progress";
+import { getSpaceBySlugForRequest } from "@/lib/org/scoped-space";
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
 ) {
   const user = await getSessionUser();
-  if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
+  if (!user) return NextResponse.json([], { status: 401 });
 
   const { slug } = await params;
 
-  const [space] = await db
-    .select()
-    .from(spaces)
-    .where(eq(spaces.slug, slug))
-    .limit(1);
+  const space = await getSpaceBySlugForRequest(slug, user);
+  if (!space) return NextResponse.json([], { status: 404 });
 
-  if (!space) return NextResponse.json({ error: "Espace introuvable" }, { status: 404 });
-
-  // L'arborescence expose les titres et les etiquettes de tous les documents de
-  // l'espace : elle exige le droit de lecture sur l'espace. Le slug seul ne suffit pas.
-  const canView = await checkSpaceViewAccess(user, space.id);
-  if (!canView) {
+  // Droit de lecture requis sur l'espace : sans cela, tout membre de l'org
+  // pouvait lister l'arborescence complète d'un espace privé.
+  // getSpacePermission couvre déjà le propriétaire de l'espace et l'admin
+  // global (retour "admin" implicite).
+  const perm = await getSpacePermission(user.id, space.id);
+  if (!perm) {
     return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
   }
 
   // Recuperer les documents racine (sans parent)
-  // La classification n'est jamais renvoyee, elle ne sert qu'au filtrage ci-dessous.
-  const isVisible = await buildDocumentVisibilityFilter(user, space.id);
-
-  const rootDocs = await db
+  const rootRows = await db
     .select({
       id: documents.id,
       title: documents.title,
@@ -72,9 +65,17 @@ export async function GET(
     .where(and(eq(documents.spaceId, space.id), isNull(documents.parentId)))
     .orderBy(desc(documents.isFolder), asc(documents.position), asc(documents.title));
 
-  // Un titre est tres souvent la donnee sensible elle-meme : l'arborescence est filtree
-  // document par document, comme le fait GET /api/documents/[id] a l'unite.
-  const docs = rootDocs.filter(isVisible);
+  // Un titre est souvent la donnée sensible elle-même : on n'expose que les documents
+  // que la classification permet à l'appelant de lire.
+  const canSee = (d: { classification: string; createdBy: string }) =>
+    canViewByClassification(d.classification as ClassificationLevel, {
+      isAuthenticated: true,
+      isSpaceMember: !!perm,
+      isSpaceAdmin: perm === "admin",
+      isDocumentAuthor: d.createdBy === user.id,
+      userGlobalRole: user.globalRole,
+    });
+  const docs = rootRows.filter(canSee);
 
   // PERF-01 — Charger TOUS les enfants en une seule requête (fix N+1)
   const folderIds = docs.filter((d) => d.isFolder).map((d) => d.id);
@@ -98,7 +99,7 @@ export async function GET(
       .where(inArray(documents.parentId, folderIds))
       .orderBy(desc(documents.isFolder), asc(documents.position), asc(documents.title));
 
-    for (const child of allChildren.filter(isVisible)) {
+    for (const child of allChildren.filter(canSee)) {
       if (!child.parentId) continue;
       const siblings = childrenByParent.get(child.parentId) || [];
       siblings.push(child);
@@ -133,16 +134,12 @@ export async function GET(
     }
   }
 
-  // La forme de la reponse est inchangee : classification et createdBy, charges pour
-  // le filtrage, ne sont pas exposes.
-  const result = docs.map(({ classification: _c, createdBy: _u, ...doc }) => {
+  const result = docs.map(({ classification: _c, createdBy: _a, ...doc }) => {
     if (doc.isFolder) {
-      const children = (childrenByParent.get(doc.id) || []).map(
-        ({ classification: _cc, createdBy: _cu, ...child }) => ({
-          ...child,
-          labels: labelsByDoc.get(child.id) ?? [],
-        })
-      );
+      const children = (childrenByParent.get(doc.id) || []).map(({ classification: _cc, createdBy: _ca, ...child }) => ({
+        ...child,
+        labels: labelsByDoc.get(child.id) ?? [],
+      }));
       return { ...doc, children, labels: labelsByDoc.get(doc.id) ?? [] };
     }
     return { ...doc, labels: labelsByDoc.get(doc.id) ?? [] };
@@ -170,16 +167,11 @@ export async function POST(
 
   const { slug } = await params;
 
-  const [space] = await db
-    .select()
-    .from(spaces)
-    .where(eq(spaces.slug, slug))
-    .limit(1);
-
+  const space = await getSpaceBySlugForRequest(slug, user);
   if (!space) return NextResponse.json({ error: "Espace introuvable" }, { status: 404 });
 
-  const canEdit = await checkSpaceEditAccess(user, space.id);
-  if (!canEdit) {
+  const perm = await getSpacePermission(user.id, space.id);
+  if (!perm || perm === "viewer") {
     return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
   }
 
@@ -192,12 +184,11 @@ export async function POST(
   const { title, parentId, isFolder = false, templateId, visibility, classification } = parsed.data;
   let { content = "" } = parsed.data;
 
-  // Le plafond de classification etait verifie au PATCH mais pas a la creation :
-  // on pouvait deposer un document `public` dans un espace `confidential`.
-  const spaceClassification = (space.classification || "internal") as ClassificationLevel;
-  if (classification && !isClassificationAllowed(classification, spaceClassification)) {
+  // Plafond de classification : un espace `confidential` n'accepte pas un document `public`.
+  const spaceFloor = (space.classification || "internal") as ClassificationLevel;
+  if (classification && !isClassificationAllowed(classification, spaceFloor)) {
     return NextResponse.json(
-      { error: `Classification « ${classification} » non autorisée dans cet espace (niveau minimum : ${spaceClassification})` },
+      { error: `Classification « ${classification} » non autorisée dans cet espace (niveau minimum : ${spaceFloor})` },
       { status: 400 }
     );
   }
@@ -232,14 +223,25 @@ export async function POST(
 
   // Écrire le fichier sur le filesystem
   if (!isFolder) {
-    await writeDocument(space.gitRepoPath, filePath, content);
-    await commitFile(
-      space.gitRepoPath,
-      filePath,
-      `Creation : ${title}`,
-      user.name,
-      user.email
-    );
+    try {
+      await writeDocument(space.gitRepoPath, filePath, content);
+      await commitFile(
+        space.gitRepoPath,
+        filePath,
+        `Creation : ${title}`,
+        user.name,
+        user.email
+      );
+    } catch (err) {
+      logger.error(
+        { error: String(err), spaceId: space.id },
+        "Document file write or git commit failed"
+      );
+      return NextResponse.json(
+        { error: "Impossible d'enregistrer le document : le dépôt de l'espace est inaccessible." },
+        { status: 500 }
+      );
+    }
   }
 
   // Inserer en BDD
@@ -307,6 +309,11 @@ export async function POST(
     entityId: doc.id,
     metadata: { title, spaceSlug: slug },
   });
+
+  // Instrumentation onboarding : 1er doc créé hors espace démo
+  if (!isFolder) {
+    recordIfRealSpace(user.id, "doc", space.id).catch(() => {});
+  }
 
   return NextResponse.json(doc, { status: 201 });
 }

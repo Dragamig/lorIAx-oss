@@ -10,6 +10,8 @@ import type { MapConfig, MapRoute, RouteStyle } from "./types";
 import { ROUTE_COLORS, WEIGHT_OPTIONS } from "./constants";
 import { formatDistance, formatDuration, profileIcon, profileLabel } from "./utils";
 
+const GOOGLE_ROUTING_ENABLED = process.env.NEXT_PUBLIC_GOOGLE_MAPS_ROUTING_ENABLED === "true";
+
 export function RoutePanel({
   config,
   updateConfig,
@@ -23,6 +25,9 @@ export function RoutePanel({
   const [profile, setProfile] = useState<"driving" | "cycling" | "foot">(
     currentRoute?.profile || "driving"
   );
+  const [routingEngine, setRoutingEngine] = useState<"osrm" | "google">(
+    currentRoute?.routingEngine || "osrm"
+  );
   const [routeColor, setRouteColor] = useState(currentRoute?.style.color || "#2563eb");
   const [routeWeight, setRouteWeight] = useState(currentRoute?.style.weight || 5);
   const [routeDash, setRouteDash] = useState(!!currentRoute?.style.dashArray);
@@ -34,6 +39,7 @@ export function RoutePanel({
 
   async function calculateRoute() {
     if (!hasEnoughMarkers) return;
+    if (!Array.isArray(config.markers)) return;
     setLoading(true);
     setError(null);
 
@@ -44,7 +50,7 @@ export function RoutePanel({
       const res = await fetch("/api/route-proxy", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ coordinates, profile }),
+        body: JSON.stringify({ coordinates, profile, engine: routingEngine }),
       });
 
       const data = await res.json();
@@ -59,6 +65,7 @@ export function RoutePanel({
         id: currentRoute?.id || crypto.randomUUID(),
         markerIds: config.markers.map((m) => m.id),
         profile,
+        routingEngine,
         style: {
           color: routeColor,
           weight: routeWeight,
@@ -96,6 +103,26 @@ export function RoutePanel({
 
   return (
     <div className="px-3 py-2 bg-muted/30 border-b border-border space-y-2">
+      {/* Engine selector — only shown when Google Maps routing is enabled */}
+      {GOOGLE_ROUTING_ENABLED && (
+        <div className="flex items-center gap-1">
+          <span className="text-xs text-muted-foreground mr-1">Moteur :</span>
+          {(["osrm", "google"] as const).map((e) => (
+            <button
+              key={e}
+              onClick={() => setRoutingEngine(e)}
+              className={`px-2 py-1 rounded text-xs transition-colors ${
+                routingEngine === e
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted hover:bg-accent text-muted-foreground"
+              }`}
+            >
+              {e === "osrm" ? "OSRM (libre)" : "Google Maps"}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Profile selector */}
       <div className="flex items-center gap-1">
         <span className="text-xs text-muted-foreground mr-1">Profil :</span>

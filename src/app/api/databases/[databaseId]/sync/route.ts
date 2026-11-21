@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSessionUser } from "@/lib/auth/get-user";
 import { db } from "@/lib/db";
 import { eq, and, desc } from "drizzle-orm";
 import {
   externalDatabaseMappings,
   syncLogs,
-  userDatabases,
 } from "@/lib/db/schema";
 import {
   syncPull,
@@ -13,43 +11,55 @@ import {
   syncBidirectional,
   fetchExternalSchema,
 } from "@/lib/integrations/sync-orchestrator";
-import { checkSpaceViewAccess, checkSpaceEditAccess } from "@/lib/auth/check-access";
+import { requireOrgScoped, OrgScopeError } from "@/lib/auth/require-org-scoped";
+import { encrypt } from "@/lib/crypto";
+import { z } from "zod";
 
 type RouteParams = { params: Promise<{ databaseId: string }> };
+
+// Bornes pour empêcher un body monstrueux d'épuiser mémoire/chiffrement.
+const PROVIDER_ENUM = z.enum(["airtable", "notion"]);
+const configureSchema = z.object({
+  action: z.literal("configure"),
+  provider: PROVIDER_ENUM,
+  externalId: z.string().min(1).max(2048),
+  credentials: z.string().min(1).max(8192),
+  syncMode: z.enum(["manual", "pull", "bidirectional"]).optional(),
+  syncIntervalMin: z.number().int().positive().max(43200).optional().nullable(),
+  columnMapping: z.array(z.record(z.string(), z.any())).max(500).optional(),
+});
+const schemaActionSchema = z.object({
+  action: z.literal("schema"),
+  provider: PROVIDER_ENUM,
+  externalId: z.string().min(1).max(2048),
+  credentials: z.string().min(1).max(8192),
+});
+const syncActionSchema = z.object({
+  action: z.enum(["pull", "push", "sync"]),
+  mappingId: z.string().uuid(),
+});
+const deleteMappingSchema = z.object({
+  mappingId: z.string().uuid(),
+});
 
 /**
  * GET /api/databases/[databaseId]/sync
  * Récupérer la config sync + derniers logs
  */
-export async function GET(req: NextRequest, { params }: RouteParams) {
-  const user = await getSessionUser();
-  if (!user) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
-
+export async function GET(_req: NextRequest, { params }: RouteParams) {
   const { databaseId } = await params;
-
-  // Vérifier l'accès à la base
-  const [database] = await db
-    .select()
-    .from(userDatabases)
-    .where(eq(userDatabases.id, databaseId))
-    .limit(1);
-  if (!database) return NextResponse.json({ error: "Base introuvable" }, { status: 404 });
-
-  // La configuration de synchronisation decrit la destination externe de la base :
-  // sa lecture exige un lien explicite avec l'espace qui porte la base (mode `member`,
-  // voir la note de GET /api/databases).
-  const canView = await checkSpaceViewAccess(user, database.spaceId, "member");
-  if (!canView) {
-    return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+  try {
+    await requireOrgScoped({ resource: { type: "database", id: databaseId }, minPermission: "viewer" });
+  } catch (e) {
+    if (e instanceof OrgScopeError) return e.response;
+    throw e;
   }
 
-  // Récupérer les mappings
   const mappings = await db
     .select()
     .from(externalDatabaseMappings)
     .where(eq(externalDatabaseMappings.userDatabaseId, databaseId));
 
-  // Récupérer les derniers logs (5 par mapping)
   const logsMap: Record<string, (typeof syncLogs.$inferSelect)[]> = {};
   for (const mapping of mappings) {
     const logs = await db
@@ -64,7 +74,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   return NextResponse.json({
     mappings: mappings.map((m) => ({
       ...m,
-      credentialsEnc: undefined, // Ne pas exposer les credentials
+      credentialsEnc: undefined,
       logs: logsMap[m.id] || [],
     })),
   });
@@ -76,42 +86,27 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
  * body.action : "configure" | "pull" | "push" | "sync" | "schema"
  */
 export async function POST(req: NextRequest, { params }: RouteParams) {
-  const user = await getSessionUser();
-  if (!user) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
-
   const { databaseId } = await params;
+  try {
+    await requireOrgScoped({
+      resource: { type: "database", id: databaseId },
+      minPermission: "editor",
+    });
+  } catch (e) {
+    if (e instanceof OrgScopeError) return e.response;
+    throw e;
+  }
+
   const body = await req.json();
   const { action } = body;
 
-  // Vérifier l'accès à la base
-  const [database] = await db
-    .select()
-    .from(userDatabases)
-    .where(eq(userDatabases.id, databaseId))
-    .limit(1);
-  if (!database) return NextResponse.json({ error: "Base introuvable" }, { status: 404 });
-
-  // Toutes les actions de cette route sont des ecritures : `configure` pointe la base
-  // vers une destination externe choisie par l'appelant, et `push` y envoie le contenu.
-  // La combinaison des deux exfiltre une base entiere, on exige donc au moins le niveau
-  // d'edition sur l'espace, comme les routes rows et columns.
-  const canEdit = await checkSpaceEditAccess(user, database.spaceId);
-  if (!canEdit) {
-    return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
-  }
-
-  // ─── Configurer une nouvelle synchronisation ─────────────────────
   if (action === "configure") {
-    const { provider, externalId, credentials, syncMode, syncIntervalMin, columnMapping } = body;
-
-    if (!provider || !externalId || !credentials) {
-      return NextResponse.json(
-        { error: "provider, externalId et credentials requis" },
-        { status: 400 }
-      );
+    const parsed = configureSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
     }
+    const { provider, externalId, credentials, syncMode, syncIntervalMin, columnMapping } = parsed.data;
 
-    // Vérifier si un mapping existe déjà
     const [existing] = await db
       .select()
       .from(externalDatabaseMappings)
@@ -124,12 +119,11 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       .limit(1);
 
     if (existing) {
-      // Mettre à jour
       const [updated] = await db
         .update(externalDatabaseMappings)
         .set({
           externalId,
-          credentialsEnc: credentials,
+          credentialsEnc: encrypt(credentials),
           syncMode: syncMode || "manual",
           syncIntervalMin: syncIntervalMin || null,
           columnMapping: columnMapping || [],
@@ -141,14 +135,13 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ mapping: { ...updated, credentialsEnc: undefined } });
     }
 
-    // Créer nouveau
     const [mapping] = await db
       .insert(externalDatabaseMappings)
       .values({
         userDatabaseId: databaseId,
         provider,
         externalId,
-        credentialsEnc: credentials,
+        credentialsEnc: encrypt(credentials),
         syncMode: syncMode || "manual",
         syncIntervalMin: syncIntervalMin || null,
         columnMapping: columnMapping || [],
@@ -158,15 +151,12 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ mapping: { ...mapping, credentialsEnc: undefined } }, { status: 201 });
   }
 
-  // ─── Récupérer le schéma externe ─────────────────────────────────
   if (action === "schema") {
-    const { provider, externalId, credentials } = body;
-    if (!provider || !externalId || !credentials) {
-      return NextResponse.json(
-        { error: "provider, externalId et credentials requis" },
-        { status: 400 }
-      );
+    const parsed = schemaActionSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
     }
+    const { provider, externalId, credentials } = parsed.data;
 
     try {
       const schema = await fetchExternalSchema(provider, externalId, credentials);
@@ -179,14 +169,14 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     }
   }
 
-  // ─── Déclencher une synchronisation ──────────────────────────────
   if (action === "pull" || action === "push" || action === "sync") {
-    const { mappingId } = body;
-    if (!mappingId) {
-      return NextResponse.json({ error: "mappingId requis" }, { status: 400 });
+    const parsed = syncActionSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
     }
+    const { mappingId } = parsed.data;
 
-    // Vérifier que le mapping appartient à cette base
+    // Garde-fou : le mapping doit appartenir à cette database (déjà scopée à l'org)
     const [mapping] = await db
       .select()
       .from(externalDatabaseMappings)
@@ -199,10 +189,25 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       .limit(1);
 
     if (!mapping) {
-      return NextResponse.json({ error: "Mapping introuvable" }, { status: 404 });
+      return NextResponse.json({ error: "Introuvable" }, { status: 404 });
     }
 
-    if (mapping.isSyncing) {
+    // Verrou atomique anti-TOCTOU : deux requêtes simultanées passeraient
+    // toutes deux un simple `if (mapping.isSyncing)` avant qu'aucune ne pose
+    // le flag, et lanceraient deux syncs concurrentes sur la même mapping.
+    // L'UPDATE conditionnel garantit qu'une seule requête prend la main.
+    const [claimed] = await db
+      .update(externalDatabaseMappings)
+      .set({ isSyncing: true, syncError: null, updatedAt: new Date() })
+      .where(
+        and(
+          eq(externalDatabaseMappings.id, mappingId),
+          eq(externalDatabaseMappings.isSyncing, false)
+        )
+      )
+      .returning();
+
+    if (!claimed) {
       return NextResponse.json({ error: "Synchronisation déjà en cours" }, { status: 409 });
     }
 
@@ -229,28 +234,23 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
  * Supprimer une configuration de synchronisation
  */
 export async function DELETE(req: NextRequest, { params }: RouteParams) {
-  const user = await getSessionUser();
-  if (!user) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
-
   const { databaseId } = await params;
-  const { mappingId } = await req.json();
-
-  if (!mappingId) {
-    return NextResponse.json({ error: "mappingId requis" }, { status: 400 });
+  try {
+    await requireOrgScoped({
+      resource: { type: "database", id: databaseId },
+      minPermission: "editor",
+    });
+  } catch (e) {
+    if (e instanceof OrgScopeError) return e.response;
+    throw e;
   }
 
-  // Meme famille que le POST : supprimer une configuration est une ecriture.
-  const [database] = await db
-    .select()
-    .from(userDatabases)
-    .where(eq(userDatabases.id, databaseId))
-    .limit(1);
-  if (!database) return NextResponse.json({ error: "Base introuvable" }, { status: 404 });
-
-  const canEdit = await checkSpaceEditAccess(user, database.spaceId);
-  if (!canEdit) {
-    return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+  const body = await req.json();
+  const parsed = deleteMappingSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
   }
+  const { mappingId } = parsed.data;
 
   const deleted = await db
     .delete(externalDatabaseMappings)
@@ -263,7 +263,7 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
     .returning();
 
   if (deleted.length === 0) {
-    return NextResponse.json({ error: "Mapping introuvable" }, { status: 404 });
+    return NextResponse.json({ error: "Introuvable" }, { status: 404 });
   }
 
   return NextResponse.json({ ok: true });

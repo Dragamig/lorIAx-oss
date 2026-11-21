@@ -1,9 +1,10 @@
 "use client";
 
-import Link from "next/link";
+import { Link } from "@/i18n/routing";
 import { Video, FileText, Clock, Trash2, CalendarClock } from "lucide-react";
 import { MeetingStatusBadge } from "./meeting-status-badge";
 import { Button } from "@/components/ui/button";
+import { useTranslations, useFormatter } from "next-intl";
 
 interface Meeting {
   id: string;
@@ -25,25 +26,27 @@ interface MeetingCardProps {
   onDelete?: (id: string) => void;
 }
 
-function formatRelativeTime(dateStr: string): string {
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diff = now.getTime() - date.getTime();
-  const minutes = Math.floor(diff / 60000);
-  const hours = Math.floor(minutes / 60);
-  const days = Math.floor(hours / 24);
-
-  if (minutes < 1) return "À l'instant";
-  if (minutes < 60) return `Il y a ${minutes} min`;
-  if (hours < 24) return `Il y a ${hours}h`;
-  if (days < 7) return `Il y a ${days}j`;
-  return date.toLocaleDateString("fr-FR");
-}
-
 export function MeetingCard({ meeting, canDelete, notesUrl, onDelete }: MeetingCardProps) {
+  const t = useTranslations("meet");
+  const format = useFormatter();
   const isActive = meeting.status === "active";
   const isProcessing =
     meeting.status === "transcribing" || meeting.status === "summarizing";
+
+  function formatRelativeTime(dateStr: string): string {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diff = now.getTime() - date.getTime();
+    const minutes = Math.floor(diff / 60000);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+
+    if (minutes < 1) return t("card.now");
+    if (minutes < 60) return t("card.minutesAgo", { minutes });
+    if (hours < 24) return t("card.hoursAgo", { hours });
+    if (days < 7) return t("card.daysAgo", { days });
+    return format.dateTime(date, { day: "numeric", month: "short" });
+  }
 
   return (
     <div className="flex items-center justify-between rounded-lg border border-border/50 bg-card p-4 transition-colors hover:bg-accent/5">
@@ -59,7 +62,7 @@ export function MeetingCard({ meeting, canDelete, notesUrl, onDelete }: MeetingC
               {meeting.scheduledAt ? (
                 <>
                   <CalendarClock className="h-3 w-3" />
-                  {new Date(meeting.scheduledAt).toLocaleDateString("fr-FR", {
+                  {format.dateTime(new Date(meeting.scheduledAt), {
                     day: "numeric",
                     month: "short",
                     hour: "2-digit",
@@ -84,7 +87,7 @@ export function MeetingCard({ meeting, canDelete, notesUrl, onDelete }: MeetingC
             variant="ghost"
             className="text-destructive hover:text-destructive"
             onClick={() => {
-              if (confirm("Supprimer cette réunion planifiée ?")) {
+              if (confirm(t("card.confirmDelete"))) {
                 onDelete(meeting.id);
               }
             }}
@@ -95,20 +98,20 @@ export function MeetingCard({ meeting, canDelete, notesUrl, onDelete }: MeetingC
         {isActive && (
           <Link href={`/meet/${meeting.roomName}`}>
             <Button size="sm" variant="default">
-              Rejoindre
+              {t("card.join")}
             </Button>
           </Link>
         )}
         {isProcessing && (
           <span className="text-xs text-muted-foreground animate-pulse">
-            Traitement en cours...
+            {t("card.processing")}
           </span>
         )}
         {meeting.status === "completed" && meeting.notesDocumentId && notesUrl && (
-          <Link href={notesUrl} title="Voir le compte-rendu">
+          <Link href={notesUrl} title={t("card.viewNotesAria")}>
             <Button size="sm" variant="outline">
               <FileText className="h-4 w-4 mr-1" />
-              Compte-rendu
+              {t("card.viewNotes")}
             </Button>
           </Link>
         )}

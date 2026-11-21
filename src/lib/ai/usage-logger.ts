@@ -12,7 +12,14 @@ interface LogAIUsageParams {
     | "summary_doc"
     | "summary_meeting"
     | "embeddings"
-    | "playground";
+    | "playground"
+    | "database_ai_create"
+    | "database_ai_formula"
+    | "automation_ai"
+    | "help"
+    | "voice_note_summary"
+    | "voice_note_cleanup"
+    | "rerank";
   tokensIn?: number;
   tokensOut?: number;
   latencyMs?: number;

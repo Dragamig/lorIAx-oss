@@ -1,103 +1,209 @@
-# NOTICE : dépendances tierces
+# NOTICE : composants tiers
 
-LorIAx OSS embarque des bibliothèques tierces, distribuées sous leurs licences respectives. Cette liste recense les dépendances principales et leurs licences ; pour la liste exhaustive, voir `package.json` et l'outil de votre choix (`npm-license-checker`, `license-checker-rseidelsohn`).
+Copyright 2026
+Dragamig SAS
 
-## Cœur applicatif
+lorIAx-oss est publié sous licence FSL-1.1-MIT (voir `LICENSE`). Il embarque ou utilise des composants tiers, distribués sous leurs licences respectives, recensés ci-dessous. La licence de chaque paquet est celle déclarée dans son `package.json`.
 
-| Dépendance | Licence |
-|------------|---------|
-| Next.js | MIT |
-| React, React DOM | MIT |
-| TypeScript | Apache-2.0 |
-| Tailwind CSS | MIT |
-| @base-ui/react | MIT |
-| Drizzle ORM, drizzle-kit | Apache-2.0 |
-| node-postgres (pg) | MIT |
-| NextAuth (next-auth) | ISC |
-| Zod | MIT |
+Un script de contrôle compare ce fichier au `package.json` à chaque export : toute dépendance directe absente de ces tableaux, ou tout paquet listé qui n'en est plus une, fait échouer l'export.
 
-## Éditeur et collaboration
+## Dépendances d'exécution
 
-| Dépendance | Licence |
-|------------|---------|
-| TipTap (extensions @tiptap/*) | MIT |
-| Yjs, y-prosemirror, y-protocols | MIT |
-| Hocuspocus (@hocuspocus/*) | MIT |
-| tiptap-markdown | MIT |
-| lowlight | MIT |
-| Excalidraw (@excalidraw/excalidraw) | MIT |
-| Mind Elixir | MIT |
-| Univer (@univerjs/*) | Apache-2.0 |
-| Recharts | MIT |
-| ExcelJS | MIT |
+| Paquet | Licence |
+|--------|---------|
+| `@ai-sdk/anthropic` | Apache-2.0 |
+| `@ai-sdk/mistral` | Apache-2.0 |
+| `@ai-sdk/openai` | Apache-2.0 |
+| `@ai-sdk/react` | Apache-2.0 |
+| `@auth/drizzle-adapter` | ISC |
+| `@aws-sdk/client-s3` | Apache-2.0 |
+| `@aws-sdk/lib-storage` | Apache-2.0 |
+| `@aws-sdk/s3-request-presigner` | Apache-2.0 |
+| `@base-ui/react` | MIT |
+| `@dnd-kit/core` | MIT |
+| `@dnd-kit/sortable` | MIT |
+| `@dnd-kit/utilities` | MIT |
+| `@excalidraw/excalidraw` | MIT |
+| `@hocuspocus/extension-database` | MIT |
+| `@hocuspocus/provider` | MIT |
+| `@hocuspocus/server` | MIT |
+| `@livekit/components-react` | Apache-2.0 |
+| `@livekit/components-styles` | Apache-2.0 |
+| `@serwist/next` | MIT |
+| `@serwist/turbopack` | MIT |
+| `@tanstack/react-virtual` | MIT |
+| `@tiptap/extension-code-block-lowlight` | MIT |
+| `@tiptap/extension-collaboration` | MIT |
+| `@tiptap/extension-color` | MIT |
+| `@tiptap/extension-dropcursor` | MIT |
+| `@tiptap/extension-highlight` | MIT |
+| `@tiptap/extension-image` | MIT |
+| `@tiptap/extension-link` | MIT |
+| `@tiptap/extension-mention` | MIT |
+| `@tiptap/extension-placeholder` | MIT |
+| `@tiptap/extension-table` | MIT |
+| `@tiptap/extension-table-cell` | MIT |
+| `@tiptap/extension-table-header` | MIT |
+| `@tiptap/extension-table-row` | MIT |
+| `@tiptap/extension-task-item` | MIT |
+| `@tiptap/extension-task-list` | MIT |
+| `@tiptap/extension-text-style` | MIT |
+| `@tiptap/extension-underline` | MIT |
+| `@tiptap/pm` | MIT |
+| `@tiptap/react` | MIT |
+| `@tiptap/starter-kit` | MIT |
+| `@tiptap/suggestion` | MIT |
+| `@tiptap/y-tiptap` | MIT |
+| `@univerjs/core` | Apache-2.0 |
+| `@univerjs/preset-sheets-core` | Apache-2.0 |
+| `@univerjs/preset-sheets-data-validation` | Apache-2.0 |
+| `@xyflow/react` | MIT |
+| `ai` | Apache-2.0 |
+| `bcryptjs` | BSD-3-Clause |
+| `canvas` | MIT |
+| `class-variance-authority` | Apache-2.0 |
+| `clsx` | MIT |
+| `cmdk` | MIT |
+| `cron-parser` | MIT |
+| `croner` | MIT |
+| `cronstrue` | MIT |
+| `d3-force` | ISC |
+| `d3-selection` | ISC |
+| `d3-zoom` | ISC |
+| `docx` | MIT |
+| `drizzle-orm` | Apache-2.0 |
+| `emoji-picker-react` | MIT |
+| `esbuild-wasm` | MIT |
+| `exceljs` | MIT |
+| `fabric` | MIT |
+| `file-type` | MIT |
+| `html-to-image` | MIT |
+| `http-proxy` | MIT |
+| `idb` | ISC |
+| `ioredis` | MIT |
+| `isomorphic-git` | MIT |
+| `jose` | MIT |
+| `ldapjs` | MIT |
+| `leaflet` | BSD-2-Clause |
+| `livekit-client` | Apache-2.0 |
+| `livekit-server-sdk` | Apache-2.0 |
+| `lowlight` | MIT |
+| `lucide-react` | ISC |
+| `metascraper` | MIT |
+| `metascraper-description` | MIT |
+| `metascraper-image` | MIT |
+| `metascraper-title` | MIT |
+| `metascraper-url` | MIT |
+| `mind-elixir` | MIT |
+| `next` | MIT |
+| `next-auth` | ISC |
+| `next-intl` | MIT |
+| `next-themes` | MIT |
+| `nodemailer` | MIT-0 |
+| `ollama` | MIT |
+| `papaparse` | MIT |
+| `pdf-lib` | MIT |
+| `pg` | MIT |
+| `pino` | MIT |
+| `react` | MIT |
+| `react-dom` | MIT |
+| `react-image-crop` | ISC |
+| `react-player` | MIT |
+| `recharts` | MIT |
+| `resend` | MIT |
+| `rrule` | BSD-3-Clause |
+| `server-only` | MIT |
+| `serwist` | MIT |
+| `sharp` | Apache-2.0 |
+| `slugify` | MIT |
+| `sonner` | MIT |
+| `swr` | MIT |
+| `tailwind-merge` | MIT |
+| `tippy.js` | MIT |
+| `tiptap-markdown` | MIT |
+| `tw-animate-css` | MIT |
+| `undici` | MIT |
+| `wavesurfer.js` | BSD-3-Clause |
+| `westures` | MIT |
+| `y-indexeddb` | MIT |
+| `y-prosemirror` | MIT |
+| `y-protocols` | MIT |
+| `yjs` | MIT |
+| `zod` | MIT |
 
-## Médias et stockage
+## Dépendances de développement
 
-| Dépendance | Licence |
-|------------|---------|
-| @aws-sdk/* (S3 client) | Apache-2.0 |
-| Sharp | Apache-2.0 |
-| @ffmpeg/ffmpeg, @ffmpeg/util | MIT |
-| ffmpeg-static, fluent-ffmpeg | MIT |
-| Fabric.js | MIT |
-| Leaflet, react-leaflet | BSD-2-Clause / Hippocratic-2.1 (licence à clause éthique, non approuvée par l'OSI) |
+| Paquet | Licence |
+|--------|---------|
+| `@next/bundle-analyzer` | MIT |
+| `@tailwindcss/postcss` | MIT |
+| `@testing-library/dom` | MIT |
+| `@testing-library/react` | MIT |
+| `@types/d3-force` | MIT |
+| `@types/d3-selection` | MIT |
+| `@types/d3-zoom` | MIT |
+| `@types/http-proxy` | MIT |
+| `@types/ioredis` | MIT |
+| `@types/ldapjs` | MIT |
+| `@types/leaflet` | MIT |
+| `@types/node` | MIT |
+| `@types/nodemailer` | MIT |
+| `@types/papaparse` | MIT |
+| `@types/pg` | MIT |
+| `@types/react` | MIT |
+| `@types/react-dom` | MIT |
+| `@types/ws` | MIT |
+| `drizzle-kit` | MIT |
+| `eslint` | MIT |
+| `eslint-config-next` | MIT |
+| `shadcn` | MIT |
+| `tailwindcss` | MIT |
+| `tsx` | MIT |
+| `typescript` | Apache-2.0 |
+| `vitest` | MIT |
 
-## Visio, audio, IA
+## Artefact vendorisé : Bento Slides
 
-| Dépendance | Licence |
-|------------|---------|
-| LiveKit (livekit-client, server-sdk, components) | Apache-2.0 |
-| @ai-sdk/* (Vercel AI SDK) | Apache-2.0 |
-| Ollama (client) | MIT |
+Le runtime de diaporama du module Présentations est un fichier figé, copié dans `vendor/bento/1.0.19/`. Il n'est pas une dépendance npm et n'apparaît donc pas dans les tableaux ci-dessus.
 
-## Auth et sécurité
+| Élément | Valeur |
+|---------|--------|
+| Dépôt amont | https://github.com/nyblnet/bento |
+| Version amont | 1.0.19 |
+| Commit amont | `01000838496ec863ba1035eae12a8a4943020cdc` |
+| Fichier | `vendor/bento/1.0.19/bento-runtime.html` |
+| SHA-256 | `33a1a0af104abe1687d7d81e6a7446e179ba515679450f3e1c527ce02681b62a` |
+| Licence | MIT, texte dans `vendor/bento/1.0.19/LICENSE` |
 
-| Dépendance | Licence |
-|------------|---------|
-| bcryptjs | MIT |
-| jose | MIT |
-| ldapjs | MIT |
+## Dépendance système : FFmpeg
 
-## Utilitaires
+FFmpeg n'est pas embarqué. L'application appelle le binaire `ffmpeg` installé sur la machine hôte (ou dans l'image Docker) pour le traitement des médias. FFmpeg est distribué sous LGPL-2.1 ou GPL-2.0 selon les options de compilation du binaire installé ; il s'exécute comme programme séparé et ne modifie pas la licence de lorIAx-oss.
 
-| Dépendance | Licence |
-|------------|---------|
-| lucide-react | ISC |
-| sonner | MIT |
-| cmdk | MIT |
-| @dnd-kit/* | MIT |
-| @tanstack/react-virtual | MIT |
-| swr | MIT |
-| ioredis | MIT |
-| croner | MIT |
-| pino | MIT |
-| serwist (@serwist/*) | BSD-3-Clause |
-| isomorphic-git | MIT |
-| metascraper (+ metascraper-*) | MIT |
-| nodemailer | MIT |
-| resend | MIT |
+## Services externes
+
+- [Garage](https://garagehq.deuxfleurs.fr/) (AGPL-3.0) : stockage objet S3 recommandé pour l'auto-hébergement. Il s'exécute comme service distinct, n'est pas embarqué et n'affecte pas la licence de lorIAx-oss. Tout fournisseur compatible S3 convient.
+- [Redis](https://redis.io/) : cache et files d'attente, accessible par le client `ioredis`. Il s'exécute comme service distinct et n'est pas embarqué. Selon la version déployée, sa licence est BSD-3-Clause, RSALv2/SSPLv1 ou AGPL-3.0 ; vérifiez celle de la version que vous installez.
 
 ## Algorithmes portés
 
-| Source originale | Auteur | Licence | Usage dans LorIAx |
-|------------------|--------|---------|-------------------|
-| [VizHash GD](https://sebsauvage.net/wiki/doku.php?id=php:vizhash_gd_source) (PHP) | [Seb Sauvage](https://sebsauvage.net) | Zlib / libre | Portage TypeScript/Canvas dans `src/lib/vizhash.ts` pour les avatars visuels déterministes |
+| Source originale | Auteur | Licence | Usage |
+|------------------|--------|---------|-------|
+| [VizHash GD](https://sebsauvage.net/wiki/doku.php?id=php:vizhash_gd_source) (PHP) | [Seb Sauvage](https://sebsauvage.net) | Zlib / libre | Portage TypeScript dans `src/lib/vizhash.ts` pour les avatars visuels déterministes |
 
 ## Polices et icônes
 
-- **Lucide icons** : ISC.
-- Polices système par défaut (aucune police propriétaire bundled).
+- Lucide icons (`lucide-react`) : ISC.
+- Polices système par défaut, aucune police propriétaire embarquée.
 
-## Stockage objet recommandé
+## Exclusions volontaires
 
-[Garage](https://garagehq.deuxfleurs.fr/) (AGPL-3.0) est recommandé pour l'auto-hébergement S3 ; il s'exécute en tant que service externe (pas embarqué) et n'affecte donc pas la licence MIT de LorIAx OSS. Tout fournisseur S3-compatible fonctionne.
+- Univer Pro (modules payants d'Univer) n'est pas utilisé : seuls les paquets Apache-2.0 `@univerjs/*` listés ci-dessus le sont.
+- `react-leaflet` (licence Hippocratic-2.1, à clause éthique, non approuvée par l'OSI) n'est pas utilisé : la carte s'appuie sur `leaflet` (BSD-2-Clause) seul.
 
 ## Vérification
 
-Pour générer un rapport à jour :
-
-```bash
+```
 npx license-checker-rseidelsohn --production --summary
 ```
 
-Si vous détectez une incompatibilité de licence, ouvrez une issue.
+En cas d'incompatibilité de licence, ouvrez une issue.

@@ -70,7 +70,12 @@ export async function POST(
   const canEdit = await checkDocumentEditAccess(user, doc.spaceId, doc.id);
   if (!canEdit) return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
 
-  const body = await request.json();
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+  }
   const parsed = assignLabelSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });

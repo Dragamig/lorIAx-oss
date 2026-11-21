@@ -8,7 +8,7 @@ interface FavoriteStarProps {
   entityType: EntityType;
   entityId: string;
   isFavorite: boolean;
-  onToggle: () => void;
+  onToggle: () => Promise<void>;
   size?: number;
   className?: string;
 }
@@ -19,13 +19,19 @@ export function FavoriteStar({
   size = 16,
   className,
 }: FavoriteStarProps) {
+  const handleClick = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      await onToggle();
+    } catch (err) {
+      console.error('Toggle failed:', err);
+    }
+  };
+
   return (
     <button
-      onClick={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        onToggle();
-      }}
+      onClick={handleClick}
       className={cn(
         "transition-opacity shrink-0",
         isFavorite

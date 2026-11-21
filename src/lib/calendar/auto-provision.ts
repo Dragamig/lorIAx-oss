@@ -69,6 +69,13 @@ export async function ensureTeamCalendar(teamId: string, teamName: string): Prom
 
   if (existing.length > 0) return existing[0].id;
 
+  // Cloisonnement multi-tenant : le calendrier hérite de l'org de l'équipe.
+  const [team] = await db
+    .select({ organizationId: teams.organizationId })
+    .from(teams)
+    .where(eq(teams.id, teamId))
+    .limit(1);
+
   const baseSlug = slugify(teamName, { lower: true, strict: true });
   const caldavSlug = `team-${baseSlug}-${crypto.randomBytes(4).toString("hex")}`;
 
@@ -81,6 +88,7 @@ export async function ensureTeamCalendar(teamId: string, teamName: string): Prom
       timezone: "Europe/Paris",
       type: "team",
       ownerTeamId: teamId,
+      organizationId: team?.organizationId ?? null,
       caldavSlug,
       isDefault: true,
     })
@@ -166,13 +174,22 @@ export async function unsubscribeFromTeamCalendar(
 }
 
 /**
- * Create an organization-wide calendar (only one should exist).
+ * Create an organization-wide calendar (one per organization).
+ * Cloisonnement multi-tenant : l'unicité est désormais par organisation.
  */
-export async function ensureOrganizationCalendar(createdByUserId: string): Promise<string> {
+export async function ensureOrganizationCalendar(
+  createdByUserId: string,
+  organizationId: string
+): Promise<string> {
   const existing = await db
     .select({ id: calendars.id })
     .from(calendars)
-    .where(eq(calendars.type, "organization"))
+    .where(
+      and(
+        eq(calendars.type, "organization"),
+        eq(calendars.organizationId, organizationId)
+      )
+    )
     .limit(1);
 
   if (existing.length > 0) return existing[0].id;
@@ -188,12 +205,15 @@ export async function ensureOrganizationCalendar(createdByUserId: string): Promi
       timezone: "Europe/Paris",
       type: "organization",
       ownerUserId: createdByUserId,
+      organizationId,
       caldavSlug,
       isDefault: true,
     })
     .returning();
 
-  logger.info({ calendarId: cal.id }, "[calendar] Organization calendar created");
+  if (!cal) throw new Error('Failed to create organization calendar');
+
+  logger.info({ calendarId: cal.id, organizationId }, "[calendar] Organization calendar created");
   return cal.id;
 }
 

@@ -1,11 +1,16 @@
 "use client";
 
+import { requestFilePicker, requestImagePicker } from "@/components/editor/media-insert";
+
 import {
+  AudioLines,
+  Paperclip,
   Heading1,
   Heading2,
   Heading3,
   List,
   ListOrdered,
+  CheckSquare,
   ListChecks,
   Code,
   Quote,
@@ -30,38 +35,53 @@ import {
   LayoutTemplate,
   Table2,
   Network,
+  Palette,
+  Clapperboard,
+  Presentation,
+  Timer,
+  Zap,
+  Braces,
 } from "lucide-react";
 
 import type { CommandItem } from "./types";
 import { openTemplatePicker } from "./template-picker";
+import { getMetaDocId } from "../meta-context";
 
 export const defaultAliases: Record<string, string[]> = {
-  "Cases à cocher": ["todo", "task", "tache", "taches", "checklist", "cases", "coche"],
+  "Tâches": ["todo", "task", "tache", "taches", "assignation", "suivi"],
+  "Cases à cocher": ["checklist", "cases", "coche", "liste", "courses"],
   "Titre 1": ["t1", "h1", "heading1"],
   "Titre 2": ["t2", "h2", "heading2"],
   "Titre 3": ["t3", "h3", "heading3"],
-  "Liste a puces": ["ul", "bullet"],
-  "Liste numerotee": ["ol", "numbered"],
+  "Liste à puces": ["ul", "bullet"],
+  "Liste numérotée": ["ol", "numbered"],
   "Citation": ["quote", "blockquote", "guillemets"],
-  "Separateur": ["hr", "divider", "ligne"],
+  "Séparateur": ["hr", "divider", "ligne"],
   "Attention": ["callout", "info", "note", "astuce", "alerte", "warning"],
   "Lien": ["url", "href"],
   "Lien document": ["document", "wiki", "wikilink", "lien-doc", "[["],
   "Vidéo": ["video", "youtube", "vimeo", "dailymotion", "embed"],
   "Graphique": ["chart", "graphe", "diagramme", "barres", "camembert"],
-  "Base de données": ["database", "db", "bdd", "donnees", "tableau-donnees"],
+  "Nouvelle base": ["database", "db", "bdd", "donnees", "tableau-donnees", "base-nouvelle", "creer-base"],
+  "Base existante": ["base-existante", "lier-base", "reutiliser-base", "db-existante"],
   "Tableur": ["sheet", "excel", "calc", "tableau", "formule", "spreadsheet"],
   "Tableau blanc": ["whiteboard", "dessin", "sketch", "draw", "miro", "tldraw"],
+  "Fichier": ["pdf", "document", "piece", "pièce", "joindre", "attachment"],
+  "Studio": ["studio", "design", "canvas", "canva", "graphique", "infographie", "maquette", "illustration"],
+  "Montage vidéo": ["montage", "video-editor", "film", "clip"],
+  "Présentation": ["presentation", "diaporama", "ppt", "slides", "diapo"],
   "Mind map": ["mindmap", "carte", "mentale", "brainstorm", "arbre"],
   "Carte": ["map", "plan", "itineraire", "osm", "geo", "lieu"],
   "Calendrier": ["calendar", "agenda", "planning", "evenement"],
   "Événement": ["event", "rdv"],
   "Réunion": ["reunion", "visio", "livekit", "call", "appel"],
   "Réunion présentielle": ["meeting-room", "présentiel", "presentiel", "micro", "dictaphone"],
+  "Note vocale": ["vocal", "dictée", "dictee", "memo", "mémo", "note-vocale", "voix"],
   "Date": ["today", "aujourd'hui", "maintenant", "jour"],
   "Date et heure": ["datetime", "heure", "timestamp", "now"],
   "Modèle": ["template", "modele", "gabarit", "patron"],
   "Émoji": ["emoji", "smiley", "emoticone", "icone"],
+  "Variable": ["variable", "placeholder", "champ", "var"],
 };
 
 export const commands: CommandItem[] = [
@@ -93,8 +113,8 @@ export const commands: CommandItem[] = [
     },
   },
   {
-    title: "Liste a puces",
-    description: "Liste non ordonnee",
+    title: "Liste à puces",
+    description: "Liste non ordonnée",
     aliases: ["ul", "bullet"],
     icon: <List className="h-4 w-4" />,
     command: ({ editor, range }) => {
@@ -102,8 +122,8 @@ export const commands: CommandItem[] = [
     },
   },
   {
-    title: "Liste numerotee",
-    description: "Liste ordonnee",
+    title: "Liste numérotée",
+    description: "Liste ordonnée",
     aliases: ["ol", "numbered"],
     icon: <ListOrdered className="h-4 w-4" />,
     command: ({ editor, range }) => {
@@ -111,12 +131,21 @@ export const commands: CommandItem[] = [
     },
   },
   {
-    title: "Cases à cocher",
-    description: "Liste de cases à cocher",
-    aliases: ["todo", "task", "tache", "taches", "checklist", "cases", "coche"],
-    icon: <ListChecks className="h-4 w-4" />,
+    title: "Tâches",
+    description: "Liste de tâches avec assignation et suivi",
+    aliases: ["todo", "task", "tache", "taches", "assignation", "suivi"],
+    icon: <CheckSquare className="h-4 w-4" />,
     command: ({ editor, range }) => {
       editor.chain().focus().deleteRange(range).toggleTaskList().run();
+    },
+  },
+  {
+    title: "Cases à cocher",
+    description: "Checklist simple sans suivi (inventaire, courses…)",
+    aliases: ["checklist", "cases", "coche", "liste", "courses"],
+    icon: <ListChecks className="h-4 w-4" />,
+    command: ({ editor, range }) => {
+      editor.chain().focus().deleteRange(range).toggleList("checklist", "checklistItem").run();
     },
   },
   {
@@ -138,7 +167,7 @@ export const commands: CommandItem[] = [
   },
   {
     title: "Tableau",
-    description: "Inserer un tableau",
+    description: "Insérer un tableau",
     icon: <Table className="h-4 w-4" />,
     command: ({ editor, range }) => {
       editor
@@ -151,18 +180,29 @@ export const commands: CommandItem[] = [
   },
   {
     title: "Image",
-    description: "Insérer une image depuis une URL",
+    // Description traduite à l'affichage (clé), vide ici : le filtre se fait sur le titre et les alias.
+    description: "",
+    descriptionKey: "document.slashImageDescription",
     icon: <ImageIcon className="h-4 w-4" />,
     command: ({ editor, range }) => {
       editor.chain().focus().deleteRange(range).run();
-      const url = window.prompt("URL de l'image");
-      if (url) {
-        editor.chain().focus().setImage({ src: url }).run();
-      }
+      requestImagePicker(editor);
     },
   },
   {
-    title: "Separateur",
+    title: "Fichier",
+    module: "library",
+    description: "",
+    descriptionKey: "document.slashFileDescription",
+    aliases: ["pdf", "document", "piece", "pièce", "joindre", "attachment"],
+    icon: <Paperclip className="h-4 w-4" />,
+    command: ({ editor, range }) => {
+      editor.chain().focus().deleteRange(range).run();
+      requestFilePicker(editor);
+    },
+  },
+  {
+    title: "Séparateur",
     description: "Ligne horizontale",
     aliases: ["hr", "divider", "ligne"],
     icon: <Minus className="h-4 w-4" />,
@@ -190,7 +230,8 @@ export const commands: CommandItem[] = [
   },
   {
     title: "Toggle",
-    description: "Contenu depliable",
+    description: "Contenu dépliable",
+    aliases: ["toggle", "depliable", "dépliable", "details", "accordeon", "accordéon"],
     icon: <ChevronRight className="h-4 w-4" />,
     command: ({ editor, range }) => {
       editor
@@ -199,8 +240,9 @@ export const commands: CommandItem[] = [
         .deleteRange(range)
         .insertContent({
           type: "details",
+          attrs: { open: true },
           content: [
-            { type: "detailsSummary", content: [{ type: "text", text: "Cliquer pour deplier" }] },
+            { type: "detailsSummary", content: [{ type: "text", text: "Cliquer pour déplier" }] },
             { type: "detailsContent", content: [{ type: "paragraph" }] },
           ],
         })
@@ -209,7 +251,7 @@ export const commands: CommandItem[] = [
   },
   {
     title: "Lien",
-    description: "Inserer un lien externe",
+    description: "Insérer un lien externe",
     aliases: ["url", "href"],
     icon: <LinkIcon className="h-4 w-4" />,
     command: ({ editor, range }) => {
@@ -245,6 +287,7 @@ export const commands: CommandItem[] = [
   },
   {
     title: "Vidéo",
+    module: "studiovideo",
     description: "Intégrer une vidéo YouTube ou Vimeo",
     aliases: ["video", "youtube", "vimeo", "dailymotion", "embed"],
     icon: <Video className="h-4 w-4 text-red-500" />,
@@ -273,9 +316,54 @@ export const commands: CommandItem[] = [
     },
   },
   {
-    title: "Base de données",
-    description: "Insérer une base de données relationnelle",
-    aliases: ["database", "db", "bdd", "donnees", "tableau-donnees"],
+    title: "Chrono",
+    description: "Chronomètre démarrer/arrêter, durée éditable",
+    aliases: ["chrono", "timer", "minuteur", "stopwatch", "temps", "duree"],
+    icon: <Timer className="h-4 w-4 text-rose-500" />,
+    command: ({ editor, range }) => {
+      editor
+        .chain()
+        .focus()
+        .deleteRange(range)
+        .insertContent({ type: "chronoBlock" })
+        .run();
+    },
+  },
+  {
+    title: "Bouton",
+    description: "Déclenche une automatisation d'une base d'un clic",
+    aliases: ["bouton", "button", "action", "declencher", "trigger", "automatisation"],
+    icon: <Zap className="h-4 w-4 text-amber-500" />,
+    command: ({ editor, range }) => {
+      editor
+        .chain()
+        .focus()
+        .deleteRange(range)
+        .insertContent({ type: "automationButton" })
+        .run();
+    },
+  },
+  {
+    title: "Variable",
+    description: "Insérer un placeholder activable dans un modèle",
+    aliases: ["variable", "placeholder", "champ", "var"],
+    icon: <Braces className="h-4 w-4 text-violet-500" />,
+    command: ({ editor, range }) => {
+      // Insère une variable « non configurée » : la puce ouvre aussitôt son
+      // popover de saisie inline (voir template-variable.tsx). Plus de
+      // window.prompt bloquant (incohérent, non stylable, KO sous Playwright).
+      editor
+        .chain()
+        .focus()
+        .deleteRange(range)
+        .setTemplateVariable({ key: "", label: "" })
+        .run();
+    },
+  },
+  {
+    title: "Nouvelle base",
+    description: "Créer une base de données dans cette page",
+    aliases: ["database", "db", "bdd", "donnees", "tableau-donnees", "creer-base"],
     icon: <Database className="h-4 w-4 text-emerald-500" />,
     desktopOnly: true,
     command: ({ editor, range }) => {
@@ -283,8 +371,50 @@ export const commands: CommandItem[] = [
         .chain()
         .focus()
         .deleteRange(range)
-        .insertContent({ type: "databaseBlock" })
+        .insertContent({ type: "databaseBlock", attrs: { intent: "create" } })
         .run();
+    },
+  },
+  {
+    title: "Base existante",
+    description: "Intégrer une base déjà créée depuis l'Espace Bases",
+    aliases: ["base-existante", "lier-base", "reutiliser-base", "db-existante"],
+    icon: <Database className="h-4 w-4 text-cyan-500" />,
+    desktopOnly: true,
+    command: ({ editor, range }) => {
+      editor
+        .chain()
+        .focus()
+        .deleteRange(range)
+        .insertContent({ type: "databaseBlock", attrs: { intent: "pick" } })
+        .run();
+    },
+  },
+  {
+    title: "Base liée (lecture seule)",
+    description: "Intégrer une base existante en lecture seule, avec tri et filtres propres à ce document",
+    aliases: ["base-liee", "linked-db", "vue-base", "base-lecture-seule", "db-readonly", "base-miroir"],
+    icon: <Database className="h-4 w-4 text-indigo-500" />,
+    desktopOnly: true,
+    command: ({ editor, range }) => {
+      editor
+        .chain()
+        .focus()
+        .deleteRange(range)
+        .insertContent({
+          type: "databaseBlock",
+          attrs: { intent: "pick", linked: true, readOnly: true },
+        })
+        .run();
+    },
+  },
+  {
+    title: "Bloc synchronisé",
+    description: "Afficher le contenu d'un autre document, synchronisé en lecture seule",
+    aliases: ["sync", "synchronise", "reference", "transclusion", "miroir", "bloc-lie", "embed-doc"],
+    icon: <Link2 className="h-4 w-4 text-indigo-500" />,
+    command: ({ editor, range }) => {
+      editor.chain().focus().deleteRange(range).insertContent({ type: "syncedBlock" }).run();
     },
   },
   {
@@ -317,6 +447,64 @@ export const commands: CommandItem[] = [
         type: "whiteboardBlock",
         attrs: { canvasId: crypto.randomUUID(), title: "Nouveau tableau blanc" },
       }).run();
+    },
+  },
+  {
+    title: "Studio",
+    module: "studio",
+    description: "Éditeur graphique — formes, texte, images, infographie",
+    aliases: ["studio", "design", "canvas", "canva", "graphique", "infographie", "maquette", "illustration"],
+    icon: <Palette className="h-4 w-4 text-emerald-500" />,
+    command: ({ editor, range }) => {
+      editor.chain().focus().deleteRange(range).insertContent({
+        type: "designBlock",
+        attrs: { designId: crypto.randomUUID(), title: "Nouveau studio" },
+      }).run();
+    },
+  },
+  {
+    title: "Montage vidéo",
+    module: "studiovideo",
+    description: "Créer un projet de montage vidéo multi-pistes",
+    aliases: ["montage", "video-editor", "film", "clip"],
+    icon: <Clapperboard className="h-4 w-4 text-orange-500" />,
+    command: ({ editor, range }) => {
+      editor.chain().focus().deleteRange(range).insertContent({
+        type: "videoEditorBlock",
+        attrs: { projectId: null, title: "Nouveau montage" },
+      }).run();
+    },
+  },
+  {
+    title: "Présentation",
+    module: "presentations",
+    description: "Créer un diaporama joué depuis le document",
+    // `bento` est l'hommage au moteur vendorisé : sa marque est retirée de la
+    // barre de l'éditeur, elle survit ici, là où seul qui la cherche la trouve.
+    aliases: ["presentation", "diaporama", "ppt", "slides", "diapo", "bento"],
+    icon: <Presentation className="h-4 w-4 text-violet-500" />,
+    command: ({ editor, range }) => {
+      // La présentation est créée avant le nœud : celui-ci ne porte qu'un
+      // identifiant, l'insérer vide laisserait un bloc que rien ne rattache.
+      const spaceId =
+        typeof window !== "undefined" ? window.__loriax_spaceId ?? "" : "";
+      const documentId = getMetaDocId(editor);
+      editor.chain().focus().deleteRange(range).run();
+      if (!spaceId) return;
+      fetch("/api/presentations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ spaceId, documentId, title: "Nouvelle présentation" }),
+      })
+        .then((res) => (res.ok ? res.json() : Promise.reject(res.statusText)))
+        .then((presentation) => {
+          if (!presentation?.id) return;
+          editor.chain().focus().insertContent({
+            type: "presentationBlock",
+            attrs: { presentationId: presentation.id, title: presentation.title },
+          }).run();
+        })
+        .catch(() => {});
     },
   },
   {
@@ -384,6 +572,7 @@ export const commands: CommandItem[] = [
   },
   {
     title: "Réunion",
+    module: "livekit",
     description: "Démarrer une visioconférence",
     aliases: ["reunion", "meeting", "visio", "livekit", "call", "appel", "video"],
     icon: <Video className="h-4 w-4 text-indigo-500" />,
@@ -405,6 +594,7 @@ export const commands: CommandItem[] = [
   },
   {
     title: "Réunion présentielle",
+    module: "meeting-rooms",
     description: "Retranscrire une réunion présentielle",
     aliases: ["reunion", "meeting-room", "présentiel", "presentiel", "micro", "dictaphone"],
     icon: <Mic className="h-4 w-4 text-violet-500" />,
@@ -421,6 +611,24 @@ export const commands: CommandItem[] = [
             status: "scheduled",
             participants: [],
           },
+        })
+        .run();
+    },
+  },
+  {
+    title: "Note vocale",
+    module: "voice-notes",
+    description: "Dicter ou déposer un audio, puis en tirer un compte rendu",
+    aliases: ["vocal", "dictée", "dictee", "memo", "mémo", "note-vocale", "voix"],
+    icon: <AudioLines className="h-4 w-4 text-rose-500" />,
+    command: ({ editor, range }) => {
+      editor
+        .chain()
+        .focus()
+        .deleteRange(range)
+        .insertContent({
+          type: "voiceNoteBlock",
+          attrs: { voiceNoteId: "" },
         })
         .run();
     },

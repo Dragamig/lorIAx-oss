@@ -3,17 +3,14 @@ import { db } from "@/lib/db";
 import { documents, spaces } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { getSessionUser } from "@/lib/auth/get-user";
-import {
-  checkDocumentViewAccess,
-  checkSpaceEditAccess,
-} from "@/lib/auth/check-access";
-import { enforceClassificationFloor } from "@/lib/auth/classification";
+import { checkDocumentViewAccess, checkSpaceWriteAccess } from "@/lib/auth/check-access";
 import { readDocument, writeDocument } from "@/lib/storage/filesystem";
 import { commitFile } from "@/lib/git/repository";
+import { enforceClassificationFloor } from "@/lib/auth/classification";
+import type { ClassificationLevel } from "@/types";
 import slugify from "slugify";
 import { logActivity } from "@/lib/activity";
 import { z } from "zod";
-import type { ClassificationLevel } from "@/types";
 
 const copySchema = z.object({
   targetSpaceSlug: z.string().min(1),
@@ -27,7 +24,12 @@ export async function POST(
   if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
 
   const { id } = await params;
-  const body = await request.json();
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "JSON invalide" }, { status: 400 });
+  }
   const parsed = copySchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
@@ -37,13 +39,12 @@ export async function POST(
   const [doc] = await db.select().from(documents).where(eq(documents.id, id)).limit(1);
   if (!doc) return NextResponse.json({ error: "Document introuvable" }, { status: 404 });
 
-  // Copier un document, c'est en restituer le contenu dans un espace que l'on maitrise,
-  // avec `createdBy` a son propre nom. Une simple permission d'espace non nulle laissait
-  // un editeur aveugle sur un document `secret` s'en faire une copie lisible : le droit
-  // de lecture sur le document lui-meme (classification comprise) est exige.
+  // Vérifier la permission de lecture sur le document source.
+  // checkDocumentViewAccess applique le cloisonnement multi-tenant (org courante)
+  // et la classification, contrairement à getSpacePermission seul.
   const canViewSource = await checkDocumentViewAccess(user, doc.spaceId, doc.id);
   if (!canViewSource) {
-    return NextResponse.json({ error: "Accès refusé (document source)" }, { status: 403 });
+    return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
   }
 
   // Récupérer l'espace source pour lire le contenu
@@ -62,21 +63,11 @@ export async function POST(
     .limit(1);
   if (!targetSpace) return NextResponse.json({ error: "Espace cible introuvable" }, { status: 404 });
 
-  // Vérifier la permission d'écriture sur l'espace cible
-  const canEditTarget = await checkSpaceEditAccess(user, targetSpace.id);
-  if (!canEditTarget) {
-    return NextResponse.json({ error: "Accès refusé (espace cible)" }, { status: 403 });
+  // Vérifier la permission d'écriture sur l'espace cible (+ appartenance à l'org courante)
+  const canWriteTarget = await checkSpaceWriteAccess(user, targetSpace.id);
+  if (!canWriteTarget) {
+    return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
   }
-
-  // La copie herite de la classification de la source, et ne peut jamais descendre
-  // sous le plancher de l'espace cible : copier n'est pas un moyen de declasser.
-  // Niveau propage et non choisi par l'appelant : on releve au lieu de refuser en 400,
-  // voir enforceClassificationFloor.
-  const sourceClassification = (doc.classification || "internal") as ClassificationLevel;
-  const copyClassification = enforceClassificationFloor(
-    sourceClassification,
-    (targetSpace.classification || "internal") as ClassificationLevel
-  );
 
   // Lire le contenu du document source
   let content = doc.contentText || "";
@@ -117,7 +108,11 @@ export async function POST(
       slug: copySlug,
       filePath,
       visibility: doc.visibility,
-      classification: copyClassification,
+      // La copie ne descend jamais sous la source ni sous le plancher de l'espace cible.
+      classification: enforceClassificationFloor(
+        (doc.classification || "internal") as ClassificationLevel,
+        (targetSpace.classification || "internal") as ClassificationLevel
+      ),
       isFolder: doc.isFolder,
       createdBy: user.id,
       contentText: doc.isFolder ? null : (content || null),
@@ -133,10 +128,6 @@ export async function POST(
       sourceDocumentId: id,
       sourceTitle: doc.title,
       targetSpaceSlug: targetSpace.slug,
-      spaceId: targetSpace.id,
-      ...(copyClassification !== sourceClassification
-        ? { classificationRaisedFrom: sourceClassification, classification: copyClassification }
-        : {}),
     },
   });
 

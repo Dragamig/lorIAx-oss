@@ -4,6 +4,7 @@ import { calendars } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { getSessionUser } from "@/lib/auth/get-user";
 import { checkCalendarAccess } from "@/lib/calendar/permissions";
+import { getRequestOrgId } from "@/lib/org/get-request-org";
 import { z } from "zod";
 
 export async function GET(
@@ -14,7 +15,7 @@ export async function GET(
   if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
 
   const { id } = await params;
-  const hasAccess = await checkCalendarAccess(user.id, id, "read");
+  const hasAccess = await checkCalendarAccess(user.id, id, "read", await getRequestOrgId(user));
   if (!hasAccess) return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
 
   const [calendar] = await db
@@ -42,7 +43,7 @@ export async function PATCH(
   if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
 
   const { id } = await params;
-  const hasAccess = await checkCalendarAccess(user.id, id, "admin");
+  const hasAccess = await checkCalendarAccess(user.id, id, "admin", await getRequestOrgId(user));
   if (!hasAccess) return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
 
   const body = await request.json();
@@ -70,7 +71,7 @@ export async function DELETE(
   if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
 
   const { id } = await params;
-  const hasAccess = await checkCalendarAccess(user.id, id, "admin");
+  const hasAccess = await checkCalendarAccess(user.id, id, "admin", await getRequestOrgId(user));
   if (!hasAccess) return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
 
   const [deleted] = await db

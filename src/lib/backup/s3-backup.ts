@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { systemSettings } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { decrypt } from "@/lib/crypto";
+import { z } from "zod";
 
 export interface BackupS3Config {
   s3BackupEndpoint: string;
@@ -14,6 +15,16 @@ export interface BackupS3Config {
   s3BackupUseSsl: boolean;
 }
 
+const BackupS3ConfigSchema = z.object({
+  s3BackupEndpoint: z.string(),
+  s3BackupPort: z.string(),
+  s3BackupRegion: z.string(),
+  s3BackupBucket: z.string(),
+  s3BackupAccessKey: z.string(),
+  s3BackupSecretKey: z.string(),
+  s3BackupUseSsl: z.boolean(),
+});
+
 export async function getBackupS3Config(): Promise<BackupS3Config | null> {
   const row = await db
     .select()
@@ -23,7 +34,7 @@ export async function getBackupS3Config(): Promise<BackupS3Config | null> {
 
   if (!row?.value) return null;
 
-  const config = row.value as BackupS3Config;
+  const config = BackupS3ConfigSchema.parse(row.value);
   if (!config.s3BackupEndpoint || !config.s3BackupAccessKey || !config.s3BackupSecretKey) {
     return null;
   }
@@ -38,7 +49,12 @@ export async function createBackupS3Client(): Promise<{ client: S3Client; bucket
   let secretKey = config.s3BackupSecretKey;
   // Decrypt if encrypted (format: iv:authTag:ciphertext in hex)
   if (/^[0-9a-f]{32}:[0-9a-f]{32}:/.test(secretKey)) {
-    secretKey = decrypt(secretKey);
+    try {
+      secretKey = decrypt(secretKey);
+    } catch (err) {
+      console.error('Failed to decrypt backup S3 secret');
+      return null;
+    }
   }
 
   const protocol = config.s3BackupUseSsl ? "https" : "http";

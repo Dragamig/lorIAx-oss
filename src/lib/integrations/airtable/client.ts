@@ -1,4 +1,5 @@
 import type { ExternalProvider, ExternalColumn, ExternalRow } from "../base";
+import { assertPublicHostname } from "@/lib/security/url-validator-server";
 
 const AIRTABLE_API = "https://api.airtable.com/v0";
 
@@ -48,7 +49,13 @@ async function airtableFetch(
   token: string,
   options?: RequestInit
 ): Promise<unknown> {
-  const res = await fetch(`${AIRTABLE_API}${path}`, {
+  if (!token || !token.trim()) throw new Error('Airtable token is required');
+  const fullUrl = `${AIRTABLE_API}${path}`;
+  // Contrat de sécurité : anti DNS rebinding avant chaque fetch, même quand
+  // la base est hardcodée (défense en
+  // profondeur si AIRTABLE_API était un jour rendu configurable).
+  await assertPublicHostname(new URL(fullUrl));
+  const res = await fetch(fullUrl, {
     ...options,
     headers: {
       Authorization: `Bearer ${token}`,
@@ -71,19 +78,6 @@ function parseExternalId(externalId: string) {
   const [baseId, tableId] = externalId.split("/");
   if (!baseId || !tableId) throw new Error("Format externalId invalide (attendu: baseId/tableId)");
   return { baseId, tableId };
-}
-
-/** Convertit des secondes depuis minuit en "HH:MM" */
-function _secondsToTime(seconds: number): string {
-  const h = Math.floor(seconds / 3600).toString().padStart(2, "0");
-  const m = Math.floor((seconds % 3600) / 60).toString().padStart(2, "0");
-  return `${h}:${m}`;
-}
-
-/** Convertit "HH:MM" en secondes depuis minuit */
-function _timeToSeconds(time: string): number {
-  const [h, m] = time.split(":").map(Number);
-  return ((h || 0) * 3600) + ((m || 0) * 60);
 }
 
 export const airtableProvider: ExternalProvider = {
@@ -176,7 +170,7 @@ export const airtableProvider: ExternalProvider = {
 
     for (let i = 0; i < externalRowIds.length; i += 10) {
       const batch = externalRowIds.slice(i, i + 10);
-      const params = batch.map((id) => `records[]=${id}`).join("&");
+      const params = batch.map((id) => `records[]=${encodeURIComponent(id)}`).join("&");
       await airtableFetch(`/${baseId}/${tableId}?${params}`, credentials, {
         method: "DELETE",
       });

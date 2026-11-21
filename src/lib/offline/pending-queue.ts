@@ -41,6 +41,12 @@ export async function dequeueAll(
   try {
     const db = await getPendingStore();
     const tx = db.transaction(STORE_PENDING_OPS, "readwrite");
+
+    // Vérifier que l'index existe (protection contre échec migration v1→v2)
+    if (!tx.store.indexNames.contains('by-type')) {
+      return [];
+    }
+
     const index = tx.store.index("by-type");
     const items: PendingOperation[] = [];
 

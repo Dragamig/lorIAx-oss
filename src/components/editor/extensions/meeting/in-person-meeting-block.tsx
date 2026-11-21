@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { MeetingToolbar } from "./shared/meeting-toolbar";
 import { MeetingStatusSection } from "./shared/meeting-status-section";
 import { MeetingNotesPreview } from "./shared/meeting-notes-preview";
+import { MeetingTranscriptPreview } from "./shared/meeting-transcript-preview";
 import { ParticipantChips } from "./participant-chips";
 import { VuMeter } from "./vu-meter";
 import { SpeakerMapping } from "./speaker-mapping";
@@ -29,6 +30,12 @@ export function InPersonMeetingBlockView({
   const [speakers, setSpeakers] = useState<Array<{ id: string; firstWords: string }>>([]);
   const startTimeRef = useRef<number>(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+  // Suit `elapsed` sans en faire une dépendance du timer (sinon l'interval
+  // se réabonnerait à chaque seconde) : sert de valeur de reprise au démarrage.
+  const elapsedRef = useRef(elapsed);
+  useEffect(() => {
+    elapsedRef.current = elapsed;
+  }, [elapsed]);
 
   // Create meeting on first render
   useEffect(() => {
@@ -88,7 +95,7 @@ export function InPersonMeetingBlockView({
       clearInterval(timerRef.current);
       return;
     }
-    startTimeRef.current = Date.now() - elapsed * 1000;
+    startTimeRef.current = Date.now() - elapsedRef.current * 1000;
     timerRef.current = setInterval(() => {
       setElapsed(Math.floor((Date.now() - startTimeRef.current) / 1000));
     }, 1000);
@@ -187,8 +194,9 @@ export function InPersonMeetingBlockView({
 
   const handleMappingSkip = useCallback(async () => {
     const defaultMapping: Record<string, string> = {};
+    const pArray = Array.isArray(participants) ? participants : [];
     speakers.forEach((s, i) => {
-      defaultMapping[s.id] = (participants as string[])[i] || s.id;
+      defaultMapping[s.id] = pArray[i] ?? s.id;
     });
     await handleMappingValidate(defaultMapping);
   }, [speakers, participants, handleMappingValidate]);
@@ -270,7 +278,10 @@ export function InPersonMeetingBlockView({
     );
   } else if (status === "completed") {
     actions = (
-      <MeetingNotesPreview meetingId={meetingId} notesDocumentId={notesDocumentId} status={status} />
+      <>
+        <MeetingNotesPreview meetingId={meetingId} notesDocumentId={notesDocumentId} status={status} />
+        <MeetingTranscriptPreview meetingId={meetingId} status={status} />
+      </>
     );
   } else if (status === "failed") {
     actions = (

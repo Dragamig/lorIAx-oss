@@ -17,6 +17,7 @@ export interface MapRoute {
   id: string;
   markerIds: string[];
   profile: "driving" | "cycling" | "foot";
+  routingEngine?: "osrm" | "google";
   style: RouteStyle;
   geometry?: [number, number][];
   distance?: number;

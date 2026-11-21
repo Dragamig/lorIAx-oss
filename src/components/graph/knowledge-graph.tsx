@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useCallback } from "react";
+import { useTranslations } from "next-intl";
 import type { Simulation } from "d3-force";
 import {
   forceSimulation,
@@ -45,6 +46,7 @@ export function KnowledgeGraph({
   width = 800,
   height = 600,
 }: KnowledgeGraphProps) {
+  const t = useTranslations("graph");
   const svgRef = useRef<SVGSVGElement>(null);
   const simulationRef = useRef<Simulation<GraphNodeDatum, GraphLinkDatum> | null>(null);
 
@@ -161,7 +163,7 @@ export function KnowledgeGraph({
     <div className="w-full h-full bg-card rounded-lg border border-border overflow-hidden">
       {data.nodes.length === 0 ? (
         <div className="flex items-center justify-center h-full text-muted-foreground">
-          Aucun document avec des liens pour afficher le graphe
+          {t("emptyState")}
         </div>
       ) : (
         <svg

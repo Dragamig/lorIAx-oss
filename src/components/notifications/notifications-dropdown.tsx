@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useTranslations, useFormatter } from "next-intl";
+import { useRouter } from "@/i18n/routing";
 import {
   Bell,
   MessageSquare,
@@ -11,6 +12,7 @@ import {
   CheckCheck,
   Calendar,
   CheckSquare,
+  Image as ImageIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { VizHashAvatar } from "@/components/ui/vizhash-avatar";
@@ -30,12 +32,14 @@ interface NotificationActor {
 
 interface Notification {
   id: string;
-  type: "mention" | "comment" | "reply" | "share" | "calendar_reminder" | "calendar_invitation" | "task_assigned" | "chat_message";
+  type: "mention" | "comment" | "reply" | "share" | "calendar_reminder" | "calendar_invitation" | "task_assigned" | "chat_message" | "media";
   title: string;
   message: string | null;
   read: boolean;
   createdAt: string;
   documentId: string | null;
+  databaseId?: string | null;
+  rowId?: string | null;
   documentTitle: string | null;
   spaceSlug: string | null;
   actor: NotificationActor | null;
@@ -50,24 +54,28 @@ const typeIcons: Record<Notification["type"], typeof Bell> = {
   calendar_invitation: Calendar,
   task_assigned: CheckSquare,
   chat_message: MessageSquare,
+  media: ImageIcon,
 };
 
-function timeAgo(dateStr: string): string {
+function getTimeAgo(
+  dateStr: string,
+  t: ReturnType<typeof useTranslations<"notifications">>,
+  format: ReturnType<typeof useFormatter>
+): string {
   const diff = Date.now() - new Date(dateStr).getTime();
   const minutes = Math.floor(diff / 60000);
-  if (minutes < 1) return "à l'instant";
-  if (minutes < 60) return `il y a ${minutes} min`;
+  if (minutes < 1) return t("timeAgo.justNow");
+  if (minutes < 60) return t("timeAgo.minutes", { count: minutes });
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `il y a ${hours} h`;
+  if (hours < 24) return t("timeAgo.hours", { count: hours });
   const days = Math.floor(hours / 24);
-  if (days < 7) return `il y a ${days} j`;
-  return new Date(dateStr).toLocaleDateString("fr-FR", {
-    day: "numeric",
-    month: "short",
-  });
+  if (days < 7) return t("timeAgo.days", { count: days });
+  return format.dateTime(new Date(dateStr), { day: "numeric", month: "short" });
 }
 
 export function NotificationsDropdown() {
+  const t = useTranslations("notifications");
+  const format = useFormatter();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -121,6 +129,14 @@ export function NotificationsDropdown() {
       markAsRead(notification.id);
     }
     setOpen(false);
+    if (notification.type === "media") {
+      router.push("/mediatheque?view=trash");
+      return;
+    }
+    if (notification.databaseId && notification.rowId) {
+      router.push(`/bases/${notification.databaseId}?row=${notification.rowId}`);
+      return;
+    }
     if (notification.documentId && notification.spaceSlug) {
       router.push(`/s/${notification.spaceSlug}/${notification.documentId}`);
     }
@@ -134,7 +150,7 @@ export function NotificationsDropdown() {
             variant="ghost"
             size="icon"
             className="h-7 w-7 relative hover:bg-sidebar-accent"
-            title="Notifications"
+            title={t("buttonAria")}
           />
         }
       >
@@ -153,7 +169,7 @@ export function NotificationsDropdown() {
       >
         <div className="flex items-center justify-between px-2 py-1.5">
           <p className="text-xs font-medium text-muted-foreground">
-            Notifications
+            {t("title")}
           </p>
           {unreadCount > 0 && (
             <button
@@ -164,7 +180,7 @@ export function NotificationsDropdown() {
               className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
             >
               <CheckCheck className="h-3 w-3" />
-              Tout marquer lu
+              {t("markAllRead")}
             </button>
           )}
         </div>
@@ -173,7 +189,7 @@ export function NotificationsDropdown() {
         {notifications.length === 0 ? (
           <div className="flex flex-col items-center gap-2 py-8 text-muted-foreground">
             <Bell className="h-8 w-8 opacity-30" />
-            <p className="text-sm">Aucune notification</p>
+            <p className="text-sm">{t("empty")}</p>
           </div>
         ) : (
           <div className="flex flex-col">
@@ -218,7 +234,7 @@ export function NotificationsDropdown() {
                       </p>
                     )}
                     <p className="text-xs text-muted-foreground mt-1">
-                      {timeAgo(notification.createdAt)}
+                      {getTimeAgo(notification.createdAt, t, format)}
                     </p>
                   </div>
                   {!notification.read && (

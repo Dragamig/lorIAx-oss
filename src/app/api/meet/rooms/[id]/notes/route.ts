@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/get-user";
-import { getMeeting, getMeetingWithNotes, canAccessMeeting } from "@/lib/meet/rooms";
+import { getRequestOrgId } from "@/lib/org/get-request-org";
+import { getMeetingInOrg, getMeetingWithNotes, canAccessMeeting } from "@/lib/meet/rooms";
 
 export async function GET(
   _req: NextRequest,
@@ -12,13 +13,19 @@ export async function GET(
   }
 
   const { id } = await params;
-  const meeting = await getMeeting(id);
+  const orgId = await getRequestOrgId(user);
+  // Fail-closed : org non résolue (non membre, slug inconnu) = réunion inexistante
+  if (!orgId) {
+    return NextResponse.json({ error: "Réunion introuvable" }, { status: 404 });
+  }
+
+  const meeting = await getMeetingInOrg(id, orgId);
 
   if (!meeting) {
     return NextResponse.json({ error: "Réunion introuvable" }, { status: 404 });
   }
 
-  const allowed = await canAccessMeeting(user.id, meeting);
+  const allowed = await canAccessMeeting(user, meeting);
   if (!allowed) {
     return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
   }

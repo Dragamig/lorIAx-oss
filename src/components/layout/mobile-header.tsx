@@ -2,12 +2,14 @@
 
 import { Menu, Moon, Sun } from "lucide-react";
 import { useTheme } from "@/contexts/theme-context";
+import { useTranslations } from "next-intl";
 
 interface MobileHeaderProps {
   onOpenMenu: () => void;
 }
 
 export function MobileHeader({ onOpenMenu }: MobileHeaderProps) {
+  const t = useTranslations("shell.topbar");
   const { darkMode, toggleDarkMode } = useTheme();
 
   return (
@@ -23,6 +25,7 @@ export function MobileHeader({ onOpenMenu }: MobileHeaderProps) {
           width={24}
           height={24}
           className="rounded-sm"
+          onError={(e) => { e.currentTarget.style.display = 'none'; }}
         />
         <span className="text-base font-semibold tracking-tight">LorIAx</span>
       </div>
@@ -30,8 +33,8 @@ export function MobileHeader({ onOpenMenu }: MobileHeaderProps) {
         <button
           onClick={toggleDarkMode}
           className="p-2 rounded-md hover:bg-accent text-foreground/70 hover:text-foreground transition-colors"
-          title={darkMode ? "Mode clair" : "Mode sombre"}
-          aria-label={darkMode ? "Passer en mode clair" : "Passer en mode sombre"}
+          title={t("toggleDarkMode")}
+          aria-label={darkMode ? t("switchToLight") : t("switchToDark")}
         >
           {darkMode ? (
             <Sun className="h-5 w-5" />
@@ -42,7 +45,7 @@ export function MobileHeader({ onOpenMenu }: MobileHeaderProps) {
         <button
           onClick={onOpenMenu}
           className="p-2 rounded-md hover:bg-accent text-foreground/70 hover:text-foreground transition-colors"
-          aria-label="Ouvrir le menu"
+          aria-label={t("openMenu")}
         >
           <Menu className="h-5 w-5" />
         </button>

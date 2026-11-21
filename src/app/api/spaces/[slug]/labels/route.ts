@@ -1,35 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { labels, spaces, spacePermissions } from "@/lib/db/schema";
-import { eq, or, and } from "drizzle-orm";
+import { labels } from "@/lib/db/schema";
+import { eq, or } from "drizzle-orm";
 import { getSessionUser } from "@/lib/auth/get-user";
-import { checkSpaceViewAccess } from "@/lib/auth/check-access";
+import { getSpaceBySlugForRequest } from "@/lib/org/scoped-space";
 import { canAdminSpace } from "@/lib/auth/rbac";
-import type { PermissionLevel } from "@/types";
+import { getSpacePermission } from "@/lib/auth/check-access";
 import { z } from "zod";
-
-async function getSpaceBySlug(slug: string) {
-  const [space] = await db
-    .select()
-    .from(spaces)
-    .where(eq(spaces.slug, slug))
-    .limit(1);
-  return space || null;
-}
-
-async function getSpacePermissionLevel(userId: string, spaceId: string): Promise<PermissionLevel | null> {
-  const [perm] = await db
-    .select({ level: spacePermissions.level })
-    .from(spacePermissions)
-    .where(
-      and(
-        eq(spacePermissions.spaceId, spaceId),
-        eq(spacePermissions.userId, userId)
-      )
-    )
-    .limit(1);
-  return (perm?.level as PermissionLevel) || null;
-}
 
 const createSpaceLabelSchema = z.object({
   name: z.string().min(1).max(64),
@@ -45,15 +22,8 @@ export async function GET(
   if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
 
   const { slug } = await params;
-  const space = await getSpaceBySlug(slug);
+  const space = await getSpaceBySlugForRequest(slug, user);
   if (!space) return NextResponse.json({ error: "Espace introuvable" }, { status: 404 });
-
-  // Le vocabulaire d'etiquetage d'un espace decrit son organisation interne : meme
-  // droit de lecture que l'arborescence, le slug seul ne suffit pas.
-  const canView = await checkSpaceViewAccess(user, space.id);
-  if (!canView) {
-    return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
-  }
 
   const result = await db
     .select()
@@ -78,10 +48,17 @@ export async function POST(
   if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
 
   const { slug } = await params;
-  const space = await getSpaceBySlug(slug);
+  const space = await getSpaceBySlugForRequest(slug, user);
   if (!space) return NextResponse.json({ error: "Espace introuvable" }, { status: 404 });
 
-  const spacePermission = await getSpacePermissionLevel(user.id, space.id);
+  // Calcul unifié des permissions d'espace (`getSpacePermission`). La fonction
+  // locale qui vivait ici ne lisait que les lignes `space_permissions` portant
+  // un `user_id` : elle ignorait le propriétaire de l'espace, les lignes
+  // accordées à une équipe et les espaces possédés par une équipe. Le
+  // propriétaire d'un espace ne pouvait donc pas gérer les étiquettes du sien,
+  // et les responsables d'équipe n'y avaient pas droit non plus sur les espaces
+  // de leur équipe. Le rebranchement corrige ces deux cas.
+  const spacePermission = await getSpacePermission(user.id, space.id);
   if (!canAdminSpace(user.globalRole, spacePermission)) {
     return NextResponse.json({ error: "Droits insuffisants pour gérer les labels de cet espace" }, { status: 403 });
   }

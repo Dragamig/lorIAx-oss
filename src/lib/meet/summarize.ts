@@ -1,5 +1,8 @@
 import { generateText } from "ai";
-import { getLanguageModelForUsage } from "@/lib/ai/provider-resolver";
+import {
+  getLanguageModelForUsageInOrg,
+  type ProviderOrgScope,
+} from "@/lib/ai/provider-resolver";
 import { logAIUsage } from "@/lib/ai/usage-logger";
 import { getSystemPrompt } from "@/lib/ai/prompt-resolver";
 import logger from "@/lib/logger";
@@ -69,14 +72,24 @@ Règles :
 
 /**
  * Generate a structured meeting summary using the configured AI provider.
+ *
+ * `organizationId` porte le cloisonnement AZ-06 (lot 6) : le transcript d'une
+ * réunion est envoyé à un fournisseur d'IA, et ce fournisseur doit être celui
+ * de l'organisation de la réunion, jamais celui d'un tenant voisin. La réunion
+ * ne porte pas l'organisation elle-même, elle porte son espace : l'appelant la
+ * dérive avec `orgIdForSpace`. Paramètre obligatoire, et non optionnel avec un
+ * défaut : un appelant futur doit avoir à se poser la question, pas à hériter
+ * en silence d'une portée qui ne serait pas la sienne. `null` reste licite et
+ * signifie « portée instance seule ».
  */
 export async function summarizeMeeting(
   transcript: string,
   title: string,
+  organizationId: ProviderOrgScope,
   userId?: string
 ): Promise<string> {
   const { languageModel, providerId, model: modelName, providerName } =
-    await getLanguageModelForUsage("summary_meeting");
+    await getLanguageModelForUsageInOrg("summary_meeting", organizationId);
 
   log.info(
     { provider: providerName, model: modelName, titleLength: title.length, transcriptLength: transcript.length },

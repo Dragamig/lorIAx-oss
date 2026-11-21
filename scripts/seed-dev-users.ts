@@ -44,7 +44,7 @@ async function seed() {
     .values({
       slug: "default",
       name: "LorIAx",
-      plan: "community",
+      plan: "free",
       maxUsers: 999,
       maxSpaces: 9999,
     })

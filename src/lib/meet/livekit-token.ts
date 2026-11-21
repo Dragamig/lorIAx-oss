@@ -1,4 +1,5 @@
 import { AccessToken } from "livekit-server-sdk";
+import { getLiveKitConfig } from "./livekit-config";
 
 interface TokenPayload {
   roomName: string;
@@ -10,7 +11,8 @@ interface TokenPayload {
 
 /**
  * Generate a LiveKit room join token using the server SDK.
- * Requires LIVEKIT_API_KEY and LIVEKIT_API_SECRET env vars.
+ * Credentials are resolved via getLiveKitConfig() (system_settings DB,
+ * with fallback to LIVEKIT_API_KEY / LIVEKIT_API_SECRET env vars).
  *
  * @param payload Token payload
  * @param payload.ttl Optional TTL (e.g., "1h", "2h"). Defaults to "2h".
@@ -18,12 +20,12 @@ interface TokenPayload {
 export async function generateLiveKitToken(
   payload: TokenPayload
 ): Promise<string> {
-  const apiKey = process.env.LIVEKIT_API_KEY;
-  const apiSecret = process.env.LIVEKIT_API_SECRET;
+  const { livekitApiKey: apiKey, livekitApiSecret: apiSecret } =
+    await getLiveKitConfig();
 
   if (!apiKey || !apiSecret) {
     throw new Error(
-      "LiveKit non configuré (LIVEKIT_API_KEY / LIVEKIT_API_SECRET manquants)"
+      "LiveKit non configuré (clés API absentes des réglages et de l'environnement)"
     );
   }
 

@@ -1,0 +1,29 @@
+version: 2
+
+# Les montées de version ordinaires sont désactivées : open-pull-requests-limit à 0
+# coupe les mises à jour de version (méthode documentée par GitHub). Les mises à jour
+# de sécurité, activées dans les paramètres du dépôt, restent actives avec leur propre
+# limite fixe, non configurable ici. Le groupe ci-dessous les regroupe dans une seule
+# pull request par écosystème.
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    groups:
+      npm-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    groups:
+      actions-security:
+        applies-to: security-updates
+        patterns:
+          - "*"

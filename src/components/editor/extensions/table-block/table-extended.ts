@@ -19,7 +19,10 @@ export const TableExtended = Table.extend({
 
   addNodeView() {
     return ReactNodeViewRenderer(TableBlockView, {
-      contentDOMElementTag: "div",
+      // tbody : le contentDOM doit être à l'intérieur du <table> rendu par le
+      // NodeView pour que les <tr> forment une vraie grille et que le plugin
+      // columnResizing (colgroup) fonctionne.
+      contentDOMElementTag: "tbody",
       stopEvent: ({ event }) => {
         const target = event.target as HTMLElement;
         return !!target.closest(

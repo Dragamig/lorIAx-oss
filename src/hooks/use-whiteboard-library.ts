@@ -64,7 +64,8 @@ export function useWhiteboardLibrary() {
         setLibraryItems([...filteredBundled, ...personal]);
         setIsLoaded(true);
       })
-      .catch(() => {
+      .catch((err) => {
+        console.error("Failed to load libraries:", err);
         setIsLoaded(true);
       });
 

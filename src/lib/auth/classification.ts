@@ -73,10 +73,10 @@ export function isClassificationAllowed(
 }
 
 /**
- * Indique si le passage de `from` vers `to` abaisse le niveau de protection du document
- * (déclassification). Une déclassification élargit le cercle des lecteurs : c'est une
- * opération sensible, réservée à l'auteur, aux administrateurs de l'espace et aux
- * administrateurs globaux (voir checkDocumentDeclassifyAccess).
+ * Indique si le passage de `from` vers `to` abaisse le niveau de protection du
+ * document (déclassification). Une déclassification élargit le cercle des lecteurs :
+ * opération réservée à l'auteur, aux admins d'espace et aux admins globaux
+ * (voir checkDocumentDeclassifyAccess).
  */
 export function isDeclassification(
   from: ClassificationLevel,
@@ -86,17 +86,8 @@ export function isDeclassification(
 }
 
 /**
- * Applique le plancher de l'espace à une classification de document.
- *
- * Deux comportements coexistent volontairement dans le projet :
- * - quand l'utilisateur **choisit** explicitement un niveau (création, PATCH), une
- *   valeur sous le plancher est une erreur d'entrée, la route répond 400 ;
- * - quand le niveau est **propagé** sans choix de l'utilisateur (copie, déplacement,
- *   dossier créé automatiquement), il n'y a rien à refuser : le niveau est relevé au
- *   plancher de l'espace d'arrivée. Relever ne réduit jamais la protection.
- *
- * Cette fonction couvre le second cas. Elle ne peut que maintenir ou augmenter le
- * niveau, jamais l'abaisser.
+ * Niveau résultant d'une copie ou d'un déplacement : jamais sous le niveau du
+ * document, jamais sous le plancher de l'espace cible (relèvement minimal).
  */
 export function enforceClassificationFloor(
   docClassification: ClassificationLevel,

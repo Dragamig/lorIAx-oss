@@ -4,9 +4,10 @@ import { documents, spaces, publicShares, meetings } from "@/lib/db/schema";
 import { eq, and, isNull } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { generateLiveKitToken } from "@/lib/meet/livekit-token";
+import { getLiveKitConfig } from "@/lib/meet/livekit-config";
 import { z } from "zod";
 import logger from "@/lib/logger";
-import { checkRateLimitAsync, getClientIp, RATE_LIMITS } from "@/lib/rate-limit";
+import { checkRateLimitAsync, getClientIpOrNull, ipKeyPart, RATE_LIMITS } from "@/lib/rate-limit";
 
 // ─── Validation Schema ──────────────────────────────────────────────────────
 
@@ -27,15 +28,33 @@ function sanitizeDisplayName(name: string): string {
     .replace(/[\u0000-\u001f]/g, "");
 }
 
+// ─── Quota ─────────────────────────────────────────────────────────────────
+
+/**
+ * Plafond du seau des demandes SANS adresse identifiable.
+ *
+ * AZ-25 : `getClientIp` rend la CONSTANTE `UNKNOWN_CLIENT_IP` quand aucune
+ * adresse n'est déterminable. L'indexer comme une adresse mettait tous les
+ * clients anonymes de cette route publique et non authentifiée dans le MÊME
+ * seau : vingt demandes de n'importe qui fermaient alors l'accès invité à tout
+ * le monde. Sans adresse, aucune distinction n'est possible et le seau est
+ * forcément commun ; on l'isole donc de celui des clients identifiés et on lui
+ * donne un plafond volontairement plus large, assez pour ne pas casser un usage
+ * légitime, assez borné pour que l'abus en masse reste impossible.
+ */
+const MEET_MAX_WITHOUT_IP = 120;
+
 // ─── POST Handler ──────────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    // Rate limit by IP
-    const clientIp = getClientIp(request);
+    // Quota par adresse cliente, seau distinct quand elle est indéterminable.
+    const clientIp = getClientIpOrNull(request);
     const rateLimitResult = await checkRateLimitAsync(
-      `guest_meet:${clientIp}`,
-      RATE_LIMITS.meet
+      `guest_meet:${ipKeyPart(clientIp)}`,
+      clientIp
+        ? RATE_LIMITS.meet
+        : { maxRequests: MEET_MAX_WITHOUT_IP, windowMs: RATE_LIMITS.meet.windowMs }
     );
 
     if (!rateLimitResult.success) {
@@ -76,16 +95,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // ─── Verification 1: Find public share by token ─────────────────────────
 
-    const [share] = await db
-      .select()
-      .from(publicShares)
-      .where(
-        and(
-          eq(publicShares.token, shareToken),
-          isNull(publicShares.revokedAt)
+    let share;
+    try {
+      const [s] = await db
+        .select()
+        .from(publicShares)
+        .where(
+          and(
+            eq(publicShares.token, shareToken),
+            isNull(publicShares.revokedAt)
+          )
         )
-      )
-      .limit(1);
+        .limit(1);
+      share = s;
+    } catch (err) {
+      logger.error({ err }, "[guest-meet-token] Database error fetching share");
+      return NextResponse.json(
+        { error: "Service unavailable" },
+        { status: 503 }
+      );
+    }
 
     if (!share) {
       return NextResponse.json(
@@ -105,11 +134,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // ─── Verification 3: Load document ──────────────────────────────────────
 
-    const [doc] = await db
-      .select()
-      .from(documents)
-      .where(eq(documents.id, share.documentId))
-      .limit(1);
+    let doc;
+    try {
+      const [d] = await db
+        .select()
+        .from(documents)
+        .where(eq(documents.id, share.documentId))
+        .limit(1);
+      doc = d;
+    } catch (err) {
+      logger.error({ err }, "[guest-meet-token] Database error fetching document");
+      return NextResponse.json(
+        { error: "Service unavailable" },
+        { status: 503 }
+      );
+    }
 
     if (!doc) {
       return NextResponse.json(
@@ -120,11 +159,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // ─── Verification 4: Load space & check classification ──────────────────
 
-    const [space] = await db
-      .select()
-      .from(spaces)
-      .where(eq(spaces.id, doc.spaceId))
-      .limit(1);
+    let space;
+    try {
+      const [s] = await db
+        .select()
+        .from(spaces)
+        .where(eq(spaces.id, doc.spaceId))
+        .limit(1);
+      space = s;
+    } catch (err) {
+      logger.error({ err }, "[guest-meet-token] Database error fetching space");
+      return NextResponse.json(
+        { error: "Service unavailable" },
+        { status: 503 }
+      );
+    }
 
     if (!space) {
       return NextResponse.json(
@@ -142,16 +191,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // ─── Verification 5: Find meeting by roomName & documentId ──────────────
 
-    const [meeting] = await db
-      .select()
-      .from(meetings)
-      .where(
-        and(
-          eq(meetings.roomName, roomName),
-          eq(meetings.documentId, doc.id)
+    let meeting;
+    try {
+      const [m] = await db
+        .select()
+        .from(meetings)
+        .where(
+          and(
+            eq(meetings.roomName, roomName),
+            eq(meetings.documentId, doc.id)
+          )
         )
-      )
-      .limit(1);
+        .limit(1);
+      meeting = m;
+    } catch (err) {
+      logger.error({ err }, "[guest-meet-token] Database error fetching meeting");
+      return NextResponse.json(
+        { error: "Service unavailable" },
+        { status: 503 }
+      );
+    }
 
     if (!meeting) {
       return NextResponse.json(
@@ -172,8 +231,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // ─── Verification 7: Check LiveKit credentials ──────────────────────────
 
-    const apiKey = process.env.LIVEKIT_API_KEY;
-    const apiSecret = process.env.LIVEKIT_API_SECRET;
+    const lkConfig = await getLiveKitConfig();
+    const apiKey = lkConfig.livekitApiKey;
+    const apiSecret = lkConfig.livekitApiSecret;
 
     if (!apiKey || !apiSecret) {
       logger.error("[guest-meet-token] LiveKit credentials not configured");

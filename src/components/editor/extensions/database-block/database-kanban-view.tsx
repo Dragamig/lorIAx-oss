@@ -1,23 +1,21 @@
 "use client";
 
-import type { DbData, DbColumn, DbRow, CellValue } from "./types";
+import type { DbColumn, DbRow } from "./types";
+import { normalizeOptions } from "./options";
 
 // ─── Kanban View ─────────────────────────────────────────────────────────────
+// Vue en lecture seule : regroupe les lignes par la 1re colonne « Choix ».
+// (Le déplacement de carte entre colonnes n'est pas encore implémenté.)
 
 export function KanbanView({
-  data: _data,
   columns,
   rows,
-  onCellUpdate: _onCellUpdate,
 }: {
-  data: DbData;
   columns: DbColumn[];
   rows: DbRow[];
-  onCellUpdate: (rowId: string, columnId: string, value: CellValue) => void;
 }) {
   // Find the first select column for grouping
   const groupColumn = columns.find((c) => c.type === "select");
-  const _displayColumn = columns.find((c) => c.type === "text") || columns[0];
 
   if (!groupColumn) {
     return (
@@ -27,12 +25,9 @@ export function KanbanView({
     );
   }
 
-  const rawOptions = groupColumn.config?.options as string[] | string | undefined;
-  const options: string[] = Array.isArray(rawOptions)
-    ? rawOptions
-    : typeof rawOptions === "string"
-      ? rawOptions.split(",").map((s) => s.trim()).filter(Boolean)
-      : [];
+  // Options select : chaînes ou objets { label, color } (templates) — normalisées
+  // en libellés, sinon les entêtes de colonnes Kanban rendraient un objet (#66).
+  const options: string[] = normalizeOptions(groupColumn.config?.options);
   const groups: Record<string, DbRow[]> = { "": [] };
   options.forEach((opt) => { groups[opt] = []; });
 

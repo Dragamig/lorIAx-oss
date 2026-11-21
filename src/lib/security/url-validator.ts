@@ -1,242 +1,207 @@
 /**
- * SSRF protection: blocks requests to private/internal network ranges.
- *
- * Address classification is done by *parsing* the address with `node:net`
- * rather than by matching the raw hostname string. This covers IPv6 literals
- * (which `URL.hostname` returns wrapped in brackets), compressed IPv6 forms,
- * IPv4-mapped / IPv4-compatible IPv6, 6to4 and NAT64 embeddings, plus the
- * CGNAT, broadcast, multicast and reserved ranges.
- *
- * Server-only module (imports `node:net`). Do not import from client code.
+ * SSRF protection — blocs vers IPs privées / hostnames internes.
+ * Fichier isomorphe (utilisé client + serveur). `assertPublicHostname`
+ * (qui dépend de `dns`) est dans `url-validator-server.ts`.
  */
 
-import net from "node:net";
+export const PRIVATE_IP_RANGES = [
+  /^127\./, // loopback (127.0.0.0/8, tout le premier octet)
+  /^10\./, // class A private
+  /^172\.(1[6-9]|2\d|3[01])\./, // class B private
+  /^192\.168\./, // class C private
+  /^169\.254\./, // link-local (cloud metadata!)
+  /^0\./, // "this" network
+  /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./, // CGNAT shared address space (RFC 6598)
+  /^192\.0\.0\./, // IETF protocol assignments, includes the Oracle Cloud metadata service
+  /^198\.(18|19)\./, // network benchmark range (RFC 2544)
+  /^::1$/, // IPv6 loopback
+  // IPv6 « unspecified » (`::`) et toute la plage ::/96, dite IPv4-compatible.
+  // `new URL("http://[::]/").hostname` vaut `[::]` : un service en écoute IPv6
+  // ou double pile (cas par défaut de beaucoup de conteneurs) y répond comme
+  // sur le loopback. La forme IPv4-compatible est dépréciée (RFC 4291, adresses IPv4-compatibles)
+  // et le parseur WHATWG canonise `[::127.0.0.1]` en `[::7f00:1]` : au plus
+  // deux groupes hexadécimaux après le `::`. La forme IPv4-mapped légitime
+  // (`::ffff:a:b`, trois groupes) est traitée en amont par extractMappedIPv4
+  // et n'atteint jamais cette expression.
+  /^::([0-9a-f]{1,4}(:[0-9a-f]{1,4})?)?$/i,
+  /^f[cd][0-9a-f]{0,2}:/i, // IPv6 unique local, fc00::/7 (fc00-fdff), couvre fc00: et fd00:
+  /^fe[89ab][0-9a-f]:/i, // IPv6 link-local, fe80::/10 (fe80-febf)
+  /^fe[c-f][0-9a-f]:/i, // IPv6 site-local déprécié, fec0::/10 (fec0-feff)
+  /^ff[0-9a-f]{2}:/i, // IPv6 multicast, ff00::/8 (ff00-ffff), utile au balayage
+];
 
-const BLOCKED_HOSTNAMES = new Set([
+// IPv6-mapped IPv4, forme historique pointée : ::ffff:x.x.x.x
+export const IPV6_MAPPED_IPV4_PREFIX = /^::ffff:(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/i;
+
+// IPv6-mapped IPv4, forme canonique produite par le parseur WHATWG : les 32
+// bits de l'IPv4 sont affichés en deux groupes hexadécimaux plutôt qu'en
+// notation pointée. `new URL("http://[::ffff:127.0.0.1]/").hostname` vaut
+// `[::ffff:7f00:1]`, jamais `[::ffff:127.0.0.1]` : sans cette forme,
+// IPV6_MAPPED_IPV4_PREFIX ne matchait jamais aucune URL réelle.
+const IPV6_MAPPED_IPV4_HEX = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i;
+
+const BLOCKED_HOSTNAMES = [
   "localhost",
   "metadata.google.internal",
   "metadata.goog",
   "instance-data",
-]);
-
-const BLOCKED_SUFFIXES = [".local", ".internal", ".localhost", ".home.arpa"];
-
-export const PRIVATE_URL_MESSAGE =
-  "Les URL pointant vers des adresses privées ou locales ne sont pas autorisées";
+];
 
 /**
- * Lowercase a hostname and strip IPv6 brackets, IPv6 zone id and trailing dots
- * so that comparisons and address parsing operate on a canonical form.
+ * Simple IPv4 check using regex (avoids Node.js net module).
+ * Chaque segment doit être une suite de 1 à 3 chiffres décimaux (pas de
+ * signe, pas d'espace, pas de notation scientifique) valant au plus 255.
  */
-export function normalizeHostname(hostname: string): string {
-  let host = hostname.trim().toLowerCase();
-  if (host.startsWith("[") && host.endsWith("]")) {
-    host = host.slice(1, -1);
-  }
-  const zoneIndex = host.indexOf("%");
-  if (zoneIndex !== -1) {
-    host = host.slice(0, zoneIndex);
-  }
-  while (host.endsWith(".")) {
-    host = host.slice(0, -1);
-  }
-  return host;
+export function isIPv4(hostname: string): boolean {
+  const parts = hostname.split('.');
+  return (
+    parts.length === 4 &&
+    parts.every((p) => /^\d{1,3}$/.test(p) && Number(p) <= 255)
+  );
 }
 
-function parseIpv4(value: string): Uint8Array | null {
-  if (!net.isIPv4(value)) return null;
-  const parts = value.split(".");
-  const bytes = new Uint8Array(4);
-  for (let i = 0; i < 4; i++) {
-    bytes[i] = Number(parts[i]);
+/**
+ * Retire les crochets d'un hostname IPv6 littéral. `URL.hostname` inclut
+ * toujours les crochets pour un littéral IPv6 (`[::1]`, jamais `::1`) ;
+ * les regex de plages IPv6 attendent l'adresse nue.
+ */
+function stripIPv6Brackets(hostname: string): string {
+  if (hostname.length > 2 && hostname[0] === "[" && hostname.endsWith("]")) {
+    return hostname.slice(1, -1);
   }
-  return bytes;
+  return hostname;
 }
 
-function parseIpv6(value: string): Uint8Array | null {
-  if (!net.isIPv6(value)) return null;
-
-  let text = value;
-
-  // Trailing IPv4 form (::ffff:10.0.0.1) -> rewrite the tail as two hex groups.
-  const lastColon = text.lastIndexOf(":");
-  const tail = text.slice(lastColon + 1);
-  if (tail.includes(".")) {
-    const tailBytes = parseIpv4(tail);
-    if (!tailBytes) return null;
-    const high = ((tailBytes[0] << 8) | tailBytes[1]).toString(16);
-    const low = ((tailBytes[2] << 8) | tailBytes[3]).toString(16);
-    text = `${text.slice(0, lastColon + 1)}${high}:${low}`;
+/**
+ * Développe une IPv6 nue en 8 groupes de 16 bits (forme pointée finale
+ * acceptée). Renvoie `null` si la chaîne n'est pas une IPv6 valide.
+ */
+function expandIPv6(bare: string): number[] | null {
+  let text = bare;
+  const dotted = /^(.*:)(\d{1,3}(?:\.\d{1,3}){3})$/.exec(text);
+  if (dotted) {
+    if (!isIPv4(dotted[2])) return null;
+    const o = dotted[2].split(".").map(Number);
+    text = `${dotted[1]}${((o[0] << 8) | o[1]).toString(16)}:${((o[2] << 8) | o[3]).toString(16)}`;
   }
-
   const halves = text.split("::");
   if (halves.length > 2) return null;
-
-  const head = halves[0] ? halves[0].split(":") : [];
-  const rest = halves.length === 2 ? (halves[1] ? halves[1].split(":") : []) : [];
-  const provided = head.length + rest.length;
-  if (provided > 8) return null;
-  if (halves.length === 1 && provided !== 8) return null;
-
-  const groups: number[] = [];
-  for (const group of head) groups.push(parseInt(group, 16));
-  for (let i = provided; i < 8; i++) groups.push(0);
-  for (const group of rest) groups.push(parseInt(group, 16));
-  if (groups.length !== 8 || groups.some((g) => Number.isNaN(g) || g < 0 || g > 0xffff)) {
-    return null;
-  }
-
-  const bytes = new Uint8Array(16);
-  for (let i = 0; i < 8; i++) {
-    bytes[i * 2] = (groups[i] >> 8) & 0xff;
-    bytes[i * 2 + 1] = groups[i] & 0xff;
-  }
-  return bytes;
-}
-
-function isZeroRange(bytes: Uint8Array, start: number, end: number): boolean {
-  for (let i = start; i < end; i++) {
-    if (bytes[i] !== 0) return false;
-  }
-  return true;
-}
-
-function isPrivateIpv4Bytes(b: Uint8Array): boolean {
-  const [a, second, third] = [b[0], b[1], b[2]];
-
-  if (a === 0) return true; // 0.0.0.0/8 "this" network
-  if (a === 10) return true; // private class A
-  if (a === 127) return true; // loopback
-  if (a === 100 && second >= 64 && second <= 127) return true; // CGNAT 100.64.0.0/10
-  if (a === 169 && second === 254) return true; // link-local, cloud metadata
-  if (a === 172 && second >= 16 && second <= 31) return true; // private class B
-  if (a === 192 && second === 0 && third === 0) return true; // IETF protocol assignments
-  if (a === 192 && second === 0 && third === 2) return true; // TEST-NET-1
-  if (a === 192 && second === 88 && third === 99) return true; // 6to4 relay anycast
-  if (a === 192 && second === 168) return true; // private class C
-  if (a === 198 && (second === 18 || second === 19)) return true; // benchmarking
-  if (a === 198 && second === 51 && third === 100) return true; // TEST-NET-2
-  if (a === 203 && second === 0 && third === 113) return true; // TEST-NET-3
-  if (a >= 224) return true; // multicast 224/4, reserved 240/4, broadcast
-
-  return false;
-}
-
-function isPrivateIpv6Bytes(b: Uint8Array): boolean {
-  // IPv4-mapped ::ffff:0:0/96
-  if (isZeroRange(b, 0, 10) && b[10] === 0xff && b[11] === 0xff) {
-    return isPrivateIpv4Bytes(b.slice(12));
-  }
-  // IPv4-compatible ::/96, also covers :: and ::1
-  if (isZeroRange(b, 0, 12)) {
-    return isPrivateIpv4Bytes(b.slice(12));
-  }
-  // NAT64 well-known prefix 64:ff9b::/96
-  if (b[0] === 0x00 && b[1] === 0x64 && b[2] === 0xff && b[3] === 0x9b && isZeroRange(b, 4, 12)) {
-    return isPrivateIpv4Bytes(b.slice(12));
-  }
-  // 6to4 2002::/16 embeds an IPv4 address
-  if (b[0] === 0x20 && b[1] === 0x02) {
-    return isPrivateIpv4Bytes(b.slice(2, 6));
-  }
-  // 100::/64 discard-only
-  if (b[0] === 0x01 && b[1] === 0x00 && isZeroRange(b, 2, 8)) return true;
-  // 2001:db8::/32 documentation
-  if (b[0] === 0x20 && b[1] === 0x01 && b[2] === 0x0d && b[3] === 0xb8) return true;
-  // 2001::/23 IETF protocol assignments (Teredo, ORCHID, ...)
-  if (b[0] === 0x20 && b[1] === 0x01 && b[2] < 0x02) return true;
-  // fc00::/7 unique local
-  if ((b[0] & 0xfe) === 0xfc) return true;
-  // fe80::/10 link-local
-  if (b[0] === 0xfe && (b[1] & 0xc0) === 0x80) return true;
-  // fec0::/10 site-local (deprecated but still routed internally)
-  if (b[0] === 0xfe && (b[1] & 0xc0) === 0xc0) return true;
-  // ff00::/8 multicast
-  if (b[0] === 0xff) return true;
-
-  return false;
+  const parse = (part: string): number[] | null => {
+    if (part === "") return [];
+    const groups = part.split(":");
+    if (!groups.every((g) => /^[0-9a-f]{1,4}$/i.test(g))) return null;
+    return groups.map((g) => parseInt(g, 16));
+  };
+  const head = parse(halves[0]);
+  const tail = halves.length === 2 ? parse(halves[1]) : [];
+  if (!head || !tail) return null;
+  if (halves.length === 1) return head.length === 8 ? head : null;
+  const missing = 8 - head.length - tail.length;
+  if (missing < 1) return null;
+  return [...head, ...new Array<number>(missing).fill(0), ...tail];
 }
 
 /**
- * Canonicalize a host the way the WHATWG URL parser does, so that the
- * non-dotted and non-decimal IPv4 notations cannot slip through: `2130706433`,
- * `0177.0.0.1` and `0x7f.1` all become `127.0.0.1`. Callers that already went
- * through `new URL()` get the same value back; direct callers get the same
- * protection.
- *
- * Returns null when the value cannot be parsed as a host at all, which the
- * predicates below treat as "refuse" (fail closed).
+ * IPv4 embarquée dans une IPv6 de traduction ou de tunnel, que les règles
+ * IPv4 doivent juger à sa place : NAT64 (64:ff9b::/96), 6to4 (2002::/16),
+ * IPv4-mapped (::ffff:0:0/96) et IPv4-translated SIIT (::ffff:0:0:0/96).
  */
-function canonicalizeHost(hostname: string): string | null {
-  const host = normalizeHostname(hostname);
-  if (!host) return null;
+function extractEmbeddedIPv4(bare: string): string | null {
+  const g = expandIPv6(bare);
+  if (!g) return null;
+  const v4 = (hi: number, lo: number) =>
+    [(hi >> 8) & 0xff, hi & 0xff, (lo >> 8) & 0xff, lo & 0xff].join(".");
+  const zero = (from: number, to: number) => g.slice(from, to).every((x) => x === 0);
+  if (g[0] === 0x64 && g[1] === 0xff9b && zero(2, 6)) return v4(g[6], g[7]);
+  if (g[0] === 0x2002) return v4(g[1], g[2]);
+  if (zero(0, 5) && g[5] === 0xffff) return v4(g[6], g[7]);
+  if (zero(0, 4) && g[4] === 0xffff && g[5] === 0) return v4(g[6], g[7]);
+  return null;
+}
 
-  // Already an IP literal: the URL parser would reject bare IPv6 anyway.
-  if (net.isIP(host) !== 0) return host;
+/**
+ * Si `hostname` désigne, directement ou via une IPv6 qui la mappe, une
+ * adresse IPv4 littérale, renvoie cette adresse en notation pointée.
+ * Couvre la forme pointée historique (`::ffff:127.0.0.1`) et la forme
+ * hexadécimale canonique du parseur WHATWG (`::ffff:7f00:1`). Renvoie
+ * `null` si `hostname` n'est ni l'un ni l'autre (domaine, ou IPv6 pure).
+ */
+function extractMappedIPv4(hostname: string): string | null {
+  const bare = stripIPv6Brackets(hostname);
 
-  let parsed: URL;
-  try {
-    parsed = new URL(`http://${host}/`);
-  } catch {
-    return null;
+  if (isIPv4(bare)) {
+    return bare;
   }
 
-  return normalizeHostname(parsed.hostname) || null;
-}
+  const dotted = IPV6_MAPPED_IPV4_PREFIX.exec(bare);
+  if (dotted) {
+    return `${dotted[1]}.${dotted[2]}.${dotted[3]}.${dotted[4]}`;
+  }
 
-/**
- * True when the given address belongs to a non-public range.
- * Returns false for a value that parses as a host but is not an IP.
- * Fails closed (true) for a value that cannot be parsed as a host at all.
- */
-export function isPrivateIp(address: string): boolean {
-  const host = canonicalizeHost(address);
-  if (host === null) return true;
+  const hex = IPV6_MAPPED_IPV4_HEX.exec(bare);
+  if (hex) {
+    const high = parseInt(hex[1], 16);
+    const low = parseInt(hex[2], 16);
+    return [(high >> 8) & 0xff, high & 0xff, (low >> 8) & 0xff, low & 0xff].join(".");
+  }
 
-  const v4 = parseIpv4(host);
-  if (v4) return isPrivateIpv4Bytes(v4);
-
-  const v6 = parseIpv6(host);
-  if (v6) return isPrivateIpv6Bytes(v6);
-
-  return false;
-}
-
-/** True when the value is a literal IPv4 or IPv6 address. */
-export function isIpLiteral(value: string): boolean {
-  return net.isIP(normalizeHostname(value)) !== 0;
-}
-
-/**
- * Hostname-level check: literal private IPs plus internal naming conventions.
- * This is a string-level guard only, it does not resolve DNS. Use `safeFetch`
- * for outgoing requests, which additionally validates every resolved address.
- */
-export function isPrivateHostname(hostname: string): boolean {
-  const host = canonicalizeHost(hostname);
-  if (!host) return true;
-
-  if (net.isIP(host) !== 0) return isPrivateIp(host);
-
-  if (BLOCKED_HOSTNAMES.has(host)) return true;
-
-  return BLOCKED_SUFFIXES.some((suffix) => host.endsWith(suffix));
+  return extractEmbeddedIPv4(bare);
 }
 
 /**
  * Check if a URL points to a private/internal network address.
- * Blocks: loopback, private ranges, CGNAT, link-local, cloud metadata,
- * multicast, reserved ranges and .local/.internal hostnames.
+ * Blocks: loopback, private ranges, link-local, cloud metadata, .local hostnames.
  */
 export function isPrivateUrl(url: URL): boolean {
-  return isPrivateHostname(url.hostname);
+  const hostname = url.hostname;
+
+  // IPv4 littérale, ou IPv6 mappant une IPv4 (forme pointée ou hexadécimale)
+  const mappedIPv4 = extractMappedIPv4(hostname);
+  if (mappedIPv4) {
+    return PRIVATE_IP_RANGES.some((r) => r.test(mappedIPv4));
+  }
+
+  // Pure IPv6 ranges (crochets retirés)
+  if (PRIVATE_IP_RANGES.some((r) => r.test(stripIPv6Brackets(hostname)))) {
+    return true;
+  }
+
+  // Hostname-based checks
+  if (BLOCKED_HOSTNAMES.includes(hostname.toLowerCase())) {
+    return true;
+  }
+
+  // Block .local and .internal TLDs (mDNS, internal DNS)
+  if (
+    hostname.endsWith(".local") ||
+    hostname.endsWith(".internal") ||
+    hostname.endsWith(".localhost")
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+export interface ValidateExternalUrlOptions {
+  /**
+   * Lève le refus des adresses privées/locales, en gardant le contrôle de
+   * protocole. Réservé aux instances auto-hébergées qui visent volontairement
+   * un service interne (ex: un webhook vers `http://n8n:5678`). Ce fichier
+   * est isomorphe (importé côté client) : la valeur doit venir de l'appelant
+   * serveur, jamais d'une lecture d'environnement faite ici.
+   */
+  allowPrivateTargets?: boolean;
 }
 
 /**
  * Validate a URL for external fetch: must be http(s) and not target a private network.
  * Returns an error message if invalid, or null if the URL is safe.
  */
-export function validateExternalUrl(url: string): string | null {
+export function validateExternalUrl(
+  url: string,
+  options?: ValidateExternalUrlOptions
+): string | null {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -248,9 +213,12 @@ export function validateExternalUrl(url: string): string | null {
     return "Protocole non supporté";
   }
 
-  if (isPrivateUrl(parsed)) {
-    return PRIVATE_URL_MESSAGE;
+  if (!options?.allowPrivateTargets && isPrivateUrl(parsed)) {
+    return "Les URL pointant vers des adresses privées ou locales ne sont pas autorisées";
   }
 
   return null;
 }
+
+// `assertPublicHostname` (DNS lookup, server-only) déplacée dans
+// `url-validator-server.ts` pour ne pas casser le bundling client.

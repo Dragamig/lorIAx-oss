@@ -26,7 +26,8 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const scope = searchParams.get("scope") || "org";
   const scopeId = searchParams.get("scopeId");
-  const period = (searchParams.get("period") as "daily" | "monthly") || "monthly";
+  const periodParam = searchParams.get("period");
+  const period = periodParam && ["daily", "monthly"].includes(periodParam) ? (periodParam as "daily" | "monthly") : "monthly";
 
   if (!["org", "team", "user"].includes(scope)) {
     return NextResponse.json({ error: "Scope invalide" }, { status: 400 });

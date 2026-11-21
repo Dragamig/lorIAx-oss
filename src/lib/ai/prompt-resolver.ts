@@ -7,7 +7,12 @@ import { getBuiltinPromptsByUsageType } from "./builtin-prompts";
 // Types
 // ---------------------------------------------------------------------------
 
-export type UsageType = "chat" | "summary_doc" | "summary_meeting";
+export type UsageType =
+  | "chat"
+  | "summary_doc"
+  | "summary_meeting"
+  | "voice_note_summary"
+  | "voice_note_cleanup";
 
 interface ResolvedPrompt {
   systemPrompt: string;

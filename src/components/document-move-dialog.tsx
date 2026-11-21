@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 import { FolderOpen, ChevronRight, ChevronDown, X, Copy, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -43,6 +44,7 @@ interface FolderRowProps {
 }
 
 function FolderRow({ folder, depth, selected, onSelect }: FolderRowProps) {
+  const t = useTranslations("document");
   const [expanded, setExpanded] = useState(false);
   const hasChildren = folder.children && folder.children.length > 0;
   const isSelected = selected === folder.id;
@@ -68,7 +70,7 @@ function FolderRow({ folder, depth, selected, onSelect }: FolderRowProps) {
               setExpanded((v) => !v);
             }}
             className="shrink-0 rounded p-0.5 hover:bg-muted-foreground/20"
-            aria-label={expanded ? "Réduire" : "Développer"}
+            aria-label={expanded ? t("moveDialog.collapseAria") : t("moveDialog.expandAria")}
           >
             {expanded ? (
               <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
@@ -113,6 +115,7 @@ export function DocumentMoveDialog({
   onMoved,
   mode,
 }: DocumentMoveDialogProps) {
+  const t = useTranslations("document");
   const [activeTab, setActiveTab] = useState<"folder" | "space">("folder");
 
   // Données chargées
@@ -135,7 +138,7 @@ export function DocumentMoveDialog({
     setLoadingFolders(true);
     try {
       const res = await fetch(`/api/spaces/${currentSpaceSlug}/documents`);
-      if (!res.ok) throw new Error("Erreur lors du chargement des dossiers");
+      if (!res.ok) throw new Error("load-folders");
       const data = await res.json();
 
       // On extrait uniquement les entrées qui ont des enfants (dossiers)
@@ -150,11 +153,11 @@ export function DocumentMoveDialog({
 
       setFolders(extractFolders(Array.isArray(data) ? data : data.documents ?? []));
     } catch {
-      toast.error("Impossible de charger les dossiers");
+      toast.error(t("moveDialog.toasts.loadFoldersError"));
     } finally {
       setLoadingFolders(false);
     }
-  }, [currentSpaceSlug]);
+  }, [currentSpaceSlug, t]);
 
   // -------------------------------------------------------------------------
   // Chargement de la liste des espaces
@@ -163,7 +166,7 @@ export function DocumentMoveDialog({
     setLoadingSpaces(true);
     try {
       const res = await fetch("/api/spaces");
-      if (!res.ok) throw new Error("Erreur lors du chargement des espaces");
+      if (!res.ok) throw new Error("load-spaces");
       const data = await res.json();
       const allSpaces: Space[] = Array.isArray(data) ? data : data.spaces ?? [];
 
@@ -175,11 +178,11 @@ export function DocumentMoveDialog({
 
       setSpaces(filtered);
     } catch {
-      toast.error("Impossible de charger les espaces");
+      toast.error(t("moveDialog.toasts.loadSpacesError"));
     } finally {
       setLoadingSpaces(false);
     }
-  }, [currentSpaceSlug, mode]);
+  }, [currentSpaceSlug, mode, t]);
 
   // -------------------------------------------------------------------------
   // Effets
@@ -206,7 +209,7 @@ export function DocumentMoveDialog({
     try {
       if (mode === "copy") {
         if (!selectedSpaceSlug) {
-          toast.error("Veuillez sélectionner un espace de destination");
+          toast.error(t("moveDialog.toasts.selectDestination"));
           return;
         }
         const res = await fetch(`/api/documents/${documentId}/copy`, {
@@ -216,9 +219,9 @@ export function DocumentMoveDialog({
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
-          throw new Error(err.error ?? "Erreur lors de la copie");
+          throw new Error(err.error ?? t("moveDialog.toasts.copyError"));
         }
-        toast.success("Document copié avec succès");
+        toast.success(t("moveDialog.toasts.copied"));
       } else if (activeTab === "folder") {
         // Déplacement vers un dossier (null = racine de l'espace)
         const res = await fetch(`/api/documents/${documentId}/move`, {
@@ -228,17 +231,17 @@ export function DocumentMoveDialog({
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
-          throw new Error(err.error ?? "Erreur lors du déplacement");
+          throw new Error(err.error ?? t("moveDialog.toasts.moveError"));
         }
         toast.success(
           selectedFolderId
-            ? "Document déplacé dans le dossier"
-            : "Document déplacé à la racine de l'espace"
+            ? t("moveDialog.toasts.movedToFolder")
+            : t("moveDialog.toasts.movedToRoot")
         );
       } else {
         // Déplacement vers un autre espace
         if (!selectedSpaceSlug) {
-          toast.error("Veuillez sélectionner un espace de destination");
+          toast.error(t("moveDialog.toasts.selectDestination"));
           return;
         }
         const res = await fetch(`/api/documents/${documentId}/move`, {
@@ -248,15 +251,17 @@ export function DocumentMoveDialog({
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
-          throw new Error(err.error ?? "Erreur lors du déplacement");
+          throw new Error(err.error ?? t("moveDialog.toasts.moveError"));
         }
-        toast.success("Document déplacé vers l'espace sélectionné");
+        toast.success(t("moveDialog.toasts.movedToSpace"));
       }
 
       onMoved();
       onClose();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Une erreur est survenue");
+      toast.error(
+        err instanceof Error ? err.message : t("moveDialog.toasts.unknownError")
+      );
     } finally {
       setSubmitting(false);
     }
@@ -265,20 +270,21 @@ export function DocumentMoveDialog({
   // -------------------------------------------------------------------------
   // Libellés selon le mode
   // -------------------------------------------------------------------------
-  const dialogTitle = mode === "copy" ? "Copier le document" : "Déplacer le document";
+  const dialogTitle =
+    mode === "copy" ? t("moveDialog.copyTitle") : t("moveDialog.moveTitle");
   const submitLabel =
     mode === "copy"
-      ? "Copier"
+      ? t("moveDialog.copy")
       : activeTab === "folder"
-      ? "Déplacer ici"
-      : "Déplacer vers cet espace";
+      ? t("moveDialog.moveHere")
+      : t("moveDialog.moveToSpace");
 
   const canSubmit =
     !submitting &&
     (mode === "copy"
       ? !!selectedSpaceSlug
       : activeTab === "folder"
-      ? true // racine = valide même sans sélection
+      ? true // root = always valid without selection
       : !!selectedSpaceSlug);
 
   // -------------------------------------------------------------------------
@@ -294,7 +300,7 @@ export function DocumentMoveDialog({
       }}
     >
       <div className="relative w-full max-w-md rounded-xl border bg-popover shadow-2xl">
-        {/* En-tête */}
+        {/* Header */}
         <div className="flex items-center justify-between border-b px-4 py-3">
           <div className="flex items-center gap-2">
             {mode === "copy" && <Copy className="h-4 w-4 text-muted-foreground" />}
@@ -309,13 +315,13 @@ export function DocumentMoveDialog({
             type="button"
             onClick={onClose}
             className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-            aria-label="Fermer"
+            aria-label={t("moveDialog.closeAria")}
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        {/* Onglets (uniquement en mode déplacement) */}
+        {/* Tabs (move mode only) */}
         {mode === "move" && (
           <div className="flex border-b px-4">
             {(["folder", "space"] as const).map((tab) => (
@@ -330,7 +336,9 @@ export function DocumentMoveDialog({
                     : "border-transparent text-muted-foreground hover:text-foreground"
                 )}
               >
-                {tab === "folder" ? "Dans un dossier" : "Vers un espace"}
+                {tab === "folder"
+                  ? t("moveDialog.folderTab")
+                  : t("moveDialog.spaceTab")}
               </button>
             ))}
           </div>
@@ -344,7 +352,7 @@ export function DocumentMoveDialog({
               {loadingFolders ? (
                 <div className="flex items-center justify-center py-8 text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  <span className="text-sm">Chargement des dossiers…</span>
+                  <span className="text-sm">{t("moveDialog.loadingFolders")}</span>
                 </div>
               ) : (
                 <div>
@@ -360,12 +368,12 @@ export function DocumentMoveDialog({
                     )}
                   >
                     <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    <span>Racine de l&apos;espace</span>
+                    <span>{t("moveDialog.rootSpace")}</span>
                   </button>
 
                   {folders.length === 0 && (
                     <p className="px-2 py-3 text-sm text-muted-foreground">
-                      Aucun dossier dans cet espace
+                      {t("moveDialog.noFolders")}
                     </p>
                   )}
 
@@ -389,13 +397,13 @@ export function DocumentMoveDialog({
               {loadingSpaces ? (
                 <div className="flex items-center justify-center py-8 text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  <span className="text-sm">Chargement des espaces…</span>
+                  <span className="text-sm">{t("moveDialog.loadingSpaces")}</span>
                 </div>
               ) : spaces.length === 0 ? (
                 <p className="px-2 py-8 text-center text-sm text-muted-foreground">
                   {mode === "move"
-                    ? "Aucun autre espace disponible"
-                    : "Aucun espace disponible"}
+                    ? t("moveDialog.noOtherSpaces")
+                    : t("moveDialog.noSpaces")}
                 </p>
               ) : (
                 <div>
@@ -428,7 +436,7 @@ export function DocumentMoveDialog({
             disabled={submitting}
             className="rounded-lg border border-border bg-background px-3 py-1.5 text-sm font-medium hover:bg-muted transition-colors disabled:opacity-50"
           >
-            Annuler
+            {t("moveDialog.cancel")}
           </button>
           <button
             type="button"

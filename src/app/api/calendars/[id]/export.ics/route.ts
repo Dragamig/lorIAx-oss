@@ -4,6 +4,7 @@ import { calendars, calendarEvents, calendarEventAttendees, users } from "@/lib/
 import { eq } from "drizzle-orm";
 import { getSessionUser } from "@/lib/auth/get-user";
 import { checkCalendarAccess } from "@/lib/calendar/permissions";
+import { getRequestOrgId } from "@/lib/org/get-request-org";
 import { generateICalendar } from "@/lib/calendar/ical";
 
 export async function GET(
@@ -14,7 +15,7 @@ export async function GET(
   if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
 
   const { id } = await params;
-  const hasAccess = await checkCalendarAccess(user.id, id, "read");
+  const hasAccess = await checkCalendarAccess(user.id, id, "read", await getRequestOrgId(user));
   if (!hasAccess) return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
 
   const [calendar] = await db
@@ -56,7 +57,7 @@ export async function GET(
   return new NextResponse(icsContent, {
     headers: {
       "Content-Type": "text/calendar; charset=utf-8",
-      "Content-Disposition": `attachment; filename="${calendar.caldavSlug}.ics"`,
+      "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(calendar.caldavSlug)}.ics`,
     },
   });
 }

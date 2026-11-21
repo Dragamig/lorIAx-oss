@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Plus, ChevronDown, ChevronRight } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import type { Calendar } from "@/types";
 
@@ -18,6 +19,7 @@ export default function CalendarSidebarPanel({
   onToggleVisibility,
   onCreateCalendar,
 }: CalendarSidebarPanelProps) {
+  const t = useTranslations("calendar");
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     new Set(["personal", "team", "organization"])
   );
@@ -37,17 +39,11 @@ export default function CalendarSidebarPanel({
     });
   };
 
-  const sectionLabels: Record<string, string> = {
-    personal: "Mes calendriers",
-    team: "Équipes",
-    organization: "Organisation",
-  };
-
   return (
     <div className="w-56 border-r border-border bg-card/50 p-3 space-y-3 overflow-y-auto">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-muted-foreground">Calendriers</h3>
-        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onCreateCalendar} title="Créer un calendrier">
+        <h3 className="text-sm font-semibold text-muted-foreground">{t("sidebar.title")}</h3>
+        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onCreateCalendar} title={t("sidebar.createAria")}>
           <Plus className="h-3.5 w-3.5" />
         </Button>
       </div>
@@ -68,7 +64,7 @@ export default function CalendarSidebarPanel({
               ) : (
                 <ChevronRight className="h-3 w-3" />
               )}
-              {sectionLabels[section]}
+              {t(`sidebar.sections.${section}`)}
             </button>
 
             {expanded && (

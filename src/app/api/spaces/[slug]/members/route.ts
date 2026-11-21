@@ -1,22 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { spaces, spacePermissions, users, teams, teamMembers } from "@/lib/db/schema";
+import { spacePermissions, users, teams, teamMembers } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { getSessionUser } from "@/lib/auth/get-user";
+import { getSpaceBySlugForRequest } from "@/lib/org/scoped-space";
+import { getOrgMemberIds } from "@/lib/org/org-members";
 import { hasGlobalRole } from "@/lib/auth/rbac";
 import type { UserRole } from "@/types";
 import { logActivity } from "@/lib/activity";
 import { createNotification, createNotifications } from "@/lib/notifications";
 import { z } from "zod";
-
-async function getSpaceBySlug(slug: string) {
-  const [space] = await db
-    .select()
-    .from(spaces)
-    .where(eq(spaces.slug, slug))
-    .limit(1);
-  return space || null;
-}
+import { recordIfRealSpace } from "@/lib/onboarding/progress";
 
 async function canManageSpace(userId: string, globalRole: UserRole, spaceId: string, ownerUserId: string | null) {
   if (hasGlobalRole(globalRole, "admin")) return true;
@@ -46,7 +40,7 @@ export async function GET(
   if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
 
   const { slug } = await params;
-  const space = await getSpaceBySlug(slug);
+  const space = await getSpaceBySlugForRequest(slug, user);
   if (!space) return NextResponse.json({ error: "Espace introuvable" }, { status: 404 });
 
   // Vérifier que l'utilisateur a accès à l'espace (au minimum viewer ou owner)
@@ -115,7 +109,7 @@ export async function POST(
   if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
 
   const { slug } = await params;
-  const space = await getSpaceBySlug(slug);
+  const space = await getSpaceBySlugForRequest(slug, user);
   if (!space) return NextResponse.json({ error: "Espace introuvable" }, { status: 404 });
 
   const canManage = await canManageSpace(user.id, user.globalRole, space.id, space.ownerUserId);
@@ -141,6 +135,23 @@ export async function POST(
       return NextResponse.json({ error: "Utilisateur non trouvé" }, { status: 404 });
     }
     targetUserId = found.id;
+  }
+
+  // Cloisonnement multi-tenant : interdire l'ajout d'un utilisateur ou d'une
+  // équipe d'une autre organisation que celle de l'espace.
+  const orgMemberIds = await getOrgMemberIds(space.organizationId);
+  if (targetUserId && !orgMemberIds.includes(targetUserId)) {
+    return NextResponse.json({ error: "Utilisateur non trouvé" }, { status: 404 });
+  }
+  if (teamId) {
+    const [teamInOrg] = await db
+      .select({ id: teams.id })
+      .from(teams)
+      .where(and(eq(teams.id, teamId), eq(teams.organizationId, space.organizationId)))
+      .limit(1);
+    if (!teamInOrg) {
+      return NextResponse.json({ error: "Équipe introuvable" }, { status: 404 });
+    }
   }
 
   // Vérifier s'il existe déjà une permission
@@ -223,6 +234,9 @@ export async function POST(
     );
   }
 
+  // Instrumentation onboarding : 1er partage / invitation hors espace démo
+  recordIfRealSpace(user.id, "partage", space.id).catch(() => {});
+
   return NextResponse.json(permission, { status: 201 });
 }
 
@@ -240,7 +254,7 @@ export async function PATCH(
   if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
 
   const { slug } = await params;
-  const space = await getSpaceBySlug(slug);
+  const space = await getSpaceBySlugForRequest(slug, user);
   if (!space) return NextResponse.json({ error: "Espace introuvable" }, { status: 404 });
 
   const canManage = await canManageSpace(user.id, user.globalRole, space.id, space.ownerUserId);
@@ -279,7 +293,7 @@ export async function DELETE(
   if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
 
   const { slug } = await params;
-  const space = await getSpaceBySlug(slug);
+  const space = await getSpaceBySlugForRequest(slug, user);
   if (!space) return NextResponse.json({ error: "Espace introuvable" }, { status: 404 });
 
   const canManage = await canManageSpace(user.id, user.globalRole, space.id, space.ownerUserId);

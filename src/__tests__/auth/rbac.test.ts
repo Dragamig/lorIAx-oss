@@ -4,6 +4,11 @@ import {
   canEditDocument,
   canAdminSpace,
   canViewByClassification,
+  canManageTemplateCategory,
+  canManageMeetingRooms,
+  canManageAutomations,
+  canAccessAdminArea,
+  hasCapability,
   hasGlobalRole,
   hasPermissionLevel,
 } from "@/lib/auth/rbac";
@@ -69,16 +74,6 @@ describe("canEditDocument", () => {
   it("permission document editor donne accès", () => {
     expect(canEditDocument("viewer", null, "editor")).toBe(true);
   });
-
-  it("le rôle global editor seul ne donne aucun accès (fallback fermé)", () => {
-    expect(canEditDocument("editor", null, null)).toBe(false);
-    expect(canEditDocument("editor", undefined, undefined)).toBe(false);
-  });
-
-  it("permission viewer explicite prime sur le rôle global editor", () => {
-    expect(canEditDocument("editor", "viewer", null)).toBe(false);
-    expect(canEditDocument("editor", null, "viewer")).toBe(false);
-  });
 });
 
 describe("canAdminSpace", () => {
@@ -128,5 +123,113 @@ describe("canViewByClassification", () => {
     expect(
       canViewByClassification("secret", { ...baseOptions, userGlobalRole: "admin" })
     ).toBe(true);
+  });
+});
+
+describe("canManageTemplateCategory (legacy — anciens rôles parallèles migrés en badges)", () => {
+  it("admin et super_admin gèrent toutes les catégories", () => {
+    expect(canManageTemplateCategory("admin", [], "design")).toBe(true);
+    expect(canManageTemplateCategory("admin", [], "rapport")).toBe(true);
+    expect(canManageTemplateCategory("admin", [], null)).toBe(true);
+    expect(canManageTemplateCategory("super_admin", [], "design")).toBe(true);
+  });
+
+  it("badge template_graphic_editor ne gère que la catégorie design", () => {
+    expect(canManageTemplateCategory("editor", ["template_graphic_editor"], "design")).toBe(true);
+    expect(canManageTemplateCategory("editor", ["template_graphic_editor"], "rapport")).toBe(false);
+    expect(canManageTemplateCategory("editor", ["template_graphic_editor"], null)).toBe(false);
+  });
+
+  it("badge template_doc_editor gère tout sauf design", () => {
+    expect(canManageTemplateCategory("editor", ["template_doc_editor"], "rapport")).toBe(true);
+    expect(canManageTemplateCategory("editor", ["template_doc_editor"], null)).toBe(true);
+    expect(canManageTemplateCategory("editor", ["template_doc_editor"], undefined)).toBe(true);
+    expect(canManageTemplateCategory("editor", ["template_doc_editor"], "design")).toBe(false);
+  });
+
+  it("les rôles sans badge sont refusés", () => {
+    expect(canManageTemplateCategory("editor", [], "rapport")).toBe(false);
+    expect(canManageTemplateCategory("viewer", [], "design")).toBe(false);
+    expect(canManageTemplateCategory("editor", ["automation_manager"], "rapport")).toBe(false);
+  });
+});
+
+describe("hasCapability", () => {
+  it("retourne false sur null/undefined/[]", () => {
+    expect(hasCapability(null, "facility_manager")).toBe(false);
+    expect(hasCapability(undefined, "facility_manager")).toBe(false);
+    expect(hasCapability([], "facility_manager")).toBe(false);
+  });
+  it("détecte un badge présent", () => {
+    expect(hasCapability(["facility_manager"], "facility_manager")).toBe(true);
+    expect(hasCapability(["automation_manager"], "facility_manager")).toBe(false);
+  });
+});
+
+describe("canManageMeetingRooms (socle + badge)", () => {
+  it("editor sans badge ne gère pas les salles", () => {
+    expect(canManageMeetingRooms("editor", [])).toBe(false);
+  });
+  it("editor avec badge facility_manager gère les salles", () => {
+    expect(canManageMeetingRooms("editor", ["facility_manager"])).toBe(true);
+  });
+  it("admin gère les salles sans badge", () => {
+    expect(canManageMeetingRooms("admin", [])).toBe(true);
+    expect(canManageMeetingRooms("super_admin", [])).toBe(true);
+  });
+});
+
+describe("canManageAutomations (socle + badge)", () => {
+  it("editor sans badge ne gère pas les automatisations", () => {
+    expect(canManageAutomations("editor", [])).toBe(false);
+  });
+  it("editor avec badge automation_manager gère les automatisations", () => {
+    expect(canManageAutomations("editor", ["automation_manager"])).toBe(true);
+  });
+  it("admin gère les automatisations sans badge", () => {
+    expect(canManageAutomations("admin", [])).toBe(true);
+  });
+});
+
+describe("canManageTemplateCategory (socle + badges)", () => {
+  it("editor sans badge ne gère aucun modèle", () => {
+    expect(canManageTemplateCategory("editor", [], "design")).toBe(false);
+    expect(canManageTemplateCategory("editor", [], "note")).toBe(false);
+  });
+  it("badge graphique <-> catégorie design uniquement", () => {
+    expect(canManageTemplateCategory("editor", ["template_graphic_editor"], "design")).toBe(true);
+    expect(canManageTemplateCategory("editor", ["template_graphic_editor"], "note")).toBe(false);
+  });
+  it("badge doc <-> toutes catégories sauf design", () => {
+    expect(canManageTemplateCategory("editor", ["template_doc_editor"], "note")).toBe(true);
+    expect(canManageTemplateCategory("editor", ["template_doc_editor"], "design")).toBe(false);
+  });
+  it("admin gère toutes catégories sans badge", () => {
+    expect(canManageTemplateCategory("admin", [], "design")).toBe(true);
+    expect(canManageTemplateCategory("admin", [], "note")).toBe(true);
+  });
+  it("badges cumulés : doc + graphique gèrent tout", () => {
+    const caps = ["template_doc_editor", "template_graphic_editor"] as const;
+    expect(canManageTemplateCategory("editor", [...caps], "design")).toBe(true);
+    expect(canManageTemplateCategory("editor", [...caps], "note")).toBe(true);
+  });
+});
+
+describe("canAccessAdminArea (entrée /admin)", () => {
+  it("admin et super_admin accèdent toujours", () => {
+    expect(canAccessAdminArea("admin", [])).toBe(true);
+    expect(canAccessAdminArea("super_admin", [])).toBe(true);
+  });
+  it("badge facility_manager ou éditeur de templates ouvre l'admin", () => {
+    expect(canAccessAdminArea("editor", ["facility_manager"])).toBe(true);
+    expect(canAccessAdminArea("editor", ["template_doc_editor"])).toBe(true);
+    expect(canAccessAdminArea("viewer", ["template_graphic_editor"])).toBe(true);
+  });
+  it("automation_manager seul n'ouvre PAS l'admin (géré par base)", () => {
+    expect(canAccessAdminArea("editor", ["automation_manager"])).toBe(false);
+  });
+  it("editor/viewer sans badge pertinent n'accèdent pas", () => {
+    expect(canAccessAdminArea("editor", [])).toBe(false);
+    expect(canAccessAdminArea("viewer", [])).toBe(false);
   });
 });

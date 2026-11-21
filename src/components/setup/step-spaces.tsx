@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -11,7 +12,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Loader2, ArrowRight, ArrowLeft, LayoutGrid, Plus, X } from "lucide-react";
-import type { SetupData } from "@/app/(setup)/setup/page";
+import type { SetupData } from "@/app/[locale]/(setup)/setup/page";
+import { setupFetch } from "@/lib/setup/client";
 
 interface StepSpacesProps {
   data: SetupData;
@@ -27,41 +29,43 @@ interface SpaceRow {
   icon: string | null;
 }
 
-const CLASSIFICATION_LABELS: Record<SpaceRow["classification"], string> = {
-  public: "Public",
-  internal: "Interne",
-  confidential: "Confidentiel",
-  secret: "Secret",
-};
-
-const DEFAULT_SPACES: SpaceRow[] = [
-  {
-    name: "Général",
-    description: "Informations générales et annonces",
-    classification: "internal",
-    icon: null,
-  },
-  {
-    name: "Direction",
-    description: "Stratégie et décisions de direction",
-    classification: "confidential",
-    icon: null,
-  },
-  {
-    name: "RH",
-    description: "Ressources humaines et recrutement",
-    classification: "confidential",
-    icon: null,
-  },
-  {
-    name: "Projets",
-    description: "Suivi de projets et livrables",
-    classification: "internal",
-    icon: null,
-  },
-];
-
 export function StepSpaces({ onUpdate, onNext, onBack }: StepSpacesProps) {
+  const t = useTranslations("setup.spaces");
+
+  const CLASSIFICATION_LABELS: Record<SpaceRow["classification"], string> = {
+    public: t("classifications.public"),
+    internal: t("classifications.internal"),
+    confidential: t("classifications.confidential"),
+    secret: t("classifications.secret"),
+  };
+
+  const DEFAULT_SPACES: SpaceRow[] = [
+    {
+      name: t("defaults.generalName"),
+      description: t("defaults.generalDesc"),
+      classification: "internal",
+      icon: null,
+    },
+    {
+      name: t("defaults.directionName"),
+      description: t("defaults.directionDesc"),
+      classification: "confidential",
+      icon: null,
+    },
+    {
+      name: t("defaults.rhName"),
+      description: t("defaults.rhDesc"),
+      classification: "confidential",
+      icon: null,
+    },
+    {
+      name: t("defaults.projetsName"),
+      description: t("defaults.projetsDesc"),
+      classification: "internal",
+      icon: null,
+    },
+  ];
+
   const [rows, setRows] = useState<SpaceRow[]>(DEFAULT_SPACES);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -86,7 +90,7 @@ export function StepSpaces({ onUpdate, onNext, onBack }: StepSpacesProps) {
   async function handleNext() {
     for (const row of rows) {
       if (!row.name.trim()) {
-        setError("Le nom de chaque espace est obligatoire");
+        setError(t("errors.nameRequired"));
         return;
       }
     }
@@ -95,7 +99,7 @@ export function StepSpaces({ onUpdate, onNext, onBack }: StepSpacesProps) {
     setError("");
 
     try {
-      const res = await fetch("/api/setup/spaces", {
+      const res = await setupFetch("/api/setup/spaces", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ spaces: rows }),
@@ -103,7 +107,7 @@ export function StepSpaces({ onUpdate, onNext, onBack }: StepSpacesProps) {
 
       if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.error || "Erreur lors de la création des espaces");
+        throw new Error(err.error || t("errors.createError"));
       }
 
       const result = await res.json();
@@ -121,7 +125,7 @@ export function StepSpaces({ onUpdate, onNext, onBack }: StepSpacesProps) {
       onUpdate(created);
       onNext();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur inattendue");
+      setError(err instanceof Error ? err.message : t("errors.unexpectedError"));
     } finally {
       setSaving(false);
     }
@@ -131,9 +135,9 @@ export function StepSpaces({ onUpdate, onNext, onBack }: StepSpacesProps) {
     <div className="space-y-6">
       <div className="text-center">
         <LayoutGrid className="h-12 w-12 text-primary mx-auto mb-3" />
-        <h2 className="text-2xl font-bold">Espaces de travail</h2>
+        <h2 className="text-2xl font-bold">{t("title")}</h2>
         <p className="text-muted-foreground mt-1">
-          Définissez les espaces qui structureront votre base de connaissances.
+          {t("description")}
         </p>
       </div>
 
@@ -145,12 +149,12 @@ export function StepSpaces({ onUpdate, onNext, onBack }: StepSpacesProps) {
           >
             <div className="flex-1 grid grid-cols-2 gap-2">
               <Input
-                placeholder="Nom de l'espace"
+                placeholder={t("namePlaceholder")}
                 value={row.name}
                 onChange={(e) => updateRow(index, { name: e.target.value })}
               />
               <Input
-                placeholder="Description"
+                placeholder={t("descriptionPlaceholder")}
                 value={row.description}
                 onChange={(e) =>
                   updateRow(index, { description: e.target.value })
@@ -187,7 +191,7 @@ export function StepSpaces({ onUpdate, onNext, onBack }: StepSpacesProps) {
               variant="ghost"
               size="icon"
               onClick={() => removeRow(index)}
-              aria-label="Supprimer l'espace"
+              aria-label={t("removeSpaceAria")}
             >
               <X className="h-4 w-4 text-muted-foreground" />
             </Button>
@@ -197,7 +201,7 @@ export function StepSpaces({ onUpdate, onNext, onBack }: StepSpacesProps) {
 
       <Button variant="outline" onClick={addRow} className="gap-2 w-full">
         <Plus className="h-4 w-4" />
-        Ajouter un espace
+        {t("addSpace")}
       </Button>
 
       {error && <p className="text-sm text-destructive">{error}</p>}
@@ -206,7 +210,7 @@ export function StepSpaces({ onUpdate, onNext, onBack }: StepSpacesProps) {
         {onBack && (
           <Button variant="ghost" onClick={onBack} className="gap-2">
             <ArrowLeft className="h-4 w-4" />
-            Précédent
+            {t("previous")}
           </Button>
         )}
         <Button onClick={handleNext} disabled={saving} className="gap-2 ml-auto">
@@ -215,7 +219,7 @@ export function StepSpaces({ onUpdate, onNext, onBack }: StepSpacesProps) {
           ) : (
             <ArrowRight className="h-4 w-4" />
           )}
-          Suivant
+          {t("next")}
         </Button>
       </div>
     </div>

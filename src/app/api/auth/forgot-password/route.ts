@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { randomBytes } from "crypto";
 import { sendEmail } from "@/lib/email/send";
 import { passwordResetEmail } from "@/lib/email/templates/password-reset";
-import { checkRateLimit, RATE_LIMITS, getClientIp } from "@/lib/rate-limit";
+import { checkRateLimitAsync, RATE_LIMITS, getClientIpOrNull } from "@/lib/rate-limit";
 import { z } from "zod";
 import logger from "@/lib/logger";
 
@@ -16,13 +16,23 @@ const schema = z.object({
 const RESET_TOKEN_EXPIRY_MINUTES = 60;
 
 export async function POST(request: Request) {
-  const ip = getClientIp(request);
-  const rateLimitResult = checkRateLimit(`forgot-password:${ip}`, RATE_LIMITS.auth);
-  if (!rateLimitResult.success) {
-    return NextResponse.json(
-      { error: "Trop de tentatives. Réessayez plus tard." },
-      { status: 429 }
+  // AZ-26 : compteur PARTAGÉ, sinon la fenêtre de 15 minutes est multipliée par
+  // le nombre de répliques et effacée à chaque redémarrage.
+  // AZ-25 : sans adresse déterminable, le palier par IP est SAUTÉ plutôt
+  // qu'indexé sur une constante commune à tous. Le palier par adresse
+  // électronique, lui, reste appliqué dans tous les cas (plus bas).
+  const ip = getClientIpOrNull(request);
+  if (ip) {
+    const rateLimitResult = await checkRateLimitAsync(
+      `forgot-password:${ip}`,
+      RATE_LIMITS.auth
     );
+    if (!rateLimitResult.success) {
+      return NextResponse.json(
+        { error: "Trop de tentatives. Réessayez plus tard." },
+        { status: 429 }
+      );
+    }
   }
 
   try {
@@ -39,7 +49,7 @@ export async function POST(request: Request) {
     const email = parsed.data.email.toLowerCase().trim();
 
     // SEC-10 — Rate limit par email (3 tentatives par 15 min)
-    const emailRateLimit = checkRateLimit(
+    const emailRateLimit = await checkRateLimitAsync(
       `forgot-password:email:${email}`,
       { maxRequests: 3, windowMs: 15 * 60 * 1000 }
     );

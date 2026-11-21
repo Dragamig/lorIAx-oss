@@ -4,9 +4,7 @@ import { eq, and, desc } from "drizzle-orm";
 import { authenticateApiRequest, requireScope } from "@/lib/api/auth-api";
 import { apiSuccess, apiError } from "@/lib/api/response";
 import { z } from "zod";
-import { validateExternalUrl } from "@/lib/security/url-validator";
-
-export const runtime = "nodejs";
+import { externalUrlSchema } from "@/lib/security/url-schema";
 
 const WEBHOOK_EVENTS = [
   "document.created",
@@ -19,11 +17,22 @@ const WEBHOOK_EVENTS = [
   "mention.created",
 ] as const;
 
-const updateSchema = z.object({
-  url: z.string().url().max(2048).optional(),
-  events: z.array(z.enum(WEBHOOK_EVENTS as unknown as [string, ...string[]])).min(1).optional(),
-  active: z.boolean().optional(),
-});
+/**
+ * Construit le schéma de mise à jour à chaque appel plutôt qu'au chargement
+ * du module : `WEBHOOK_ALLOW_PRIVATE_TARGETS` doit être relue à chaque
+ * requête (cf. commentaire dans `dispatch.ts` et `route.ts` du même dossier).
+ * Absente, `externalUrlSchema()` garde son comportement par défaut : refus
+ * des adresses privées.
+ */
+function buildUpdateSchema() {
+  return z.object({
+    url: externalUrlSchema(2048, {
+      allowPrivateTargets: process.env.WEBHOOK_ALLOW_PRIVATE_TARGETS === "true",
+    }).optional(),
+    events: z.array(z.enum(WEBHOOK_EVENTS as unknown as [string, ...string[]])).min(1).optional(),
+    active: z.boolean().optional(),
+  });
+}
 
 /**
  * GET /api/v1/webhooks/:id — Get webhook details + recent deliveries.
@@ -42,7 +51,16 @@ export async function GET(
   const [webhook] = await db
     .select()
     .from(webhooks)
-    .where(and(eq(webhooks.id, id), eq(webhooks.userId, auth.user.id)))
+    .where(
+      and(
+        eq(webhooks.id, id),
+        eq(webhooks.userId, auth.user.id),
+        // Cloisonnement par organisation : un même compte peut être membre de
+        // plusieurs organisations, le seul `userId` laisserait voir depuis
+        // l'une les webhooks créés dans l'autre (constat du lot 6).
+        eq(webhooks.organizationId, auth.user.orgId)
+      )
+    )
     .limit(1);
 
   if (!webhook) return apiError("Webhook introuvable", 404);
@@ -85,14 +103,8 @@ export async function PATCH(
   if (scopeErr) return scopeErr;
 
   const body = await request.json();
-  const parsed = updateSchema.safeParse(body);
+  const parsed = buildUpdateSchema().safeParse(body);
   if (!parsed.success) return apiError("Données invalides", 400);
-
-  if (parsed.data.url !== undefined) {
-    // Defense in depth: refuse an internal target at configuration time.
-    const urlError = validateExternalUrl(parsed.data.url);
-    if (urlError) return apiError(urlError, 400);
-  }
 
   const updateData: Record<string, unknown> = { updatedAt: new Date() };
   if (parsed.data.url !== undefined) updateData.url = parsed.data.url;
@@ -105,7 +117,16 @@ export async function PATCH(
   const [updated] = await db
     .update(webhooks)
     .set(updateData)
-    .where(and(eq(webhooks.id, id), eq(webhooks.userId, auth.user.id)))
+    .where(
+      and(
+        eq(webhooks.id, id),
+        eq(webhooks.userId, auth.user.id),
+        // Cloisonnement par organisation : un même compte peut être membre de
+        // plusieurs organisations, le seul `userId` laisserait voir depuis
+        // l'une les webhooks créés dans l'autre (constat du lot 6).
+        eq(webhooks.organizationId, auth.user.orgId)
+      )
+    )
     .returning();
 
   if (!updated) return apiError("Webhook introuvable", 404);
@@ -129,7 +150,16 @@ export async function DELETE(
 
   const [deleted] = await db
     .delete(webhooks)
-    .where(and(eq(webhooks.id, id), eq(webhooks.userId, auth.user.id)))
+    .where(
+      and(
+        eq(webhooks.id, id),
+        eq(webhooks.userId, auth.user.id),
+        // Cloisonnement par organisation : un même compte peut être membre de
+        // plusieurs organisations, le seul `userId` laisserait voir depuis
+        // l'une les webhooks créés dans l'autre (constat du lot 6).
+        eq(webhooks.organizationId, auth.user.orgId)
+      )
+    )
     .returning({ id: webhooks.id });
 
   if (!deleted) return apiError("Webhook introuvable", 404);

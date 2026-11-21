@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useCallback, useState } from "react";
 import { useSession } from "next-auth/react";
+import type { SessionUser } from "@/types";
 
 export interface ChatMessage {
   id: string;
@@ -35,9 +36,15 @@ export function useChatWs({ onMessage, onTyping }: UseChatWsOptions) {
   useEffect(() => { onMessageRef.current = onMessage; }, [onMessage]);
   useEffect(() => { onTypingRef.current = onTyping; }, [onTyping]);
 
+  // Identifiant stable : `session.user` change de référence à chaque refetch de
+  // next-auth (focus fenêtre, refresh) même quand les données sont identiques.
+  // Dépendre de l'objet relancerait l'effet en boucle et fermerait le socket
+  // en cours de connexion. On dépend donc de l'`id` primitif.
+  const userId = (session?.user as SessionUser | undefined)?.id;
+
   useEffect(() => {
     // Attendre que la session soit authentifiée
-    if (status !== "authenticated" || !session?.user) return;
+    if (status !== "authenticated" || !userId) return;
 
     let socket: WebSocket | null = null;
     let cancelled = false;
@@ -86,12 +93,20 @@ export function useChatWs({ onMessage, onTyping }: UseChatWsOptions) {
     return () => {
       cancelled = true;
       if (socket) {
-        socket.close();
+        // Fermer un socket encore en CONNECTING déclenche le warning navigateur
+        // « WebSocket is closed before the connection is established ». On diffère
+        // donc la fermeture jusqu'à l'ouverture effective.
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.close();
+        } else if (socket.readyState === WebSocket.CONNECTING) {
+          const s = socket;
+          s.addEventListener("open", () => s.close(), { once: true });
+        }
       }
       ws.current = null;
       setConnected(false);
     };
-  }, [status, session?.user]);
+  }, [status, userId]);
 
   const sendMessage = useCallback((channelId: string, content: string) => {
     if (ws.current?.readyState === WebSocket.OPEN) {

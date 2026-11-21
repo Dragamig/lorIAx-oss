@@ -1,1 +1,0 @@
-CREATE INDEX IF NOT EXISTS "idx_attachments_storage_key" ON "attachments" USING btree ("storage_key");

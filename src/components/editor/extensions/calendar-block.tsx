@@ -11,12 +11,20 @@ import {
   Loader2,
   Settings,
   Trash2,
+  LayoutGrid,
+  GanttChart,
   GripHorizontal,
   Maximize2,
   Minimize2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Calendar, CalendarEvent } from "@/types";
+import { stopMouse } from "../utils/stop-mouse";
+
+const GanttView = dynamic(
+  () => import("@/components/gantt/gantt-view").then((m) => ({ default: m.GanttView })),
+  { ssr: false }
+);
 
 // ---------------------------------------------------------------------------
 // Mini Month Grid (reusable)
@@ -76,7 +84,7 @@ export function CalendarBlockView({
       return [];
     }
   })();
-  const viewMode = "month" as const;
+  const viewMode: "month" | "gantt" = node.attrs.viewMode || "month";
   const showTitle = node.attrs.showTitle !== false;
   const blockHeight: number = node.attrs.height || 400;
 
@@ -136,26 +144,36 @@ export function CalendarBlockView({
   useEffect(() => {
     fetch("/api/calendars")
       .then((r) => r.json())
-      .then((data) => setCalendars(data))
-      .catch(() => {});
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setCalendars(data);
+        } else {
+          setCalendars([]);
+        }
+      })
+      .catch(() => setCalendars([]));
   }, []);
+
+  // Sérialisation des entrées pour les deps de l'effet (valeurs stables).
+  const calendarKey = calendarIds.join(",");
+  const month = currentDate.getMonth();
+  const year = currentDate.getFullYear();
 
   // Fetch events
   useEffect(() => {
-    if (calendarIds.length === 0) {
+    const ids = calendarKey ? calendarKey.split(",") : [];
+    if (ids.length === 0) {
       setEvents([]);
       setLoading(false);
       return;
     }
 
     setLoading(true);
-    const year = currentDate.getFullYear();
-    const month = currentDate.getMonth();
     const start = new Date(year, month, 1).toISOString();
     const end = new Date(year, month + 1, 0).toISOString();
 
     Promise.all(
-      calendarIds.map((id) =>
+      ids.map((id) =>
         fetch(`/api/calendars/${id}/events?start=${start}&end=${end}`)
           .then((r) => r.json())
           .catch(() => [])
@@ -170,7 +188,7 @@ export function CalendarBlockView({
         setEvents(all);
       })
       .finally(() => setLoading(false));
-  }, [calendarIds.join(","), currentDate.getMonth(), currentDate.getFullYear()]);
+  }, [calendarKey, month, year]);
 
   const weeks = getMonthGrid(currentDate);
   const currentMonth = currentDate.getMonth();
@@ -201,6 +219,7 @@ export function CalendarBlockView({
                       : calendarIds.filter((id) => id !== cal.id);
                     updateAttributes({ calendarIds: JSON.stringify(ids) });
                   }}
+                  onMouseDown={stopMouse}
                   className="rounded"
                 />
                 <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: cal.color }} />
@@ -234,7 +253,31 @@ export function CalendarBlockView({
           )}
           <div className="flex-1" />
 
-          {/* Month navigation */}
+          {/* View mode toggle: Mois / Gantt */}
+          <div className="flex items-center rounded-md border border-border overflow-hidden">
+            <Button
+              variant={viewMode === "month" ? "secondary" : "ghost"}
+              size="sm"
+              className="h-6 rounded-none px-2 gap-1 text-xs"
+              onClick={() => updateAttributes({ viewMode: "month" })}
+              title="Vue mois"
+            >
+              <LayoutGrid className="h-3 w-3" />
+              Mois
+            </Button>
+            <Button
+              variant={viewMode === "gantt" ? "secondary" : "ghost"}
+              size="sm"
+              className="h-6 rounded-none px-2 gap-1 text-xs"
+              onClick={() => updateAttributes({ viewMode: "gantt" })}
+              title="Vue Gantt"
+            >
+              <GanttChart className="h-3 w-3" />
+              Gantt
+            </Button>
+          </div>
+
+          {/* Month navigation — visible in month mode only */}
           {viewMode === "month" && (
             <>
               <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setCurrentDate((d) => { const n = new Date(d); n.setMonth(n.getMonth() - 1); return n; })} title="Mois précédent">
@@ -260,8 +303,24 @@ export function CalendarBlockView({
           </Button>
         </div>
 
-        {/* Mini month grid */}
-        {loading ? (
+        {/* Gantt view */}
+        {viewMode === "gantt" ? (
+          <div className={fullscreen ? "flex-1" : ""} style={fullscreen ? undefined : { height: blockHeight }}>
+            {calendarIds.length === 0 ? (
+              <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
+                Aucun calendrier sélectionné — configurez le bloc pour continuer.
+              </div>
+            ) : (
+              <GanttView
+                calendarId={calendarIds[0]}
+                height={fullscreen ? undefined : blockHeight}
+                embedded
+              />
+            )}
+          </div>
+        ) : (
+          /* Mini month grid */
+          loading ? (
             <div className={`flex items-center justify-center ${fullscreen ? "flex-1" : "py-8"}`}>
               <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
             </div>
@@ -315,7 +374,8 @@ export function CalendarBlockView({
                 </div>
               ))}
             </div>
-          )}
+          )
+        )}
 
         {/* Resize handle */}
         <div

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { stopMouse } from "../../utils/stop-mouse";
 import {
   Trash2,
   X,
@@ -104,28 +105,7 @@ export function SyncConfigPanel({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur de sync");
-
-      // Une synchronisation peut aboutir en ayant abandonné des fichiers en route.
-      // Comme le tableau des pièces jointes écrase la cellule, un abandon fait
-      // disparaître le fichier : le taire derrière un bandeau vert reviendrait à
-      // masquer une perte de données.
-      const syncErrors: string[] = data.result?.errors ?? [];
-      if (syncErrors.length > 0) {
-        setError(syncErrors.join("\n"));
-        toast.warning(
-          `Synchronisation terminée avec ${syncErrors.length} avertissement(s)`,
-          {
-            description: (
-              <span className="whitespace-pre-line">
-                {syncErrors.slice(0, 3).join("\n")}
-              </span>
-            ),
-          }
-        );
-      } else {
-        toast.success("Synchronisation terminée");
-      }
-
+      toast.success("Synchronisation terminée");
       await loadMappings();
       onRefresh();
     } catch (err) {
@@ -182,9 +162,7 @@ export function SyncConfigPanel({
       {error && (
         <div className="flex items-start gap-2 mb-3 p-2 rounded bg-destructive/10 text-destructive text-xs">
           <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-          {/* Les avertissements de synchronisation sont joints par retour a la ligne :
-              sans `whitespace-pre-line`, trois fichiers abandonnes s'affichent colles. */}
-          <span className="whitespace-pre-line">{error}</span>
+          {error}
         </div>
       )}
 
@@ -250,17 +228,8 @@ export function SyncConfigPanel({
                 <div className="mt-1 space-y-0.5">
                   {m.logs.slice(0, 3).map((log) => (
                     <div key={log.id} className="text-[10px] text-muted-foreground flex items-center gap-1">
-                      <span
-                        className={log.status === "success" ? "text-green-600" : log.status === "error" ? "text-destructive" : "text-amber-600"}
-                        title={log.errorMessage ?? undefined}
-                      >
-                        {log.status === "success"
-                          ? "OK"
-                          : log.status === "error"
-                            ? "Err"
-                            : log.status === "partial"
-                              ? "Part."
-                              : "..."}
+                      <span className={log.status === "success" ? "text-green-600" : log.status === "error" ? "text-destructive" : "text-amber-600"}>
+                        {log.status === "success" ? "OK" : log.status === "error" ? "Err" : "..."}
                       </span>
                       <span>{log.direction}</span>
                       <span>+{log.rowsCreated} ~{log.rowsUpdated} -{log.rowsDeleted}</span>
@@ -302,6 +271,7 @@ export function SyncConfigPanel({
           type="text"
           value={externalId}
           onChange={(e) => setExternalId(e.target.value)}
+          onMouseDown={stopMouse}
           placeholder={provider === "airtable" ? "baseId/tableId" : "database_id Notion"}
           className="w-full px-2 py-1 text-xs rounded border border-input bg-background"
         />
@@ -309,6 +279,7 @@ export function SyncConfigPanel({
           type="password"
           value={credentials}
           onChange={(e) => setCredentials(e.target.value)}
+          onMouseDown={stopMouse}
           placeholder={provider === "airtable" ? "Token Airtable (pat_...)" : "Token Notion (ntn_...)"}
           className="w-full px-2 py-1 text-xs rounded border border-input bg-background"
         />
@@ -317,6 +288,7 @@ export function SyncConfigPanel({
           <select
             value={syncMode}
             onChange={(e) => setSyncMode(e.target.value)}
+            onMouseDown={stopMouse}
             className="px-2 py-1 text-xs rounded border border-input bg-background"
           >
             <option value="manual">Manuel</option>
@@ -327,6 +299,7 @@ export function SyncConfigPanel({
             <select
               value={syncInterval}
               onChange={(e) => setSyncInterval(parseInt(e.target.value))}
+              onMouseDown={stopMouse}
               className="px-2 py-1 text-xs rounded border border-input bg-background"
             >
               <option value={5}>5 min</option>

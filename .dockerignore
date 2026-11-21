@@ -39,6 +39,7 @@ docker/
 
 # Documentation
 docs/
+!docs/kb/
 *.md
 LICENSE
 

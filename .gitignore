@@ -1,5 +1,3 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
 # dependencies
 /node_modules
 /.pnp
@@ -14,6 +12,8 @@
 /coverage
 /playwright-report/
 /test-results/
+/e2e/__screenshots__/
+/e2e/.artifacts/
 
 # next.js
 /.next/
@@ -40,8 +40,9 @@ yarn-error.log*
 # workspaces (volumes git des espaces)
 /workspaces/
 
-# données locales (recordings, etc.)
+# données locales (enregistrements, etc.)
 /data/
+/recordings/
 
 # serwist (service worker generated at build time)
 /public/sw.js
@@ -55,17 +56,23 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# Superpowers working files
-docs/superpowers/
+# identifiants temporaires et CSV source des comptes (ne jamais committer)
+credentials.txt
+users.csv
 
-# Méta locale (non destinée au repo public)
+# sauvegardes de base produites à la main
+*.dump
+
+# scratch local (captures d'écran, exports ad hoc)
+tmp/
+
+# fichiers de travail locaux, hors dépôt public
+docs/superpowers/
+/.superpowers/
+/.claude/
+/graphify-out/
 /BRIEF.md
 /AUDIT-PRECOPIE.md
-/CLAUDE.md
-/.claude/
-/CURRENT_WORK.md
 /AUDIT-2026-07.md
-
-
-# Espace de travail SDD (local, non versionné)
-/.superpowers/
+/CLAUDE.md
+/CURRENT_WORK.md

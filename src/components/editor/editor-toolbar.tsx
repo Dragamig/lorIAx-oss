@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import type { Editor } from "@tiptap/react";
 import {
   Bold,
@@ -23,6 +24,7 @@ import {
   Heading3,
 } from "lucide-react";
 import { LinkDialog } from "./link-dialog";
+import { requestImagePicker } from "./media-insert";
 
 interface ToolbarProps {
   editor: Editor;
@@ -43,6 +45,7 @@ function ToolbarButton({
     <button
       onClick={onClick}
       title={title}
+      aria-label={title}
       className={`p-1.5 rounded cursor-pointer hover:bg-muted active:bg-muted/80 active:translate-y-px transition-all dark:hover:bg-muted/50 dark:active:bg-muted/80 ${
         isActive ? "bg-muted text-primary dark:bg-muted/60" : "text-muted-foreground hover:text-foreground"
       }`}
@@ -58,6 +61,7 @@ function Separator() {
 
 export function EditorToolbar({ editor }: ToolbarProps) {
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+  const tDoc = useTranslations("document");
 
   return (
     <>
@@ -266,26 +270,8 @@ export function EditorToolbar({ editor }: ToolbarProps) {
           <LinkIcon className="h-4 w-4" />
         </ToolbarButton>
         <ToolbarButton
-          onClick={() => {
-            const input = document.createElement("input");
-            input.type = "file";
-            input.accept = "image/*";
-            input.onchange = (e) => {
-              const file = (e.target as HTMLInputElement).files?.[0];
-              if (!file) return;
-              const reader = new FileReader();
-              reader.onload = () => {
-                editor
-                  .chain()
-                  .focus()
-                  .setImage({ src: reader.result as string })
-                  .run();
-              };
-              reader.readAsDataURL(file);
-            };
-            input.click();
-          }}
-          title="Image"
+          onClick={() => requestImagePicker(editor)}
+          title={tDoc("insertImage")}
         >
           <ImageIcon className="h-4 w-4" />
         </ToolbarButton>
@@ -296,10 +282,17 @@ export function EditorToolbar({ editor }: ToolbarProps) {
         onOpenChange={setLinkDialogOpen}
         onConfirm={(url, text) => {
           if (text && editor.state.selection.empty) {
+            // Insertion structurée (noeud texte + mark link) plutôt qu'une
+            // chaine HTML interpolee : url et text ne sont jamais parses comme
+            // du HTML, ce qui elimine l'injection (XSS).
             editor
               .chain()
               .focus()
-              .insertContent(`<a href="${url}">${text}</a>`)
+              .insertContent({
+                type: "text",
+                text,
+                marks: [{ type: "link", attrs: { href: url } }],
+              })
               .run();
           } else {
             editor.chain().focus().setLink({ href: url }).run();

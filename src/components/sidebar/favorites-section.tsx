@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import Link from "next/link";
+import { Link } from "@/i18n/routing";
+import { useTranslations } from "next-intl";
 import {
   DndContext,
   DragOverlay,
@@ -28,6 +29,7 @@ import {
   LayoutTemplate,
   CalendarDays,
   Video,
+  Database,
   GripVertical,
   type LucideIcon,
 } from "lucide-react";
@@ -35,7 +37,7 @@ import { cn } from "@/lib/utils";
 import { useFavoritesContext, type ResolvedFavorite } from "@/hooks/use-favorites";
 import { CollapsibleSection } from "./collapsible-section";
 
-// ─── Helper : icône par type d'entité ───────────────────────────────────────
+// ─── Helper : icon by entity type ───────────────────────────────────────────
 
 function getEntityIcon(entityType: string): LucideIcon {
   switch (entityType) {
@@ -49,19 +51,25 @@ function getEntityIcon(entityType: string): LucideIcon {
       return CalendarDays;
     case "meeting":
       return Video;
+    case "database":
+      return Database;
     default:
       return FileText;
   }
 }
 
-// ─── Élément favori triable ─────────────────────────────────────────────────
+// ─── Sortable favorite item ──────────────────────────────────────────────────
 
 function SortableFavoriteItem({
   favorite,
   onRemove,
+  removeLabel,
+  removeAriaLabel,
 }: {
   favorite: ResolvedFavorite;
   onRemove: () => void;
+  removeLabel: string;
+  removeAriaLabel: string;
 }) {
   const {
     attributes,
@@ -107,7 +115,8 @@ function SortableFavoriteItem({
             onRemove();
           }}
           className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-yellow-500 transition-opacity shrink-0"
-          title="Retirer des favoris"
+          title={removeLabel}
+          aria-label={removeAriaLabel}
         >
           <Star className="h-3.5 w-3.5 fill-current text-yellow-500" size={14} />
         </button>
@@ -116,9 +125,10 @@ function SortableFavoriteItem({
   );
 }
 
-// ─── Section Favoris ────────────────────────────────────────────────────────
+// ─── Favorites section ───────────────────────────────────────────────────────
 
 export function FavoritesSection() {
+  const t = useTranslations("shell.sidebar");
   const { favorites, reorderFavorites, toggleFavorite } =
     useFavoritesContext();
 
@@ -159,14 +169,14 @@ export function FavoritesSection() {
   return (
     <CollapsibleSection
       id="favorites"
-      title="Favoris"
+      title={t("favorites")}
       icon={Star}
       count={favorites.length}
     >
       {favorites.length === 0 ? (
         <div className="px-3 py-2">
           <p className="text-xs text-muted-foreground px-2 py-4">
-            Cliquez ★ pour ajouter
+            {t("clickToAddFavorites")}
           </p>
         </div>
       ) : (
@@ -188,6 +198,8 @@ export function FavoritesSection() {
                   onRemove={() =>
                     toggleFavorite(fav.entityType, fav.entityId)
                   }
+                  removeLabel={t("removeFromFavorites")}
+                  removeAriaLabel={t("removeFavoriteAria")}
                 />
               ))}
             </ul>

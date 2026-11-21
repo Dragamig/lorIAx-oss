@@ -1,0 +1,603 @@
+{
+  "format": "bento/slides",
+  "version": 1,
+  "title": "Support de formation",
+  "size": {
+    "width": 1280,
+    "height": 720
+  },
+  "theme": {
+    "background": "#FFFFFF",
+    "color": "#1E2A3A",
+    "accent": "#F7A600",
+    "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+  },
+  "slides": [
+    {
+      "id": "training-s1",
+      "background": "#1E2A3A",
+      "transition": "fade",
+      "notes": "Indiquer le titre, la durée et le public de la formation.",
+      "elements": [
+        {
+          "id": "training-s1-kicker",
+          "type": "text",
+          "x": 96,
+          "y": 236,
+          "w": 900,
+          "h": 32,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "FORMATION",
+          "fontSize": 16,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 600,
+          "color": "#F7A600",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25,
+          "letterSpacing": 3,
+          "role": "kicker"
+        },
+        {
+          "id": "training-s1-bar",
+          "type": "shape",
+          "shape": "rect",
+          "x": 96,
+          "y": 284,
+          "w": 64,
+          "h": 6,
+          "rotation": 0,
+          "opacity": 1,
+          "fill": "#F7A600",
+          "stroke": "transparent",
+          "strokeWidth": 0,
+          "radius": 2
+        },
+        {
+          "id": "training-s1-title",
+          "type": "text",
+          "x": 96,
+          "y": 304,
+          "w": 1088,
+          "h": 120,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Titre de la formation",
+          "fontSize": 60,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 700,
+          "color": "#FFFFFF",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.15,
+          "role": "title"
+        },
+        {
+          "id": "training-s1-sub",
+          "type": "text",
+          "x": 96,
+          "y": 436,
+          "w": 1088,
+          "h": 48,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Formateur · Durée · Public concerné",
+          "fontSize": 24,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 400,
+          "color": "#C9D3E0",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25,
+          "role": "subtitle"
+        }
+      ]
+    },
+    {
+      "id": "training-s2",
+      "background": "#FFFFFF",
+      "transition": "fade",
+      "notes": "Formuler chaque objectif avec un verbe d'action observable.",
+      "elements": [
+        {
+          "id": "training-s2-title",
+          "type": "text",
+          "x": 96,
+          "y": 56,
+          "w": 1088,
+          "h": 68,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Objectifs",
+          "fontSize": 38,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 700,
+          "color": "#1E2A3A",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25,
+          "role": "title"
+        },
+        {
+          "id": "training-s2-rule",
+          "type": "shape",
+          "shape": "rect",
+          "x": 96,
+          "y": 134,
+          "w": 1088,
+          "h": 3,
+          "rotation": 0,
+          "opacity": 1,
+          "fill": "#F7A600",
+          "stroke": "transparent",
+          "strokeWidth": 0,
+          "radius": 2
+        },
+        {
+          "id": "training-s2-body",
+          "type": "text",
+          "x": 96,
+          "y": 168,
+          "w": 1088,
+          "h": 456,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "• À la fin de la formation, vous saurez faire ceci<br>• Vous saurez expliquer cela<br>• Exemple : créer et partager un tableau de suivi en autonomie",
+          "fontSize": 26,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 400,
+          "color": "#45566B",
+          "align": "left",
+          "valign": "top",
+          "lineHeight": 1.6,
+          "role": "body"
+        }
+      ]
+    },
+    {
+      "id": "training-s3",
+      "background": "#FFFFFF",
+      "transition": "fade",
+      "notes": "Adapter les séquences et les durées à la session.",
+      "elements": [
+        {
+          "id": "training-s3-title",
+          "type": "text",
+          "x": 96,
+          "y": 56,
+          "w": 1088,
+          "h": 68,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Programme",
+          "fontSize": 38,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 700,
+          "color": "#1E2A3A",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25,
+          "role": "title"
+        },
+        {
+          "id": "training-s3-rule",
+          "type": "shape",
+          "shape": "rect",
+          "x": 96,
+          "y": 134,
+          "w": 1088,
+          "h": 3,
+          "rotation": 0,
+          "opacity": 1,
+          "fill": "#F7A600",
+          "stroke": "transparent",
+          "strokeWidth": 0,
+          "radius": 2
+        },
+        {
+          "id": "training-s3-table",
+          "type": "table",
+          "x": 96,
+          "y": 176,
+          "w": 1088,
+          "h": 238,
+          "rotation": 0,
+          "opacity": 1,
+          "header": true,
+          "columns": [
+            {
+              "w": 1.4
+            },
+            {
+              "w": 0.8
+            },
+            {
+              "w": 2.4
+            }
+          ],
+          "rows": [
+            {
+              "cells": [
+                {
+                  "html": "Séquence"
+                },
+                {
+                  "html": "Durée"
+                },
+                {
+                  "html": "Contenu"
+                }
+              ]
+            },
+            {
+              "cells": [
+                {
+                  "html": "Introduction"
+                },
+                {
+                  "html": "15 min"
+                },
+                {
+                  "html": "Tour de table et attentes"
+                }
+              ]
+            },
+            {
+              "cells": [
+                {
+                  "html": "Partie 1"
+                },
+                {
+                  "html": "45 min"
+                },
+                {
+                  "html": "Notions de base et démonstration"
+                }
+              ]
+            },
+            {
+              "cells": [
+                {
+                  "html": "Partie 2"
+                },
+                {
+                  "html": "45 min"
+                },
+                {
+                  "html": "Exercice pratique en binôme"
+                }
+              ]
+            },
+            {
+              "cells": [
+                {
+                  "html": "Synthèse"
+                },
+                {
+                  "html": "15 min"
+                },
+                {
+                  "html": "Questions et suite à donner"
+                }
+              ]
+            }
+          ],
+          "style": {
+            "headerBg": "#1E2A3A",
+            "headerColor": "#FFFFFF",
+            "zebra": "rgba(30,42,58,0.05)",
+            "borderColor": "rgba(30,42,58,0.14)",
+            "borderWidth": 1,
+            "cellPadX": 16,
+            "cellPadY": 11,
+            "fontSize": 18,
+            "color": "#1E2A3A",
+            "radius": 10
+          }
+        }
+      ]
+    },
+    {
+      "id": "training-s4",
+      "background": "#1E2A3A",
+      "transition": "fade",
+      "notes": "Dupliquer cette diapositive pour ouvrir chaque partie.",
+      "elements": [
+        {
+          "id": "training-s4-kicker",
+          "type": "text",
+          "x": 96,
+          "y": 276,
+          "w": 800,
+          "h": 32,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "PARTIE 1",
+          "fontSize": 16,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 600,
+          "color": "#F7A600",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25,
+          "letterSpacing": 3,
+          "role": "kicker"
+        },
+        {
+          "id": "training-s4-bar",
+          "type": "shape",
+          "shape": "rect",
+          "x": 96,
+          "y": 320,
+          "w": 64,
+          "h": 6,
+          "rotation": 0,
+          "opacity": 1,
+          "fill": "#F7A600",
+          "stroke": "transparent",
+          "strokeWidth": 0,
+          "radius": 2
+        },
+        {
+          "id": "training-s4-title",
+          "type": "text",
+          "x": 96,
+          "y": 340,
+          "w": 1088,
+          "h": 100,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Titre de la partie",
+          "fontSize": 52,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 700,
+          "color": "#FFFFFF",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25,
+          "role": "title"
+        }
+      ]
+    },
+    {
+      "id": "training-s5",
+      "background": "#FFFFFF",
+      "transition": "fade",
+      "notes": "Une notion par diapositive. Dupliquer autant de fois que nécessaire.",
+      "elements": [
+        {
+          "id": "training-s5-title",
+          "type": "text",
+          "x": 96,
+          "y": 56,
+          "w": 1088,
+          "h": 68,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Notion clé",
+          "fontSize": 38,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 700,
+          "color": "#1E2A3A",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25,
+          "role": "title"
+        },
+        {
+          "id": "training-s5-rule",
+          "type": "shape",
+          "shape": "rect",
+          "x": 96,
+          "y": 134,
+          "w": 1088,
+          "h": 3,
+          "rotation": 0,
+          "opacity": 1,
+          "fill": "#F7A600",
+          "stroke": "transparent",
+          "strokeWidth": 0,
+          "radius": 2
+        },
+        {
+          "id": "training-s5-left-head",
+          "type": "text",
+          "x": 96,
+          "y": 168,
+          "w": 520,
+          "h": 40,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "À retenir",
+          "fontSize": 22,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 700,
+          "color": "#1E2A3A",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25
+        },
+        {
+          "id": "training-s5-left",
+          "type": "text",
+          "x": 96,
+          "y": 220,
+          "w": 520,
+          "h": 404,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "• La définition, en une phrase<br>• La règle à appliquer<br>• L'erreur la plus fréquente",
+          "fontSize": 22,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 400,
+          "color": "#45566B",
+          "align": "left",
+          "valign": "top",
+          "lineHeight": 1.6,
+          "role": "body"
+        },
+        {
+          "id": "training-s5-right-head",
+          "type": "text",
+          "x": 664,
+          "y": 168,
+          "w": 520,
+          "h": 40,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Exemple",
+          "fontSize": 22,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 700,
+          "color": "#1E2A3A",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25
+        },
+        {
+          "id": "training-s5-right",
+          "type": "text",
+          "x": 664,
+          "y": 220,
+          "w": 520,
+          "h": 404,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "• Un cas concret tiré du quotidien des participants<br>• Le résultat attendu<br>• Ce qui change par rapport à l'ancienne pratique",
+          "fontSize": 22,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 400,
+          "color": "#45566B",
+          "align": "left",
+          "valign": "top",
+          "lineHeight": 1.6,
+          "role": "body"
+        }
+      ]
+    },
+    {
+      "id": "training-s6",
+      "background": "#FFFFFF",
+      "transition": "fade",
+      "notes": "Donner une consigne courte, une durée et un mode de restitution.",
+      "elements": [
+        {
+          "id": "training-s6-title",
+          "type": "text",
+          "x": 96,
+          "y": 56,
+          "w": 1088,
+          "h": 68,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Exercice",
+          "fontSize": 38,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 700,
+          "color": "#1E2A3A",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25,
+          "role": "title"
+        },
+        {
+          "id": "training-s6-rule",
+          "type": "shape",
+          "shape": "rect",
+          "x": 96,
+          "y": 134,
+          "w": 1088,
+          "h": 3,
+          "rotation": 0,
+          "opacity": 1,
+          "fill": "#F7A600",
+          "stroke": "transparent",
+          "strokeWidth": 0,
+          "radius": 2
+        },
+        {
+          "id": "training-s6-body",
+          "type": "text",
+          "x": 96,
+          "y": 168,
+          "w": 1088,
+          "h": 456,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "• Consigne : ce que les participants doivent produire<br>• Durée : 20 minutes, en binôme<br>• Restitution : deux binômes présentent leur résultat",
+          "fontSize": 26,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 400,
+          "color": "#45566B",
+          "align": "left",
+          "valign": "top",
+          "lineHeight": 1.6,
+          "role": "body"
+        }
+      ]
+    },
+    {
+      "id": "training-s7",
+      "background": "#FFFFFF",
+      "transition": "fade",
+      "notes": "Terminer par les points clés et les ressources utiles.",
+      "elements": [
+        {
+          "id": "training-s7-title",
+          "type": "text",
+          "x": 96,
+          "y": 56,
+          "w": 1088,
+          "h": 68,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Synthèse et ressources",
+          "fontSize": 38,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 700,
+          "color": "#1E2A3A",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25,
+          "role": "title"
+        },
+        {
+          "id": "training-s7-rule",
+          "type": "shape",
+          "shape": "rect",
+          "x": 96,
+          "y": 134,
+          "w": 1088,
+          "h": 3,
+          "rotation": 0,
+          "opacity": 1,
+          "fill": "#F7A600",
+          "stroke": "transparent",
+          "strokeWidth": 0,
+          "radius": 2
+        },
+        {
+          "id": "training-s7-body",
+          "type": "text",
+          "x": 96,
+          "y": 168,
+          "w": 1088,
+          "h": 456,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "• Les trois points à retenir<br>• Où trouver le support et la documentation<br>• La personne à contacter en cas de question",
+          "fontSize": 26,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 400,
+          "color": "#45566B",
+          "align": "left",
+          "valign": "top",
+          "lineHeight": 1.6,
+          "role": "body"
+        }
+      ]
+    }
+  ],
+  "modified": "2026-11-16T00:00:00.000Z"
+}

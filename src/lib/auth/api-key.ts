@@ -14,6 +14,8 @@ export const API_KEY_SCOPES = [
   "webhooks",
   "calendars:read",
   "calendars:write",
+  "media:read",
+  "media:write",
 ] as const;
 
 export type ApiKeyScope = (typeof API_KEY_SCOPES)[number];
@@ -52,6 +54,7 @@ export async function resolveApiKey(key: string): Promise<{
   email: string;
   name: string;
   globalRole: string; // DB enum retourne string, narrowing fait côté consommateur
+  capabilities: string[];
   scopes: ApiKeyScope[];
   keyId: string;
 } | null> {
@@ -69,6 +72,7 @@ export async function resolveApiKey(key: string): Promise<{
       email: users.email,
       name: users.name,
       globalRole: users.globalRole,
+      capabilities: users.capabilities,
     })
     .from(apiKeys)
     .innerJoin(users, eq(apiKeys.userId, users.id))
@@ -96,6 +100,7 @@ export async function resolveApiKey(key: string): Promise<{
     email: row.email,
     name: row.name,
     globalRole: row.globalRole,
+    capabilities: (row.capabilities as string[]) ?? [],
     scopes: (row.scopes as ApiKeyScope[]) || [],
     keyId: row.keyId,
   };

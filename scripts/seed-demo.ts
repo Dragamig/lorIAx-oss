@@ -6,12 +6,15 @@
  *  - 1 espace équipe "InnoDev" avec dépôt git initialisé
  *  - ~13 documents inter-liés via wiki-links
  *  - 1 base de données utilisateur "Clients InnoDev" (5 colonnes, 10 lignes)
+ *  - 1 workflow autonome "Compte-rendu de réunion" + bloc bouton dans un doc
  *  - 1 calendrier équipe + événements de la semaine (dont 2 visios)
  *  - 2 réunions visio LiveKit reliées aux événements
+ *  - Réservations de salles pour les événements présentiels
+ *  - 8 tâches assignées aux membres
  *
  * Idempotent : ne fait rien si l'espace "InnoDev" existe déjà.
  *
- * Prérequis : seed-dev-users.ts (admin@loriax.dev)
+ * Prérequis : seed-dev-users.ts (admin@loriax.dev) + seed-meeting-rooms.ts (Salle Atlas/Mercure)
  *
  * Usage : npm run db:seed:demo
  */
@@ -26,9 +29,16 @@ import {
   calendarEvents,
   calendarEventAttendees,
   meetings,
+  meetingRooms,
+  meetingRoomBookings,
   userDatabases,
   userDatabaseColumns,
   userDatabaseRows,
+  userDatabaseAutomations,
+  tasks,
+  systemSettings,
+  dashboards,
+  dashboardWidgets,
 } from "../src/lib/db/schema";
 import { organizations, organizationMembers } from "../src/lib/db/schema-org";
 import { eq } from "drizzle-orm";
@@ -80,7 +90,7 @@ Nous sommes une équipe pluridisciplinaire de 18 personnes répartie entre Paris
 
 ## Référents
 
-- Direction : Flavien (CEO)
+- Direction : Camille Durand (CEO)
 - Produit : Marie Lambert
 - Ingénierie : Thomas Bernard
 - Design : Sophie Roux
@@ -177,7 +187,7 @@ Notre processus est court et respectueux — 5 étapes maximum sur 2 semaines.
 2. **Échange découverte** — 30 min visio avec le manager.
 3. **Étude de cas** — exercice asynchrone de 2h max, jamais de travail gratuit.
 4. **Restitution** — 1h avec 2 collègues du futur métier.
-5. **Échange culture & rémunération** — 45 min avec Flavien.
+5. **Échange culture & rémunération** — 45 min avec Camille.
 
 ## Postes ouverts T2 2026
 
@@ -245,7 +255,7 @@ Visio  : LiveKit + transcription Whisper
 1. **Frugalité d'abord** — pas de Kafka, pas de microservices, pas de cloud lock-in.
 2. **Fichiers Markdown comme base** — versionning git par espace, durable.
 3. **Sécurité par défaut** — classification documentaire, SSRF, CSP nonce, rate limiting.
-4. **Auto-hébergement** — Docker Compose + Dokploy + Traefik.
+4. **Auto-hébergement** — Docker Compose + Traefik.
 
 ## Modules clés
 
@@ -275,7 +285,7 @@ Objectif : reprise complète de service en moins de 4h après un incident majeur
 | Scénario | RTO | RPO | Procédure |
 |---|---|---|---|
 | Panne base de données | 1h | 5 min | Restauration depuis B2 + replay WAL |
-| Incendie data center | 4h | 1h | Re-déploiement Dokploy sur VPS de secours Hetzner |
+| Incendie data center | 4h | 1h | Re-déploiement sur un VPS de secours |
 | Compromission credentials | 30 min | 0 | Rotation immédiate + invalidation JWT |
 | Cyber-attaque DDoS | 15 min | 0 | Bascule Cloudflare + rate-limit Traefik |
 
@@ -309,14 +319,14 @@ Voir : [[procedure-incident-securite]]
 ## Jour 1 — Setup
 
 - Compte créé sur LorIAx (admin Élodie).
-- Clé SSH ajoutée à GitHub + Dokploy.
+- Clé SSH ajoutée à GitHub.
 - Onboarding sécurité : 1Password, 2FA, signature commits GPG.
 - Café avec ton parrain de pair-programming.
 
 ## Jour 2 — Découverte produit
 
 - Lecture de la [[roadmap-2026]] et du [[manuel-accueil]].
-- Tour rapide du repo : structure du code (\`src\`, \`docker\`, \`scripts\`, \`docs\`).
+- Tour rapide du repo : \`loriax-app\`, \`loriax-web\`, \`loriax-license-manager\`.
 - Première pull request : correction d'un bug mineur étiqueté \`good-first-issue\`.
 
 ## Jour 3-5 — Immersion
@@ -328,13 +338,13 @@ Voir : [[procedure-incident-securite]]
 ## Conventions de code
 
 - Branches : \`type/scope-courte-description\` (ex : \`fix/auth-refresh-loop\`).
-- Commits Conventional Commits + signature "Développé avec l'aide d'une IA par Flavien" si IA utilisée.
+- Commits Conventional Commits + signature "Développé avec l'aide d'une IA" si IA utilisée.
 - Tests : Jest + Playwright. Une feature = un test E2E minimum.
 
 ## Outils
 
 - Éditeur : VS Code ou Cursor.
-- Terminal : Kitty configuré par Flavien.
+- Terminal : Kitty configuré par Camille.
 - Browser : Firefox Developer Edition.
 
 Voir : [[processus-recrutement]] · [[politique-teletravail]]
@@ -364,7 +374,7 @@ Pilotée par [[manuel-accueil|Léo Martin]] — point d'étape hebdomadaire le m
 ## Outils
 
 - CRM HubSpot synchronisé avec la base [[clients-innodev|Clients InnoDev]].
-- Démos sur \`demo.loriax.fr\`.
+- Démos sur \`demo.example.com\`.
 - Tarification HT publiée — voir [[roadmap-2026]].
 
 ## Évènements
@@ -381,7 +391,7 @@ Voir : [[comex-12-mai]]
     slug: "comex-12-mai",
     content: `# Compte rendu COMEX du 12 mai 2026
 
-Présents : Flavien, Marie Lambert, Thomas Bernard, Sophie Roux, Léo Martin, Élodie Petit.
+Présents : Camille, Marie Lambert, Thomas Bernard, Sophie Roux, Léo Martin, Élodie Petit.
 
 ## Décisions
 
@@ -429,7 +439,7 @@ Activée dès qu'un événement compromet la confidentialité, l'intégrité ou 
 
 ## Communication (30 min - 4h)
 
-- Clients impactés : email + statut sur \`status.loriax.fr\`.
+- Clients impactés : email + statut sur \`status.example.com\`.
 - CNIL si données personnelles : sous 72h.
 - Équipe interne : Slack \`#secu-incidents\`.
 
@@ -459,6 +469,12 @@ Source de vérité — synchronisée chaque nuit avec HubSpot.
 - **ARR** : annualisé en euros HT.
 - Mise à jour : Léo (commercial) + Élodie (signature).
 
+## Workflow rapide
+
+Un clic crée un compte-rendu de réunion prêt à remplir (workflow autonome, sans base liée).
+
+<div data-type="automation-button" data-mode="workflow" data-automation-id="__DEMO_WORKFLOW_ID__" data-automation-name="Compte-rendu de réunion" data-label="Nouveau compte-rendu de réunion"></div>
+
 Voir : [[strategie-commerciale-q2]]
 `,
     createdBy: "00000000-0000-0000-0000-000000000104",
@@ -469,6 +485,8 @@ Voir : [[strategie-commerciale-q2]]
     content: `# Présentation logo InnoDev
 
 Maquette officielle — version validée en COMEX du [[comex-12-mai|12 mai 2026]].
+
+<div data-type="design-block" data-design-id="__LOGO_DESIGN_ID__" title="Logo InnoDev — version finale"></div>
 
 ## Déclinaisons
 
@@ -483,6 +501,32 @@ Toujours conserver une marge égale à la hauteur du "I" autour du symbole.
 Voir : [[charte-graphique]]
 `,
     createdBy: "00000000-0000-0000-0000-000000000103",
+  },
+  {
+    title: "Tableau de bord commercial",
+    slug: "tableau-de-bord-commercial",
+    content: `# Tableau de bord commercial
+
+Vue de synthèse pour le COMEX — données live, sans duplication.
+
+## Comptes clients — vue liée (lecture seule)
+
+La base **Clients InnoDev** est intégrée ici en lecture seule. Le tri et les
+filtres appliqués ci-dessous sont **propres à ce document** : la base source
+n'est jamais modifiée.
+
+<div data-type="database-block" data-database-id="__CLIENTS_DB_ID__" data-database-name="Clients InnoDev" data-view-mode="table" data-read-only="true" data-linked="true"></div>
+
+## Premiers pas — synchronisé depuis le manuel
+
+Le bloc ci-dessous reflète **en direct** la section « Premiers pas » du
+[[manuel-accueil]] : toute mise à jour du manuel s'y répercute à l'ouverture.
+
+<div data-type="synced-block" data-source-document-id="__DOCID:manuel-accueil__" data-source-title="Manuel d'accueil InnoDev" data-source-space-slug="${TEAM_SPACE_SLUG}" data-mode="section" data-anchor="Premiers pas"></div>
+
+Voir : [[clients-innodev]], [[manuel-accueil]]
+`,
+    createdBy: "00000000-0000-0000-0000-000000000104",
   },
 ];
 
@@ -560,7 +604,7 @@ async function main() {
   });
   await initRepository(teamRepoPath);
 
-  // Permissions : admin pour Flavien, éditeur pour le reste
+  // Permissions : admin pour Camille, éditeur pour le reste
   await db.insert(spacePermissions).values({ spaceId: teamSpaceId, userId: ADMIN_ID, level: "admin" });
   for (const u of DEMO_USERS) {
     await db.insert(spacePermissions).values({ spaceId: teamSpaceId, userId: u.id, level: "editor" });
@@ -584,6 +628,8 @@ async function main() {
     { name: "ARR (€ HT)", type: "number" as const, position: 2 },
     { name: "Statut", type: "select" as const, position: 3, config: { options: ["Prospect", "Démo", "Pilote", "Client", "Renouvellement"] } },
     { name: "Signature", type: "date" as const, position: 4 },
+    { name: "Responsable", type: "person" as const, position: 5 },
+    { name: "Fiche liée", type: "document_link" as const, position: 6 },
   ];
   const columnIds: Record<string, string> = {};
   for (const c of columns) {
@@ -599,20 +645,20 @@ async function main() {
     });
   }
 
-  const rows: Array<Record<string, string | number>> = [
-    { Compte: "Aurea Conseil",         Secteur: "Conseil",    "ARR (€ HT)": 24000, Statut: "Client",         Signature: "2026-02-14" },
-    { Compte: "Brillance Industries",  Secteur: "Industrie",  "ARR (€ HT)": 38000, Statut: "Pilote",         Signature: "2026-04-02" },
-    { Compte: "Clémence & Associés",   Secteur: "Conseil",    "ARR (€ HT)": 12000, Statut: "Client",         Signature: "2025-11-08" },
-    { Compte: "Mairie de Précigny",    Secteur: "Public",     "ARR (€ HT)":  8000, Statut: "Démo",           Signature: "" },
-    { Compte: "Institut Alcyone",      Secteur: "Recherche",  "ARR (€ HT)":  4000, Statut: "Client",         Signature: "2025-09-20" },
-    { Compte: "Hôpital de Précigny",   Secteur: "Santé",      "ARR (€ HT)": 18000, Statut: "Pilote",         Signature: "2026-03-21" },
-    { Compte: "OptiLog SAS",           Secteur: "Industrie",  "ARR (€ HT)": 22000, Statut: "Renouvellement", Signature: "2024-05-10" },
-    { Compte: "Cabinet Velours",       Secteur: "Conseil",    "ARR (€ HT)":  9000, Statut: "Prospect",       Signature: "" },
-    { Compte: "Pays de Roche-Majeur",  Secteur: "Public",     "ARR (€ HT)": 32000, Statut: "Démo",           Signature: "" },
-    { Compte: "Centre Méridien",       Secteur: "Recherche",  "ARR (€ HT)":  4000, Statut: "Client",         Signature: "2026-01-12" },
+  const rows: Array<Record<string, string | number | string[]>> = [
+    { Compte: "Aurea Conseil",         Secteur: "Conseil",    "ARR (€ HT)": 24000, Statut: "Client",         Signature: "2026-02-14", Responsable: [DEMO_USERS[0].id] },
+    { Compte: "Brillance Industries",  Secteur: "Industrie",  "ARR (€ HT)": 38000, Statut: "Pilote",         Signature: "2026-04-02", Responsable: [DEMO_USERS[1].id] },
+    { Compte: "Clémence & Associés",   Secteur: "Conseil",    "ARR (€ HT)": 12000, Statut: "Client",         Signature: "2025-11-08", Responsable: [DEMO_USERS[2].id] },
+    { Compte: "Mairie de Brest",       Secteur: "Public",     "ARR (€ HT)":  8000, Statut: "Démo",           Signature: "",           Responsable: [DEMO_USERS[3].id] },
+    { Compte: "CNRS Délégation IDF",   Secteur: "Recherche",  "ARR (€ HT)":  4000, Statut: "Client",         Signature: "2025-09-20", Responsable: [DEMO_USERS[4].id] },
+    { Compte: "Hôpital Saint-Joseph",  Secteur: "Santé",      "ARR (€ HT)": 18000, Statut: "Pilote",         Signature: "2026-03-21", Responsable: [DEMO_USERS[0].id] },
+    { Compte: "OptiLog SAS",           Secteur: "Industrie",  "ARR (€ HT)": 22000, Statut: "Renouvellement", Signature: "2024-05-10", Responsable: [DEMO_USERS[1].id] },
+    { Compte: "Cabinet Velours",       Secteur: "Conseil",    "ARR (€ HT)":  9000, Statut: "Prospect",       Signature: "",           Responsable: [DEMO_USERS[2].id] },
+    { Compte: "Région Auvergne",       Secteur: "Public",     "ARR (€ HT)": 32000, Statut: "Démo",           Signature: "",           Responsable: [DEMO_USERS[3].id] },
+    { Compte: "INRIA Sophia",          Secteur: "Recherche",  "ARR (€ HT)":  4000, Statut: "Client",         Signature: "2026-01-12", Responsable: [DEMO_USERS[4].id] },
   ];
   for (let i = 0; i < rows.length; i++) {
-    const cells: Record<string, string | number> = {};
+    const cells: Record<string, string | number | string[]> = {};
     for (const [name, value] of Object.entries(rows[i])) {
       cells[columnIds[name]] = value;
     }
@@ -624,17 +670,41 @@ async function main() {
   }
   console.log(`  ✓ Base "Clients InnoDev" (${columns.length} colonnes, ${rows.length} lignes)`);
 
+  // 4bis. Workflow autonome de démo (bouton dans un doc, sans base liée)
+  console.log("\n→ Workflow autonome 'Compte-rendu de réunion'");
+  const demoWorkflowId = randomUUID();
+  await db.insert(userDatabaseAutomations).values({
+    id: demoWorkflowId,
+    databaseId: null, // autonome
+    spaceId: teamSpaceId,
+    name: "Compte-rendu de réunion",
+    triggerType: "manual",
+    triggerConfig: {},
+    actionType: "create_document",
+    actionConfig: {
+      templateId: "builtin_compte-rendu-reunion",
+      title: "Compte-rendu de réunion",
+    },
+    enabled: true,
+    createdBy: "00000000-0000-0000-0000-000000000104",
+  });
+  console.log("  ✓ Workflow autonome créé (déclencheur bouton → create_document)");
+
   // 5. Documents — injecter les placeholders ID puis créer
   console.log("\n→ Documents InnoDev");
   const logoDesignId = randomUUID();
   const docIdBySlug: Record<string, string> = {};
+  // Pré-assignation des IDs : permet de référencer un document depuis un autre
+  // (ex. bloc synchronisé via le placeholder __DOCID:slug__) avant la boucle.
+  for (const d of docs) docIdBySlug[d.slug] = randomUUID();
   for (const d of docs) {
-    const id = randomUUID();
-    docIdBySlug[d.slug] = id;
+    const id = docIdBySlug[d.slug];
     const filePath = `${d.slug}.md`;
     const content = d.content
       .replace("__CLIENTS_DB_ID__", clientsDbId)
-      .replace("__LOGO_DESIGN_ID__", logoDesignId);
+      .replace("__LOGO_DESIGN_ID__", logoDesignId)
+      .replace("__DEMO_WORKFLOW_ID__", demoWorkflowId)
+      .replace(/__DOCID:([a-z0-9-]+)__/g, (_m, slug) => docIdBySlug[slug] ?? "");
 
     await db.insert(documents).values({
       id,
@@ -692,6 +762,10 @@ async function main() {
   });
   console.log("  ✓ Calendrier 'Équipe InnoDev'");
 
+  // 8. Salles de réunion — récupération (déjà créées par seed-meeting-rooms)
+  const atlas = await db.select().from(meetingRooms).where(eq(meetingRooms.name, "Salle Atlas")).limit(1);
+  const mercure = await db.select().from(meetingRooms).where(eq(meetingRooms.name, "Salle Mercure")).limit(1);
+
   // 9. Événements
   console.log("\n→ Événements du calendrier");
 
@@ -713,6 +787,7 @@ async function main() {
       color: "#1f3a5f",
       isVisio: true,
       documentSlug: "roadmap-2026",
+      roomId: null as string | null,
       attendees: [ADMIN_ID, "00000000-0000-0000-0000-000000000101", "00000000-0000-0000-0000-000000000102", "00000000-0000-0000-0000-000000000103"],
     },
     {
@@ -724,28 +799,31 @@ async function main() {
       color: "#f59e0b",
       isVisio: true,
       documentSlug: "roadmap-2026",
+      roomId: null as string | null,
       attendees: [ADMIN_ID, "00000000-0000-0000-0000-000000000101", "00000000-0000-0000-0000-000000000102"],
     },
     {
       title: "Onboarding Marie — Jour 4",
       description: "Atelier d'immersion avec son parrain (cf. onboarding ingénieur).",
-      location: "Bureau Paris",
+      location: "Salle Mercure",
       startAt: at("2026-05-14", "14:00"),
       endAt: at("2026-05-14", "15:00"),
       color: "#10b981",
       isVisio: false,
       documentSlug: "onboarding-ingenieur",
+      roomId: mercure[0]?.id ?? null,
       attendees: ["00000000-0000-0000-0000-000000000101", "00000000-0000-0000-0000-000000000102"],
     },
     {
       title: "Atelier RSE & frugalité",
       description: "Atelier ouvert à toute l'équipe — mesure de l'impact environnemental du produit.",
-      location: "Bureau Paris",
+      location: "Salle Atlas",
       startAt: at("2026-05-15", "09:30"),
       endAt: at("2026-05-15", "11:00"),
       color: "#22c55e",
       isVisio: false,
       documentSlug: "architecture-technique",
+      roomId: atlas[0]?.id ?? null,
       attendees: [ADMIN_ID, "00000000-0000-0000-0000-000000000102", "00000000-0000-0000-0000-000000000103", "00000000-0000-0000-0000-000000000105"],
     },
     {
@@ -757,6 +835,7 @@ async function main() {
       color: "#3b82f6",
       isVisio: true,
       documentSlug: "strategie-commerciale-q2",
+      roomId: null as string | null,
       attendees: [ADMIN_ID, "00000000-0000-0000-0000-000000000104"],
     },
     {
@@ -768,6 +847,7 @@ async function main() {
       color: "#a855f7",
       isVisio: false,
       documentSlug: "manuel-accueil",
+      roomId: null as string | null,
       attendees: [ADMIN_ID, "00000000-0000-0000-0000-000000000101", "00000000-0000-0000-0000-000000000102", "00000000-0000-0000-0000-000000000103", "00000000-0000-0000-0000-000000000104", "00000000-0000-0000-0000-000000000105"],
     },
   ];
@@ -807,12 +887,27 @@ async function main() {
       color: ev.color,
       documentId,
       meetingId,
+      meetingRoomId: ev.roomId,
       createdBy: ADMIN_ID,
     });
 
     // Lier le meeting à l'événement (calendarEventId)
     if (meetingId) {
       await db.update(meetings).set({ calendarEventId: eventId }).where(eq(meetings.id, meetingId));
+    }
+
+    // Réservation de salle si présentiel
+    if (ev.roomId) {
+      await db.insert(meetingRoomBookings).values({
+        roomId: ev.roomId,
+        userId: ADMIN_ID,
+        title: ev.title,
+        startAt: ev.startAt,
+        endAt: ev.endAt,
+        attendees: ev.attendees,
+        status: "confirmed",
+        calendarEventId: eventId,
+      });
     }
 
     // Participants
@@ -825,8 +920,86 @@ async function main() {
       });
     }
 
-    console.log(`  ✓ ${ev.title}${ev.isVisio ? " (visio)" : ""}`);
+    console.log(`  ✓ ${ev.title}${ev.isVisio ? " (visio)" : ev.roomId ? ` (${ev.location})` : ""}`);
   }
+
+  // 10. Tâches
+  console.log("\n→ Tâches");
+  const taskSeeds = [
+    { title: "Finaliser la maquette du Studio v2",        slug: "presentation-logo",         assignee: "00000000-0000-0000-0000-000000000103", due: at("2026-05-15", "17:00") },
+    { title: "Brancher LiveKit fallback self-hosted",     slug: "architecture-technique",    assignee: "00000000-0000-0000-0000-000000000102", due: at("2026-05-20", "17:00") },
+    { title: "Préparer la démo Aurea Conseil",            slug: "strategie-commerciale-q2",  assignee: "00000000-0000-0000-0000-000000000104", due: at("2026-05-18", "09:00") },
+    { title: "Rédiger l'annonce Account Executive",       slug: "processus-recrutement",     assignee: "00000000-0000-0000-0000-000000000105", due: at("2026-05-16", "18:00") },
+    { title: "Reformuler la charte couleurs",             slug: "charte-graphique",          assignee: "00000000-0000-0000-0000-000000000103", due: at("2026-05-22", "17:00") },
+    { title: "Tester restauration backup mensuelle",      slug: "plan-continuite",           assignee: "00000000-0000-0000-0000-000000000102", due: at("2026-05-23", "12:00") },
+    { title: "Mettre à jour les comptes clients en pilote", slug: "clients-innodev",         assignee: "00000000-0000-0000-0000-000000000104", due: at("2026-05-21", "17:00") },
+    { title: "Animer l'atelier RSE",                      slug: "manuel-accueil",            assignee: "00000000-0000-0000-0000-000000000105", due: at("2026-05-15", "11:00") },
+  ];
+  for (const t of taskSeeds) {
+    await db.insert(tasks).values({
+      kind: "document_item",
+      title: t.title,
+      status: "open",
+      dueAt: t.due,
+      assigneeId: t.assignee,
+      createdBy: ADMIN_ID,
+      documentId: docIdBySlug[t.slug],
+      nodeId: randomUUID(),
+    });
+  }
+  console.log(`  ✓ ${taskSeeds.length} tâches`);
+
+  // 11. Activer le module salles si pas déjà fait
+  await db
+    .insert(systemSettings)
+    .values({ key: "meeting_rooms_enabled", value: true, updatedAt: new Date() })
+    .onConflictDoUpdate({
+      target: systemSettings.key,
+      set: { value: true, updatedAt: new Date() },
+    });
+
+  // 12. Dashboard démo "Vue d'ensemble"
+  console.log("\n→ Dashboard démo");
+  // La colonne "Statut" (select, 5 options) de la base "Clients InnoDev" sert de group-by
+  const statutColumnId = columnIds["Statut"];
+  const [demoDashboard] = await db
+    .insert(dashboards)
+    .values({
+      spaceId: teamSpaceId,
+      name: "Vue d'ensemble",
+      description: "Dashboard d'exemple généré par le seed démo",
+      createdBy: ADMIN_ID,
+    })
+    .returning({ id: dashboards.id });
+
+  await db.insert(dashboardWidgets).values([
+    {
+      dashboardId: demoDashboard.id,
+      databaseId: clientsDbId,
+      type: "kpi",
+      title: "Total lignes",
+      position: 0,
+      size: "half",
+      config: {
+        filter: null,
+        aggregate: { fn: "count" },
+      },
+    },
+    {
+      dashboardId: demoDashboard.id,
+      databaseId: clientsDbId,
+      type: "bar",
+      title: "Par statut",
+      position: 1,
+      size: "half",
+      config: {
+        filter: null,
+        aggregate: { fn: "count" },
+        groupBy: { columnId: statutColumnId },
+      },
+    },
+  ]);
+  console.log(`  ✓ Dashboard "Vue d'ensemble" (KPI + graphe par statut)`);
 
   console.log("\n✅ Seed démo InnoDev terminé.");
   process.exit(0);

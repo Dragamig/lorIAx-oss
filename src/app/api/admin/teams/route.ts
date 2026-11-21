@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { teams, teamMembers, spaces, documents } from "@/lib/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { getSessionUser } from "@/lib/auth/get-user";
 import { hasGlobalRole } from "@/lib/auth/rbac";
 import slugify from "slugify";
@@ -9,13 +9,22 @@ import { initRepository } from "@/lib/git/repository";
 import { logActivity } from "@/lib/activity";
 import logger from "@/lib/logger";
 import { ensureTeamCalendar } from "@/lib/calendar/auto-provision";
-import { headers } from "next/headers";
-import { getOrgId, getOrgSlugFromHeaders } from "@/lib/org/get-org-id";
+import { createTeamChannel } from "@/lib/chat/channel-hooks";
+import { getRequestOrgId } from "@/lib/org/get-request-org";
 
 export async function GET() {
   const user = await getSessionUser();
   if (!user || !hasGlobalRole(user.globalRole, "admin")) {
     return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+  }
+
+  // Cloisonnement multi-tenant : ne lister que les équipes de l'org courante.
+  // Le rôle `admin` vaut DANS son organisation, il ne dispense pas d'y
+  // appartenir (audit AZ-06) : l'organisation est résolue avec contrôle
+  // d'appartenance, `null` = aucun accès, donc 404.
+  const orgId = await getRequestOrgId(user);
+  if (!orgId) {
+    return NextResponse.json({ error: "Organisation introuvable" }, { status: 404 });
   }
 
   const allTeams = await db
@@ -31,6 +40,7 @@ export async function GET() {
       )`.as("member_count"),
     })
     .from(teams)
+    .where(eq(teams.organizationId, orgId))
     .orderBy(teams.name);
 
   return NextResponse.json(allTeams);
@@ -42,10 +52,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
   }
 
-  const orgSlug = await getOrgSlugFromHeaders(headers);
-  const orgId = await getOrgId(orgSlug);
+  // Cloisonnement : une équipe ne peut naître que dans l'organisation dont
+  // l'administrateur est membre (audit AZ-06).
+  const orgId = await getRequestOrgId(user);
+  if (!orgId) {
+    return NextResponse.json({ error: "Organisation introuvable" }, { status: 404 });
+  }
 
-  const body = await request.json();
+  let body;
+  try {
+    body = await request.json();
+  } catch (err) {
+    logger.error({ err }, "[teams] Invalid JSON in POST request");
+    return NextResponse.json({ error: "Requête JSON invalide" }, { status: 400 });
+  }
   const { name, description } = body;
 
   if (!name) {
@@ -95,6 +115,16 @@ export async function POST(request: NextRequest) {
       logger.error({ err }, "[teams] Erreur création calendrier équipe")
     );
 
+    // Créer le canal de messagerie pour l'équipe
+    createTeamChannel({
+      teamId: team.id,
+      organizationId: orgId,
+      createdBy: user.id,
+      memberIds: [user.id],
+    }).catch((err) =>
+      logger.error({ err }, "[channel-hooks] Erreur création canal équipe")
+    );
+
     logActivity({
       userId: user.id,
       action: "create",
@@ -119,9 +149,31 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
   }
 
-  const { id } = await request.json();
+  let body;
+  try {
+    body = await request.json();
+  } catch (err) {
+    logger.error({ err }, "[teams] Invalid JSON in DELETE request");
+    return NextResponse.json({ error: "Requête JSON invalide" }, { status: 400 });
+  }
+  const { id } = body;
   if (!id) {
     return NextResponse.json({ error: "ID requis" }, { status: 400 });
+  }
+
+  // Cloisonnement : interdire la suppression d'une équipe hors de l'org
+  // courante, et n'accepter cette org que si l'administrateur en est membre.
+  const orgId = await getRequestOrgId(user);
+  if (!orgId) {
+    return NextResponse.json({ error: "Organisation introuvable" }, { status: 404 });
+  }
+  const [targetTeam] = await db
+    .select({ id: teams.id })
+    .from(teams)
+    .where(and(eq(teams.id, id), eq(teams.organizationId, orgId)))
+    .limit(1);
+  if (!targetTeam) {
+    return NextResponse.json({ error: "Équipe introuvable" }, { status: 404 });
   }
 
   // Supprimer les documents de l'espace associé, puis l'espace, puis l'équipe

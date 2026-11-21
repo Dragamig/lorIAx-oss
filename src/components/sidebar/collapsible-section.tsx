@@ -89,7 +89,7 @@ export function CollapsibleSection({
         {actions && <div className="flex items-center">{actions}</div>}
       </div>
 
-      {/* Contenu animé */}
+      {/* Animated content */}
       <div
         className="grid transition-[grid-template-rows] duration-300 ease-in-out"
         style={{ gridTemplateRows: isOpen ? "1fr" : "0fr" }}

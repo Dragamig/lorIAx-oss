@@ -1,16 +1,24 @@
+// SEC-M5 : route hors API v1 (/api/v1/), accessible uniquement par session cookie.
+// L'identité vient de getSessionUser() ; les clés API lrx_ ne peuvent pas l'atteindre.
+// Le contrôle d'accès au calendrier est checkCalendarAccess (lecture en GET, écriture en POST),
+// avec l'organisation de la requête (getRequestOrgId), protégeant contre les lectures et écritures cross-tenant.
 import { NextResponse, type NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import {
   calendarEvents,
   calendarEventAttendees,
   calendarEventReminders,
+  documents,
 } from "@/lib/db/schema";
 import { eq, and, gte, lte, or } from "drizzle-orm";
 import { getSessionUser } from "@/lib/auth/get-user";
+import { checkDocumentViewAccess } from "@/lib/auth/check-access";
 import { checkCalendarAccess } from "@/lib/calendar/permissions";
+import { getRequestOrgId } from "@/lib/org/get-request-org";
 import { expandRecurrence } from "@/lib/calendar/recurrence";
 import { z } from "zod";
 import crypto from "crypto";
+import { recordOnboardingEvent } from "@/lib/onboarding/progress";
 
 export async function GET(
   request: NextRequest,
@@ -20,7 +28,7 @@ export async function GET(
   if (!user) return NextResponse.json([], { status: 401 });
 
   const { id: calendarId } = await params;
-  const hasAccess = await checkCalendarAccess(user.id, calendarId, "read");
+  const hasAccess = await checkCalendarAccess(user.id, calendarId, "read", await getRequestOrgId(user));
   if (!hasAccess) return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
 
   const searchParams = request.nextUrl.searchParams;
@@ -158,6 +166,7 @@ const createEventSchema = z.object({
   dependsOnEventId: z.string().uuid().optional(),
   progress: z.number().int().min(0).max(100).optional(),
   documentId: z.string().uuid().optional(),
+  meetingRoomId: z.string().uuid().optional(),
   attendees: z.array(z.object({
     userId: z.string().uuid().optional(),
     email: z.string().email().optional(),
@@ -178,7 +187,7 @@ export async function POST(
   if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
 
   const { id: calendarId } = await params;
-  const hasAccess = await checkCalendarAccess(user.id, calendarId, "write");
+  const hasAccess = await checkCalendarAccess(user.id, calendarId, "write", await getRequestOrgId(user));
   if (!hasAccess) return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
 
   const body = await request.json();
@@ -194,6 +203,23 @@ export async function POST(
   const endAt = new Date(eventData.endAt);
   if (endAt < startAt) {
     return NextResponse.json({ error: "La date de fin doit être après la date de début" }, { status: 400 });
+  }
+
+  // Un documentId fourni par le client ne doit jamais être rattaché à
+  // l'événement sans vérifier que l'utilisateur a accès à ce document.
+  if (eventData.documentId) {
+    const [linkedDoc] = await db
+      .select({ spaceId: documents.spaceId })
+      .from(documents)
+      .where(eq(documents.id, eventData.documentId))
+      .limit(1);
+    if (!linkedDoc) {
+      return NextResponse.json({ error: "Document introuvable" }, { status: 404 });
+    }
+    const canViewDoc = await checkDocumentViewAccess(user, linkedDoc.spaceId, eventData.documentId);
+    if (!canViewDoc) {
+      return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+    }
   }
 
   // Generate iCalendar UID
@@ -217,6 +243,7 @@ export async function POST(
       dependsOnEventId: eventData.dependsOnEventId,
       progress: eventData.progress || 0,
       documentId: eventData.documentId,
+      meetingRoomId: eventData.meetingRoomId,
       uid,
       createdBy: user.id,
     })
@@ -260,6 +287,9 @@ export async function POST(
       }))
     );
   }
+
+  // Instrumentation onboarding : event créé (pas de spaceId direct, on coche dès la 1re fois)
+  recordOnboardingEvent(user.id, "event").catch(() => {});
 
   return NextResponse.json(event, { status: 201 });
 }

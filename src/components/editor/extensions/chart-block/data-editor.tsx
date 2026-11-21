@@ -13,6 +13,7 @@ import type Papa from "papaparse";
 import type { ChartConfig, DataSourceConfig, ChartDataRow } from "./types";
 import { CHART_TYPE_OPTIONS, DATA_SOURCE_OPTIONS } from "./constants";
 import { parseImportedData } from "./data-utils";
+import { stopMouse } from "../../utils/stop-mouse";
 
 // ─── Data Editor ─────────────────────────────────────────────────────────────
 
@@ -161,6 +162,7 @@ export function DataEditor({
           type="text"
           value={title}
           onChange={(e) => onChange({ title: e.target.value })}
+          onMouseDown={stopMouse}
           placeholder="Titre du graphique"
           className="flex-1 px-2 py-1 text-sm rounded border border-input bg-background"
         />
@@ -215,6 +217,7 @@ export function DataEditor({
                 type="url"
                 value={dataSource.url || ""}
                 onChange={(e) => onDataSourceChange({ ...dataSource, url: e.target.value })}
+                onMouseDown={stopMouse}
                 placeholder="https://api.exemple.com/data"
                 className="w-full px-2 py-1 text-xs rounded border border-input bg-background mt-0.5"
               />
@@ -225,6 +228,7 @@ export function DataEditor({
                 type="text"
                 value={dataSource.jsonPath || ""}
                 onChange={(e) => onDataSourceChange({ ...dataSource, jsonPath: e.target.value })}
+                onMouseDown={stopMouse}
                 placeholder="data.results"
                 className="w-full px-2 py-1 text-xs rounded border border-input bg-background mt-0.5"
               />
@@ -235,6 +239,7 @@ export function DataEditor({
               <select
                 value={dataSource.refreshInterval || 0}
                 onChange={(e) => onDataSourceChange({ ...dataSource, refreshInterval: parseInt(e.target.value) })}
+                onMouseDown={stopMouse}
                 className="px-2 py-1 text-xs rounded border border-input bg-background"
               >
                 <option value={0}>Manuelle</option>
@@ -276,6 +281,7 @@ export function DataEditor({
                     ...(gidMatch ? { gid: gidMatch[1] } : {}),
                   });
                 }}
+                onMouseDown={stopMouse}
                 placeholder="https://docs.google.com/spreadsheets/d/..."
                 className="w-full px-2 py-1 text-xs rounded border border-input bg-background mt-0.5"
               />
@@ -287,6 +293,7 @@ export function DataEditor({
                 type="text"
                 value={dataSource.gid || "0"}
                 onChange={(e) => onDataSourceChange({ ...dataSource, gid: e.target.value })}
+                onMouseDown={stopMouse}
                 placeholder="0"
                 className="w-20 px-2 py-1 text-xs rounded border border-input bg-background mt-0.5"
               />
@@ -296,6 +303,7 @@ export function DataEditor({
               <select
                 value={dataSource.refreshInterval || 0}
                 onChange={(e) => onDataSourceChange({ ...dataSource, refreshInterval: parseInt(e.target.value) })}
+                onMouseDown={stopMouse}
                 className="px-2 py-1 text-xs rounded border border-input bg-background"
               >
                 <option value={0}>Manuelle</option>
@@ -353,6 +361,7 @@ export function DataEditor({
                     type="text"
                     value={col}
                     onChange={(e) => renameColumn(col, e.target.value)}
+                    onMouseDown={stopMouse}
                     className="w-full bg-transparent border-none text-xs font-medium focus:outline-none focus:ring-1 focus:ring-primary rounded px-1"
                   />
                   {col !== labelKey && columns.length > 2 && (
@@ -381,6 +390,7 @@ export function DataEditor({
                       type={col === labelKey ? "text" : "number"}
                       value={row[col] ?? ""}
                       onChange={(e) => updateCell(ri, col, e.target.value)}
+                      onMouseDown={stopMouse}
                       className="w-full px-1 py-0.5 text-xs bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-primary rounded"
                     />
                   </td>

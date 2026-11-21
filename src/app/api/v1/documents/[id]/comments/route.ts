@@ -104,6 +104,25 @@ export async function POST(
   );
   if (!canEdit) return apiError("Accès refusé", 403);
 
+  // Le fil parent doit appartenir à CE document. Sans ce contrôle, `parentId`
+  // accrochait une réponse sous un commentaire d'un autre document, y compris
+  // d'un espace interdit : le fil visé s'en trouve pollué, et la différence
+  // entre identifiant existant et inexistant renseigne l'appelant sur des
+  // commentaires qu'il n'a pas le droit de lire.
+  if (parsed.data.parentId) {
+    const [parent] = await db
+      .select({ id: documentComments.id })
+      .from(documentComments)
+      .where(
+        and(
+          eq(documentComments.id, parsed.data.parentId),
+          eq(documentComments.documentId, id)
+        )
+      )
+      .limit(1);
+    if (!parent) return apiError("Commentaire parent introuvable", 404);
+  }
+
   const [created] = await db
     .insert(documentComments)
     .values({

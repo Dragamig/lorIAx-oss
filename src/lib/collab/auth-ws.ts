@@ -1,6 +1,6 @@
 import { jwtVerify } from "jose";
 import { db } from "@/lib/db";
-import { users, spacePermissions, documents } from "@/lib/db/schema";
+import { users, spacePermissions, documents, spaces } from "@/lib/db/schema";
 import { eq, and, or } from "drizzle-orm";
 import { canViewByClassification } from "@/lib/auth/rbac";
 import type { ClassificationLevel } from "@/lib/auth/classification";
@@ -12,6 +12,13 @@ interface WsUser {
   name: string;
   globalRole: string;
   avatarUrl: string | null;
+  /**
+   * Organisation portée par le jeton, résolue côté serveur au moment de la
+   * signature (là où l'en-tête `x-org-slug` existe encore). Jamais déclarée
+   * par le client. `null` = jeton émis avant le cloisonnement WebSocket : la
+   * connexion doit être refusée (fail-closed), le client demande un jeton neuf.
+   */
+  orgId: string | null;
 }
 
 /**
@@ -55,12 +62,15 @@ export async function verifyWsToken(token: string): Promise<WsUser | null> {
       }
     }
 
+    const orgId = typeof payload.orgId === "string" ? payload.orgId : null;
+
     return {
       id: user.id,
       email: user.email,
       name: user.name,
       globalRole: user.globalRole,
       avatarUrl: user.avatarUrl,
+      orgId,
     };
   } catch (err) {
     logger.error({ err }, "JWT verification failed (WebSocket)");
@@ -69,33 +79,69 @@ export async function verifyWsToken(token: string): Promise<WsUser | null> {
 }
 
 /**
- * Check if a user has at least viewer access to a document's space.
+ * Contrôle d'accès en lecture **réservé au canal WebSocket de collaboration**
+ * (Hocuspocus / Yjs).
+ *
+ * Applique le même cloisonnement multi-tenant que `checkDocumentViewAccess`
+ * de `@/lib/auth/check-access` : l'espace du document doit appartenir à
+ * l'organisation `orgId`, y compris pour les rôles `admin` / `super_admin`
+ * (un admin de l'org A ne voit pas les documents de l'org B). Le bypass admin
+ * ne joue plus que **à l'intérieur** de l'organisation du jeton.
+ *
+ * L'organisation n'est pas résolue ici : le contexte WebSocket n'a pas de
+ * requête HTTP Next.js, donc pas d'en-tête `x-org-slug`, et `getRequestOrgId()`
+ * n'y est pas appelable. Elle est résolue côté serveur au moment de la
+ * signature du jeton de connexion et transportée dans sa charge utile signée
+ * (cf. {@link verifyWsToken}).
+ *
+ * `orgId` absent (jeton émis avant ce cloisonnement) ⇒ refus : le client doit
+ * redemander un jeton à `/api/auth/ws-token`.
+ *
+ * → Toute route HTTP doit utiliser `checkDocumentViewAccess`, jamais ce helper.
  */
 export async function checkDocumentAccess(
   userId: string,
   documentId: string,
-  globalRole: string
+  globalRole: string,
+  orgId: string | null
 ): Promise<boolean> {
-  // Admins have access to everything
-  if (globalRole === "super_admin" || globalRole === "admin") {
-    logger.info({ userId, globalRole }, "[auth-ws] Admin bypass — access granted");
-    return true;
+  // Fail-closed : un jeton sans organisation n'ouvre aucun document
+  if (!orgId) {
+    logger.warn({ userId, documentId }, "[auth-ws] Jeton sans organisation — accès refusé");
+    return false;
   }
 
-  // Get the document + space info (including classification)
+  // Get the document + space info (including classification and org)
   const [doc] = await db
     .select({
       spaceId: documents.spaceId,
       createdBy: documents.createdBy,
       classification: documents.classification,
+      organizationId: spaces.organizationId,
     })
     .from(documents)
+    .innerJoin(spaces, eq(spaces.id, documents.spaceId))
     .where(eq(documents.id, documentId))
     .limit(1);
 
   if (!doc) {
     logger.warn({ userId, documentId }, "[auth-ws] Document not found");
     return false;
+  }
+
+  // Cloisonnement multi-tenant — vaut aussi pour les admins globaux
+  if (doc.organizationId !== orgId) {
+    logger.warn(
+      { userId, documentId, orgId },
+      "[auth-ws] Document hors de l'organisation du jeton — accès refusé"
+    );
+    return false;
+  }
+
+  // Admins have access to everything **within their organization**
+  if (globalRole === "super_admin" || globalRole === "admin") {
+    logger.info({ userId, globalRole, orgId }, "[auth-ws] Admin bypass (intra-org) — access granted");
+    return true;
   }
 
   logger.info({ userId, documentId, spaceId: doc.spaceId, createdBy: doc.createdBy, classification: doc.classification }, "[auth-ws] Document found, checking permissions...");
@@ -138,14 +184,42 @@ export async function checkDocumentAccess(
 }
 
 /**
- * Check if a user has edit access to a document (for write operations).
- * Re-reads globalRole from the DB to detect role changes since WS connection.
- * Requires at least "editor" level on the space (not just viewer/member).
+ * Contrôle d'accès en écriture **réservé au canal WebSocket de collaboration**
+ * (Hocuspocus / Yjs) et à la synchronisation Markdown qui en découle.
+ *
+ * ATTENTION — ce helper n'est PAS l'équivalent de `checkDocumentEditAccess`
+ * exporté par `@/lib/auth/check-access` : il ne lit pas les permissions
+ * document (`document_permissions`) et raisonne uniquement sur l'espace.
+ *
+ * Il applique en revanche le **même cloisonnement multi-tenant** : l'espace du
+ * document doit appartenir à l'organisation `orgId` portée par le jeton de
+ * connexion, y compris pour les rôles `admin` / `super_admin` (un admin de
+ * l'org A n'écrit pas dans les documents de l'org B). Le bypass admin ne joue
+ * plus que **à l'intérieur** de cette organisation.
+ *
+ * L'organisation vient du jeton signé (cf. {@link verifyWsToken}) : le contexte
+ * WebSocket n'a pas d'en-tête `x-org-slug`, donc `getRequestOrgId()` n'y est
+ * pas appelable ; elle est résolue à l'émission du jeton, côté HTTP.
+ * `orgId` absent (jeton antérieur au cloisonnement) ⇒ refus (fail-closed).
+ *
+ * → Toute route HTTP doit utiliser `checkDocumentEditAccess` de
+ *   `@/lib/auth/check-access`, jamais cette variante.
+ *
+ * Relit `globalRole` en base pour détecter un changement de rôle depuis
+ * l'ouverture de la connexion WS. Exige au moins le niveau "editor" sur
+ * l'espace (pas simplement viewer/membre).
  */
-export async function checkDocumentEditAccess(
+export async function checkCollabDocumentEditAccess(
   userId: string,
-  documentId: string
+  documentId: string,
+  orgId: string | null
 ): Promise<boolean> {
+  // Fail-closed : un jeton sans organisation n'écrit dans aucun document
+  if (!orgId) {
+    logger.warn({ userId, documentId }, "[auth-ws] Jeton sans organisation — écriture refusée");
+    return false;
+  }
+
   // Fetch current globalRole from DB (may have changed since WS connection)
   const [user] = await db
     .select({ globalRole: users.globalRole })
@@ -155,25 +229,37 @@ export async function checkDocumentEditAccess(
 
   if (!user) return false;
 
-  // Admins can always edit
-  if (user.globalRole === "super_admin" || user.globalRole === "admin") {
-    return true;
-  }
-
-  // Get the document info
+  // Get the document info (+ organisation de l'espace)
   const [doc] = await db
     .select({
       spaceId: documents.spaceId,
       createdBy: documents.createdBy,
+      organizationId: spaces.organizationId,
     })
     .from(documents)
+    .innerJoin(spaces, eq(spaces.id, documents.spaceId))
     .where(eq(documents.id, documentId))
     .limit(1);
 
   if (!doc) return false;
 
-  // Document author always has edit access
-  if (doc.createdBy === userId) return true;
+  // Cloisonnement multi-tenant — vaut aussi pour les admins globaux
+  if (doc.organizationId !== orgId) {
+    logger.warn(
+      { userId, documentId, orgId },
+      "[auth-ws] Document hors de l'organisation du jeton — écriture refusée"
+    );
+    return false;
+  }
+
+  // Admins can always edit **within their organization**
+  if (user.globalRole === "super_admin" || user.globalRole === "admin") {
+    return true;
+  }
+
+  // Pas de raccourci « auteur » en écriture : la permission d'espace prime sur
+  // l'auteur (décision du 2026-08-20), comme dans `checkDocumentEditAccess`.
+  // Un auteur rétrogradé viewer ne peut plus écrire dans le canal Yjs.
 
   // Check space permission — require at least "editor" level
   const [perm] = await db

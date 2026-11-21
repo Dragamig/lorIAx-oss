@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
+import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,7 +20,8 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { parseCsvUsers, type ParsedUser } from "@/lib/setup/csv-parser";
-import type { SetupData } from "@/app/(setup)/setup/page";
+import type { SetupData } from "@/app/[locale]/(setup)/setup/page";
+import { setupFetch } from "@/lib/setup/client";
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -43,19 +45,6 @@ type AddTab = "manual" | "csv" | "ldap";
 
 // ── Constants ──────────────────────────────────────────────────
 
-const ROLE_OPTIONS = [
-  { value: "admin", label: "Administrateur" },
-  { value: "editor", label: "Éditeur" },
-  { value: "viewer", label: "Lecteur" },
-] as const;
-
-const ROLE_LABELS: Record<string, string> = {
-  super_admin: "Super Admin",
-  admin: "Administrateur",
-  editor: "Éditeur",
-  viewer: "Lecteur",
-};
-
 const ROLE_BADGE_COLORS: Record<string, string> = {
   super_admin: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
   admin: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400",
@@ -63,6 +52,7 @@ const ROLE_BADGE_COLORS: Record<string, string> = {
   viewer: "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400",
 };
 
+// CSV template columns are invariant (parsed by csv-parser which expects these specific column names)
 const CSV_TEMPLATE = "nom,email,role,mot_de_passe,equipe\nJean Dupont,jean@example.com,editor,,Direction\nMarie Martin,marie@example.com,viewer,,Support";
 
 function generateId(): string {
@@ -79,6 +69,21 @@ function generatePassword(length = 12): string {
 // ── Component ──────────────────────────────────────────────────
 
 export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersProps) {
+  const t = useTranslations("setup.users");
+
+  const ROLE_OPTIONS = [
+    { value: "admin" as const, label: t("roles.admin") },
+    { value: "editor" as const, label: t("roles.editor") },
+    { value: "viewer" as const, label: t("roles.viewer") },
+  ];
+
+  const ROLE_LABELS: Record<string, string> = {
+    super_admin: t("roles.superAdmin"),
+    admin: t("roles.admin"),
+    editor: t("roles.editor"),
+    viewer: t("roles.viewer"),
+  };
+
   // Super admin state
   const [adminName, setAdminName] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
@@ -129,11 +134,11 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
   function handleAdminConfirm() {
     if (!adminName.trim() || !adminEmail.trim() || !adminPassword.trim()) return;
     if (adminPassword.length < 12) {
-      setError("Le mot de passe du super admin doit faire au moins 12 caractères");
+      setError(t("errors.passwordTooShort"));
       return;
     }
     if (adminPassword !== adminPasswordConfirm) {
-      setError("Les mots de passe ne correspondent pas");
+      setError(t("errors.passwordMismatch"));
       return;
     }
 
@@ -162,7 +167,7 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
 
     const email = manualEmail.trim().toLowerCase();
     if (usersList.some((u) => u.email === email)) {
-      setError(`L'email ${email} est déjà dans la liste`);
+      setError(t("errors.emailDuplicate", { email }));
       return;
     }
 
@@ -228,7 +233,7 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
     setCsvFileName("");
 
     if (skipped.length > 0) {
-      setError(`${skipped.length} email(s) ignoré(s) car déjà dans la liste`);
+      setError(t("errors.emailsSkipped", { count: skipped.length }));
     } else {
       setError("");
     }
@@ -248,7 +253,7 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
 
   async function handleLdapSave() {
     if (!ldapUrl.trim() || !ldapBaseDn.trim()) {
-      setError("L'URL et le Base DN LDAP sont obligatoires");
+      setError(t("errors.ldapRequired"));
       return;
     }
 
@@ -256,7 +261,7 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
     setError("");
 
     try {
-      const res = await fetch("/api/setup/users/ldap", {
+      const res = await setupFetch("/api/setup/users/ldap", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -274,12 +279,12 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
 
       if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.error || "Erreur");
+        throw new Error(err.error || t("errors.ldapSaveError"));
       }
 
       setLdapSaved(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur lors de la sauvegarde LDAP");
+      setError(err instanceof Error ? err.message : t("errors.ldapSaveError"));
     } finally {
       setLdapSaving(false);
     }
@@ -302,7 +307,7 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
 
   async function handleNext() {
     if (!adminDone || usersList.length === 0) {
-      setError("Le super admin est obligatoire");
+      setError(t("errors.superAdminRequired"));
       return;
     }
 
@@ -320,7 +325,7 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
         })),
       };
 
-      const res = await fetch("/api/setup/users", {
+      const res = await setupFetch("/api/setup/users", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -328,7 +333,7 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
 
       if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.error || "Erreur lors de la création des utilisateurs");
+        throw new Error(err.error || t("errors.createError"));
       }
 
       const result = await res.json();
@@ -359,7 +364,7 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
         onNext();
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur inattendue");
+      setError(err instanceof Error ? err.message : t("errors.unexpectedError"));
     } finally {
       setSaving(false);
     }
@@ -392,7 +397,7 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
           `"${u.name}","${u.email}","${u.role}","${u.password}","${u.team || ""}"`
       );
     const csv = [header, ...rows].join("\n");
-    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -411,27 +416,26 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
       <div className="space-y-6">
         <div className="text-center">
           <CheckCircle2 className="h-12 w-12 text-green-500 mx-auto mb-3" />
-          <h2 className="text-2xl font-bold">Utilisateurs créés</h2>
+          <h2 className="text-2xl font-bold">{t("credentials.title")}</h2>
           <p className="text-muted-foreground mt-1">
-            {createdUsers.length} compte{createdUsers.length > 1 ? "s" : ""} créé{createdUsers.length > 1 ? "s" : ""}.
-            Téléchargez les identifiants avant de continuer — les mots de passe ne seront plus affichés.
+            {t("credentials.description", { count: createdUsers.length })}
           </p>
         </div>
 
         <div className="p-4 rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30">
           <p className="text-sm text-amber-700 dark:text-amber-300 font-medium mb-3">
-            Ce fichier contient les mots de passe en clair. Transmettez-le de manière sécurisée à chaque utilisateur.
+            {t("credentials.warning")}
           </p>
           <Button onClick={downloadCredentialsCsv} className="gap-2 w-full">
             <Download className="h-4 w-4" />
-            Télécharger les identifiants (.csv)
+            {t("credentials.download")}
           </Button>
         </div>
 
         <div className="flex justify-end">
           <Button onClick={onNext} className="gap-2">
             <ArrowRight className="h-4 w-4" />
-            Continuer
+            {t("credentials.continue")}
           </Button>
         </div>
       </div>
@@ -443,9 +447,9 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
       {/* Header */}
       <div className="text-center">
         <Users className="h-12 w-12 text-primary mx-auto mb-3" />
-        <h2 className="text-2xl font-bold">Utilisateurs</h2>
+        <h2 className="text-2xl font-bold">{t("title")}</h2>
         <p className="text-muted-foreground mt-1">
-          Créez le compte administrateur principal et ajoutez d&apos;autres utilisateurs.
+          {t("description")}
         </p>
       </div>
 
@@ -453,8 +457,8 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
       <section className="space-y-4">
         <div className="flex items-center gap-2 border-b border-border pb-2">
           <Shield className="h-4 w-4 text-red-500" />
-          <h3 className="font-medium">Super administrateur</h3>
-          <span className="text-xs text-muted-foreground">(obligatoire)</span>
+          <h3 className="font-medium">{t("superAdminSection")}</h3>
+          <span className="text-xs text-muted-foreground">{t("superAdminRequired")}</span>
         </div>
 
         {adminDone ? (
@@ -480,52 +484,52 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
               }}
               className="text-muted-foreground"
             >
-              Modifier
+              {t("modify")}
             </Button>
           </div>
         ) : (
           <div className="space-y-3 p-4 rounded-lg border border-border bg-muted/30">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label htmlFor="admin-name">Nom complet *</Label>
+                <Label htmlFor="admin-name">{t("fields.fullName")}</Label>
                 <Input
                   id="admin-name"
                   value={adminName}
                   onChange={(e) => setAdminName(e.target.value)}
-                  placeholder="Jean Dupont"
+                  placeholder={t("placeholders.adminName")}
                   autoFocus
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="admin-email">Email *</Label>
+                <Label htmlFor="admin-email">{t("fields.email")}</Label>
                 <Input
                   id="admin-email"
                   type="email"
                   value={adminEmail}
                   onChange={(e) => setAdminEmail(e.target.value)}
-                  placeholder="admin@organisation.fr"
+                  placeholder={t("placeholders.adminEmail")}
                 />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label htmlFor="admin-password">Mot de passe *</Label>
+                <Label htmlFor="admin-password">{t("fields.password")}</Label>
                 <Input
                   id="admin-password"
                   type="password"
                   value={adminPassword}
                   onChange={(e) => setAdminPassword(e.target.value)}
-                  placeholder="12 caractères minimum"
+                  placeholder={t("placeholders.password")}
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="admin-password-confirm">Confirmation *</Label>
+                <Label htmlFor="admin-password-confirm">{t("fields.passwordConfirm")}</Label>
                 <Input
                   id="admin-password-confirm"
                   type="password"
                   value={adminPasswordConfirm}
                   onChange={(e) => setAdminPasswordConfirm(e.target.value)}
-                  placeholder="Répétez le mot de passe"
+                  placeholder={t("placeholders.passwordRepeat")}
                 />
               </div>
             </div>
@@ -535,7 +539,7 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
                 onClick={handleAdminConfirm}
                 disabled={!adminName.trim() || !adminEmail.trim() || !adminPassword.trim() || !adminPasswordConfirm.trim()}
               >
-                Valider le super admin
+                {t("validateSuperAdmin")}
               </Button>
             </div>
           </div>
@@ -546,16 +550,16 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
       <section className="space-y-4">
         <div className="flex items-center gap-2 border-b border-border pb-2">
           <UserPlus className="h-4 w-4 text-muted-foreground" />
-          <h3 className="font-medium">Ajouter d&apos;autres utilisateurs</h3>
-          <span className="text-xs text-muted-foreground">(facultatif)</span>
+          <h3 className="font-medium">{t("addUsersSection")}</h3>
+          <span className="text-xs text-muted-foreground">{t("addUsersOptional")}</span>
         </div>
 
         {/* Tabs */}
         <div className="flex border-b border-border">
           {[
-            { id: "manual" as const, label: "Manuel", icon: UserPlus },
-            { id: "csv" as const, label: "Import CSV", icon: Upload },
-            { id: "ldap" as const, label: "LDAP", icon: Network },
+            { id: "manual" as const, label: t("tabs.manual"), icon: UserPlus },
+            { id: "csv" as const, label: t("tabs.csv"), icon: Upload },
+            { id: "ldap" as const, label: t("tabs.ldap"), icon: Network },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -577,28 +581,28 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
           <div className="space-y-3 p-4 rounded-lg border border-border bg-muted/30">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label htmlFor="manual-name">Nom complet *</Label>
+                <Label htmlFor="manual-name">{t("fields.fullName")}</Label>
                 <Input
                   id="manual-name"
                   value={manualName}
                   onChange={(e) => setManualName(e.target.value)}
-                  placeholder="Marie Martin"
+                  placeholder={t("placeholders.manualName")}
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="manual-email">Email *</Label>
+                <Label htmlFor="manual-email">{t("fields.email")}</Label>
                 <Input
                   id="manual-email"
                   type="email"
                   value={manualEmail}
                   onChange={(e) => setManualEmail(e.target.value)}
-                  placeholder="marie@organisation.fr"
+                  placeholder={t("placeholders.manualEmail")}
                 />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label htmlFor="manual-role">Rôle</Label>
+                <Label htmlFor="manual-role">{t("fields.role")}</Label>
                 <select
                   id="manual-role"
                   value={manualRole}
@@ -613,17 +617,17 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
                 </select>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="manual-team">Équipe</Label>
+                <Label htmlFor="manual-team">{t("fields.team")}</Label>
                 <Input
                   id="manual-team"
                   value={manualTeam}
                   onChange={(e) => setManualTeam(e.target.value)}
-                  placeholder="Direction, Support..."
+                  placeholder={t("placeholders.team")}
                 />
               </div>
             </div>
             <p className="text-xs text-muted-foreground">
-              Un mot de passe sécurisé sera généré automatiquement pour chaque utilisateur.
+              {t("autoPassword")}
             </p>
             <div className="flex justify-end">
               <Button
@@ -634,7 +638,7 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
                 className="gap-1.5"
               >
                 <UserPlus className="h-3.5 w-3.5" />
-                Ajouter
+                {t("add")}
               </Button>
             </div>
           </div>
@@ -645,11 +649,7 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
           <div className="space-y-4 p-4 rounded-lg border border-border bg-muted/30">
             <div className="flex items-center justify-between">
               <p className="text-sm text-muted-foreground">
-                Importez un fichier CSV avec les colonnes : <code className="text-xs bg-muted px-1 py-0.5 rounded">nom</code>,{" "}
-                <code className="text-xs bg-muted px-1 py-0.5 rounded">email</code>,{" "}
-                <code className="text-xs bg-muted px-1 py-0.5 rounded">role</code>,{" "}
-                <code className="text-xs bg-muted px-1 py-0.5 rounded">mot_de_passe</code>,{" "}
-                <code className="text-xs bg-muted px-1 py-0.5 rounded">equipe</code>
+                {t("csvColumns")}
               </p>
               <Button
                 variant="ghost"
@@ -658,7 +658,7 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
                 className="gap-1.5 shrink-0"
               >
                 <Download className="h-3.5 w-3.5" />
-                Modèle
+                {t("csvTemplate")}
               </Button>
             </div>
 
@@ -672,8 +672,8 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
               <Upload className="h-8 w-8 text-muted-foreground" />
               <p className="text-sm text-muted-foreground">
                 {csvFileName
-                  ? `Fichier : ${csvFileName}`
-                  : "Glissez un fichier CSV ici ou cliquez pour parcourir"}
+                  ? t("csvFile", { name: csvFileName })
+                  : t("csvDropzone")}
               </p>
               <input
                 ref={fileInputRef}
@@ -693,7 +693,7 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
                 <div className="flex items-center gap-2 mb-1">
                   <AlertCircle className="h-4 w-4 text-red-500" />
                   <p className="text-sm font-medium text-red-700 dark:text-red-400">
-                    {csvErrors.length} erreur(s) de validation
+                    {t("csvValidationErrors", { count: csvErrors.length })}
                   </p>
                 </div>
                 <ul className="text-xs text-red-600 dark:text-red-400 space-y-0.5 ml-6">
@@ -708,16 +708,16 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
             {csvPreview.length > 0 && (
               <div className="space-y-3">
                 <p className="text-sm font-medium">
-                  {csvPreview.length} utilisateur(s) détecté(s)
+                  {t("csvDetected", { count: csvPreview.length })}
                 </p>
                 <div className="max-h-48 overflow-y-auto rounded-md border border-border">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-border bg-muted/50">
-                        <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">Nom</th>
-                        <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">Email</th>
-                        <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">Rôle</th>
-                        <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">Équipe</th>
+                        <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">{t("table.name")}</th>
+                        <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">{t("table.email")}</th>
+                        <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">{t("table.role")}</th>
+                        <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">{t("table.team")}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -746,11 +746,11 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
                       setCsvFileName("");
                     }}
                   >
-                    Annuler
+                    {t("cancel")}
                   </Button>
                   <Button size="sm" onClick={handleCsvImport} className="gap-1.5">
                     <UserPlus className="h-3.5 w-3.5" />
-                    Importer {csvPreview.length} utilisateur(s)
+                    {t("csvImport", { count: csvPreview.length })}
                   </Button>
                 </div>
               </div>
@@ -762,8 +762,7 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
         {activeTab === "ldap" && (
           <div className="space-y-4 p-4 rounded-lg border border-border bg-muted/30">
             <p className="text-sm text-muted-foreground">
-              Configurez la connexion à votre annuaire LDAP / Active Directory.
-              Les utilisateurs pourront se connecter avec leurs identifiants LDAP.
+              {t("ldapDescription")}
             </p>
 
             {ldapSaved ? (
@@ -771,10 +770,10 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
                 <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400 shrink-0" />
                 <div className="flex-1">
                   <p className="text-sm font-medium text-green-700 dark:text-green-400">
-                    Configuration LDAP sauvegardée
+                    {t("ldapSaved")}
                   </p>
                   <p className="text-xs text-green-600 dark:text-green-500">
-                    Serveur : {ldapUrl}
+                    {t("ldapServer", { url: ldapUrl })}
                   </p>
                 </div>
                 <Button
@@ -783,14 +782,14 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
                   onClick={() => setLdapSaved(false)}
                   className="text-muted-foreground"
                 >
-                  Modifier
+                  {t("modify")}
                 </Button>
               </div>
             ) : (
               <>
                 <div className="space-y-3">
                   <div className="space-y-1.5">
-                    <Label htmlFor="ldap-url">URL du serveur LDAP *</Label>
+                    <Label htmlFor="ldap-url">{t("ldapUrl")}</Label>
                     <Input
                       id="ldap-url"
                       value={ldapUrl}
@@ -801,7 +800,7 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
 
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1.5">
-                      <Label htmlFor="ldap-bind-dn">Bind DN (compte de service)</Label>
+                      <Label htmlFor="ldap-bind-dn">{t("ldapBindDn")}</Label>
                       <Input
                         id="ldap-bind-dn"
                         value={ldapBindDn}
@@ -810,7 +809,7 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <Label htmlFor="ldap-bind-pwd">Mot de passe Bind</Label>
+                      <Label htmlFor="ldap-bind-pwd">{t("ldapBindPassword")}</Label>
                       <Input
                         id="ldap-bind-pwd"
                         type="password"
@@ -823,7 +822,7 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
 
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1.5">
-                      <Label htmlFor="ldap-base-dn">Base DN *</Label>
+                      <Label htmlFor="ldap-base-dn">{t("ldapBaseDn")}</Label>
                       <Input
                         id="ldap-base-dn"
                         value={ldapBaseDn}
@@ -832,7 +831,7 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <Label htmlFor="ldap-filter">Filtre de recherche</Label>
+                      <Label htmlFor="ldap-filter">{t("ldapFilter")}</Label>
                       <Input
                         id="ldap-filter"
                         value={ldapSearchFilter}
@@ -844,7 +843,7 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
 
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1.5">
-                      <Label htmlFor="ldap-name-attr">Attribut nom</Label>
+                      <Label htmlFor="ldap-name-attr">{t("ldapNameAttr")}</Label>
                       <Input
                         id="ldap-name-attr"
                         value={ldapNameAttr}
@@ -853,7 +852,7 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <Label htmlFor="ldap-email-attr">Attribut email</Label>
+                      <Label htmlFor="ldap-email-attr">{t("ldapEmailAttr")}</Label>
                       <Input
                         id="ldap-email-attr"
                         value={ldapEmailAttr}
@@ -877,7 +876,7 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
                       />
                     </button>
                     <span className="text-sm text-muted-foreground">
-                      Vérifier le certificat TLS
+                      {t("ldapVerifyTls")}
                     </span>
                   </div>
                 </div>
@@ -894,7 +893,7 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
                     ) : (
                       <Network className="h-3.5 w-3.5" />
                     )}
-                    Enregistrer la configuration LDAP
+                    {t("ldapSave")}
                   </Button>
                 </div>
               </>
@@ -903,13 +902,13 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
         )}
       </section>
 
-      {/* ── Section 3 : Liste des utilisateurs ajoutés ──────── */}
+      {/* ── Section 3: Added users list ──────────────────────── */}
       {otherUsers.length > 0 && (
         <section className="space-y-4">
           <div className="flex items-center gap-2 border-b border-border pb-2">
             <Users className="h-4 w-4 text-muted-foreground" />
             <h3 className="font-medium">
-              Utilisateurs ajoutés
+              {t("addedUsersSection")}
               <span className="ml-2 text-xs text-muted-foreground font-normal">
                 ({otherUsers.length})
               </span>
@@ -920,10 +919,10 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/50">
-                  <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">Nom</th>
-                  <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">Email</th>
-                  <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">Rôle</th>
-                  <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">Équipe</th>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">{t("table.name")}</th>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">{t("table.email")}</th>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">{t("table.role")}</th>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">{t("table.team")}</th>
                   <th className="w-10"></th>
                 </tr>
               </thead>
@@ -943,7 +942,8 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
                       <button
                         onClick={() => removeUser(u.id)}
                         className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
-                        title="Retirer de la liste"
+                        aria-label={t("removeUserAria")}
+                        title={t("removeUserAria")}
                       >
                         <X className="h-3.5 w-3.5" />
                       </button>
@@ -969,7 +969,7 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
         {onBack && (
           <Button variant="ghost" onClick={onBack} className="gap-2">
             <ArrowLeft className="h-4 w-4" />
-            Précédent
+            {t("previous")}
           </Button>
         )}
         <div className="ml-auto">
@@ -983,7 +983,7 @@ export function StepUsers({ data: _data, onUpdate, onNext, onBack }: StepUsersPr
             ) : (
               <ArrowRight className="h-4 w-4" />
             )}
-            Suivant
+            {t("next")}
           </Button>
         </div>
       </div>

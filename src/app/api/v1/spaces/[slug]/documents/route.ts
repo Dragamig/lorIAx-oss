@@ -3,13 +3,22 @@ import { documents, spaces } from "@/lib/db/schema";
 import { eq, and, gt, asc, isNull } from "drizzle-orm";
 import { authenticateApiRequest, requireScope } from "@/lib/api/auth-api";
 import { apiSuccess, apiError } from "@/lib/api/response";
-import {
-  checkSpaceViewAccess,
-  buildDocumentVisibilityFilter,
-} from "@/lib/auth/check-access";
+import { checkSpaceReadAccess, getSpacePermission } from "@/lib/auth/check-access";
+import { canViewByClassification } from "@/lib/auth/rbac";
+import type { ClassificationLevel } from "@/types";
 
 /**
  * GET /api/v1/spaces/:slug/documents — List documents in a space.
+ *
+ * Deux contrôles distincts, et il en fallait bien deux (audit du 2026-08-19,
+ * constat AZ-14) : la route confinait l'espace à l'organisation de la clé
+ * d'API, puis servait l'arborescence complète sans jamais demander si le
+ * porteur de la clé avait le moindre droit sur cet espace. Un compte de
+ * l'organisation qui se fabriquait une clé `documents:read` lisait donc les
+ * titres et la hiérarchie de tous les espaces du tenant, `secret` compris.
+ *
+ * Le scope de clé reste vérifié en amont : il dit ce que la clé a le droit de
+ * faire, jamais sur quoi. Le droit d'objet est une question séparée.
  */
 export async function GET(
   request: Request,
@@ -22,27 +31,30 @@ export async function GET(
   const scopeErr = requireScope(auth.user, "documents:read");
   if (scopeErr) return scopeErr;
 
-  // Find space
+  // Find space — confiné à l'organisation de la clé API (anti-fuite cross-tenant :
+  // un slug d'une autre org ne doit jamais être résolu).
   const [space] = await db
     .select({ id: spaces.id, name: spaces.name })
     .from(spaces)
-    .where(eq(spaces.slug, slug))
+    .where(and(eq(spaces.slug, slug), eq(spaces.organizationId, auth.user.orgId)))
     .limit(1);
 
   if (!space) {
     return apiError("Espace introuvable", 404);
   }
 
-  // Le scope `documents:read` autorise l'appel, il ne dit rien de l'espace vise :
-  // le controle de permission s'ajoute au controle de scope, il ne le remplace pas.
-  //
-  // Mode `publicApi` : la route detail ne doit pas etre plus permissive que l'index
-  // GET /api/v1/spaces, qui ne retourne que les espaces possedes ou portant une
-  // permission directe et exclut les espaces `secret`. Rendre listables par slug des
-  // espaces que l'API publique masque dans son propre index elargirait une surface
-  // exposee, ce qu'un lot de securite ne doit pas faire.
-  const canView = await checkSpaceViewAccess(auth.user, space.id, "publicApi");
-  if (!canView) {
+  // Droit d'objet. `checkSpaceReadAccess` résout l'organisation de la requête
+  // par `getRequestOrgId`, c'est-à-dire par l'en-tête de sous-domaine, alors
+  // que l'espace vient d'être résolu sur `auth.user.orgId`. Les deux sources
+  // ne divergent pas : `authenticateApiRequest` lit le MÊME en-tête et le
+  // soumet au MÊME `resolveRequestOrg`, avec la même appartenance exigée. Et
+  // même si elles divergeaient un jour, l'ordre choisi ici rend l'écart
+  // inoffensif : l'espace n'existe déjà plus (404) hors de l'organisation de
+  // la clé, et le helper ne peut alors que refuser en plus, jamais accorder.
+  // L'organisation retenue est donc celle de la clé, jamais une organisation
+  // que l'appelant déclarerait.
+  const canRead = await checkSpaceReadAccess(auth.user, space.id);
+  if (!canRead) {
     return apiError("Accès refusé", 403);
   }
 
@@ -73,32 +85,34 @@ export async function GET(
       visibility: documents.visibility,
       parentId: documents.parentId,
       position: documents.position,
-      createdAt: documents.createdAt,
-      updatedAt: documents.updatedAt,
       classification: documents.classification,
       createdBy: documents.createdBy,
+      createdAt: documents.createdAt,
+      updatedAt: documents.updatedAt,
     })
     .from(documents)
     .where(and(...conditions))
     .orderBy(asc(documents.position), asc(documents.id))
     .limit(limit + 1);
 
+  // Un titre est souvent la donnée sensible elle-même : seuls les documents que la
+  // classification permet de lire sont listés (la pagination reste calée sur la page brute).
+  const spacePerm = await getSpacePermission(auth.user.id, space.id);
   const hasMore = results.length > limit;
   const page = hasMore ? results.slice(0, limit) : results;
-  // Le curseur est calcule AVANT le filtrage par classification, de sorte que le
-  // filtrage ne fasse pas sauter de page : il ne fait que raccourcir celle servie.
-  //
-  // Il ne rend pas la pagination exacte pour autant, et ne la degrade pas non plus :
-  // la route trie par `asc(position), asc(id)` mais pagine par `gt(documents.id,
-  // cursor)`. Curseur et ordre portent sur des cles differentes, donc des documents
-  // sont sautes ou repetes des que deux d'entre eux ont `position` et `id` en ordre
-  // inverse. Defaut preexistant, hors perimetre de ce lot de securite.
-  const nextCursor = hasMore ? page[page.length - 1]?.id : null;
-
-  const isVisible = await buildDocumentVisibilityFilter(auth.user, space.id);
   const data = page
-    .filter(isVisible)
-    .map(({ classification: _c, createdBy: _u, ...doc }) => doc);
+    .filter((d) =>
+      canViewByClassification(d.classification as ClassificationLevel, {
+        isAuthenticated: true,
+        isSpaceMember: !!spacePerm,
+        isSpaceAdmin: spacePerm === "admin",
+        isDocumentAuthor: d.createdBy === auth.user.id,
+        userGlobalRole: auth.user.globalRole,
+      })
+    )
+    .map(({ classification: _c, createdBy: _a, ...rest }) => rest);
+
+  const nextCursor = hasMore ? page[page.length - 1]?.id ?? null : null;
 
   return apiSuccess(data, { cursor: nextCursor, hasMore });
 }

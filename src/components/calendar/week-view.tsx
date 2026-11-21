@@ -1,5 +1,7 @@
 "use client";
 
+import { DoorOpen } from "lucide-react";
+import { useTranslations, useFormatter } from "next-intl";
 import type { CalendarEvent, Calendar } from "@/types";
 
 interface WeekViewProps {
@@ -12,7 +14,6 @@ interface WeekViewProps {
 }
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
-const DAY_NAMES = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 
 function getWeekStart(date: Date): Date {
   const d = new Date(date);
@@ -47,6 +48,8 @@ export default function WeekView({
   onEventClick,
   onDateClick,
 }: WeekViewProps) {
+  const t = useTranslations("calendar");
+  const format = useFormatter();
   const weekStart = getWeekStart(currentDate);
   const days = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(weekStart);
@@ -65,7 +68,7 @@ export default function WeekView({
   };
 
   return (
-    <div className="flex flex-col flex-1 overflow-hidden">
+    <div className="flex flex-col flex-1 overflow-hidden" data-tour="calendar-week-view">
       {/* Header */}
       <div className="grid grid-cols-[60px_repeat(7,1fr)] border-b border-border">
         <div /> {/* Time column spacer */}
@@ -74,7 +77,9 @@ export default function WeekView({
             key={i}
             className={`text-center py-2 border-l border-border ${isToday(day) ? "bg-primary/5" : ""}`}
           >
-            <div className="text-xs text-muted-foreground">{DAY_NAMES[i]}</div>
+            <div className="text-xs text-muted-foreground">
+              {format.dateTime(day, { weekday: "short" })}
+            </div>
             <div
               className={`text-sm font-medium w-7 h-7 mx-auto flex items-center justify-center rounded-full ${
                 isToday(day) ? "bg-primary text-primary-foreground" : ""
@@ -116,7 +121,10 @@ export default function WeekView({
                     {hourEvents.map((event) => {
                       const start = new Date(event.startAt);
                       const end = new Date(event.endAt);
-                      const durationMinutes = (end.getTime() - start.getTime()) / 60000;
+                      const startTime = start.getTime();
+                      const endTime = end.getTime();
+                      if (!Number.isFinite(startTime) || !Number.isFinite(endTime)) return null;
+                      const durationMinutes = (endTime - startTime) / 60000;
                       const topOffset = (start.getMinutes() / 60) * 48;
                       const height = Math.max(20, (durationMinutes / 60) * 48);
                       const color = event.color || calColorMap.get(event.calendarId) || "#3b82f6";
@@ -138,6 +146,9 @@ export default function WeekView({
                           }}
                         >
                           <div className="font-medium truncate flex items-center gap-1">
+                            {event.meetingRoomId && (
+                              <DoorOpen className="h-2.5 w-2.5 shrink-0" aria-label={t("weekView.meetingRoomAria")} />
+                            )}
                             <span className="truncate">{event.title}</span>
                           </div>
                           <div className="opacity-70">{formatTime(start)}</div>

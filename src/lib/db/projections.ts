@@ -1,17 +1,13 @@
 import { documents } from "@/lib/db/schema";
 
 /**
- * Colonnes de metadonnees d'un document exposables dans une reponse d'API.
+ * Colonnes de métadonnées d'un document exposables dans une réponse d'API.
  *
  * `contentText` en est volontairement absent : c'est la seule colonne dont la lecture
- * est soumise a la classification du document. Un `.returning()` ou un `select()` nu
- * la renverrait a un utilisateur autorise a ecrire mais pas a lire (document `secret`
- * dont il n'est ni auteur ni administrateur d'espace), ce qui contourne
- * `checkDocumentViewAccess`.
- *
- * Toute route qui doit renvoyer le contenu ajoute explicitement `contentText` a cette
- * projection, apres un controle de lecture. Centraliser la liste evite qu'une colonne
- * ajoutee plus tard n'apparaisse que dans une partie des reponses.
+ * dépend de la classification du document. Un `.returning()` nu la renverrait à un
+ * utilisateur autorisé à écrire mais pas à lire, ce qui contourne
+ * `checkDocumentViewAccess`. Toute route qui doit renvoyer le contenu l'ajoute
+ * explicitement, après un contrôle de lecture.
  */
 export const documentMetadataColumns = {
   id: documents.id,

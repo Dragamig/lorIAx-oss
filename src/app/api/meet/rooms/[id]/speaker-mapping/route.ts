@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/get-user";
-import { getMeeting, updateMeetingStatus } from "@/lib/meet/rooms";
+import { getRequestOrgId } from "@/lib/org/get-request-org";
+import { getMeetingInOrg, getMeetingUnscoped, updateMeetingStatus } from "@/lib/meet/rooms";
 import { formatTranscript, type TranscriptResult } from "@/lib/meet/transcribe";
 import { summarizeMeeting } from "@/lib/meet/summarize";
-import { createMeetingNotes } from "@/lib/meet/meeting-notes";
+import { orgIdForSpace } from "@/lib/ai/org-scope";
+import { createMeetingNotes, saveTranscriptFile } from "@/lib/meet/meeting-notes";
 import { db } from "@/lib/db";
 import { meetings } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
@@ -26,7 +28,13 @@ export async function PATCH(
   }
 
   const { id } = await params;
-  const meeting = await getMeeting(id);
+  const orgId = await getRequestOrgId(user);
+  // Fail-closed : org non résolue (non membre, slug inconnu) = réunion inexistante
+  if (!orgId) {
+    return NextResponse.json({ error: "Réunion introuvable" }, { status: 404 });
+  }
+
+  const meeting = await getMeetingInOrg(id, orgId);
 
   if (!meeting) {
     return NextResponse.json({ error: "Réunion introuvable" }, { status: 404 });
@@ -52,7 +60,7 @@ export async function PATCH(
     .where(eq(meetings.id, id));
 
   // Re-read meeting to get fresh speakerMapping with stored segments
-  const freshMeeting = await getMeeting(id);
+  const freshMeeting = await getMeetingUnscoped(id);
   resolveMappingPipeline(id, freshMeeting!, parsed.data.mapping, user.id).catch((error) => {
     log.error({ error, meetingId: id }, "Mapping pipeline failed");
   });
@@ -62,7 +70,7 @@ export async function PATCH(
 
 async function resolveMappingPipeline(
   meetingId: string,
-  meeting: Awaited<ReturnType<typeof getMeeting>>,
+  meeting: Awaited<ReturnType<typeof getMeetingUnscoped>>,
   mapping: Record<string, string>,
   createdBy: string
 ) {
@@ -92,7 +100,19 @@ async function resolveMappingPipeline(
     };
     const transcriptText = formatTranscript(mappedResult);
 
-    const summary = await summarizeMeeting(transcriptText, meeting?.title ?? "");
+    // Persist the transcript with resolved speaker names, before any audio purge
+    await saveTranscriptFile({
+      meetingId,
+      recordingPath: meeting?.recordingPath,
+      transcript: transcriptText,
+    });
+
+    // Cloisonnement AZ-06 (lot 6) : portée dérivée de l'espace de la réunion.
+    const summary = await summarizeMeeting(
+      transcriptText,
+      meeting?.title ?? "",
+      await orgIdForSpace(meeting?.spaceId)
+    );
 
     if (meeting?.spaceId) {
       await createMeetingNotes({

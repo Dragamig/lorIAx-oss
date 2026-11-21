@@ -14,7 +14,7 @@ import type { ClassificationLevel } from "@/types";
 import { logActivity } from "@/lib/activity";
 import { writeDocument } from "@/lib/storage/filesystem";
 import { commitFile } from "@/lib/git/repository";
-import { dispatchWebhookEvent } from "@/lib/webhooks/dispatch";
+import { dispatchWebhookEvent, organizationIdOfSpace } from "@/lib/webhooks/dispatch";
 import { z } from "zod";
 
 const updateSchema = z.object({
@@ -115,53 +115,30 @@ export async function PATCH(
     return apiError("Accès refusé", 403);
   }
 
-  // Meme regle que la route REST : changer la classification est un acte de securite.
-  // Le plafond de l'espace est verifie, la reclassification exige le droit de lecture,
-  // et l'abaissement du niveau est reserve a l'auteur, aux administrateurs de l'espace
-  // et aux administrateurs globaux. Sans cela, une cle d'API `documents:write` declasse
-  // un document `secret` puis le lit.
-  const nextClassification = parsed.data.classification as ClassificationLevel | undefined;
-  const currentClassification = (doc.classification || "internal") as ClassificationLevel;
-
-  if (nextClassification !== undefined && nextClassification !== currentClassification) {
-    const [docSpace] = await db
+  const newClassification = parsed.data.classification;
+  if (newClassification && newClassification !== doc.classification) {
+    // Écrire n'est pas lire : changer la classification exige le droit de lecture,
+    // et l'abaisser est réservé à l'auteur, aux admins d'espace et aux admins globaux.
+    const canView = await checkDocumentViewAccess(auth.user, doc.spaceId, doc.id);
+    if (!canView) return apiError("Accès refusé", 403);
+    if (isDeclassification(doc.classification as ClassificationLevel, newClassification)) {
+      const canDeclassify = await checkDocumentDeclassifyAccess(auth.user, doc.spaceId, doc.id);
+      if (!canDeclassify) {
+        return apiError("Seuls l'auteur et les administrateurs peuvent abaisser la classification", 403);
+      }
+    }
+    // Plafond de l'espace : le document ne descend pas sous le niveau de son espace.
+    const [spaceRow] = await db
       .select({ classification: spaces.classification })
       .from(spaces)
       .where(eq(spaces.id, doc.spaceId))
       .limit(1);
-
-    const spaceClassification = (docSpace?.classification || "internal") as ClassificationLevel;
-    if (!isClassificationAllowed(nextClassification, spaceClassification)) {
+    const floor = (spaceRow?.classification || "internal") as ClassificationLevel;
+    if (!isClassificationAllowed(newClassification, floor)) {
       return apiError(
-        `Classification « ${nextClassification} » non autorisée dans cet espace (niveau minimum : ${spaceClassification})`,
+        `Classification « ${newClassification} » non autorisée dans cet espace (niveau minimum : ${floor})`,
         400
       );
-    }
-
-    const canReadBeforeReclassifying = await checkDocumentViewAccess(
-      auth.user,
-      doc.spaceId,
-      doc.id
-    );
-    if (!canReadBeforeReclassifying) {
-      return apiError(
-        "Accès refusé : modifier la classification exige le droit de lecture sur le document",
-        403
-      );
-    }
-
-    if (isDeclassification(currentClassification, nextClassification)) {
-      const canDeclassify = await checkDocumentDeclassifyAccess(
-        auth.user,
-        doc.spaceId,
-        doc.id
-      );
-      if (!canDeclassify) {
-        return apiError(
-          "Accès refusé : seuls l'auteur, les administrateurs de l'espace et les administrateurs globaux peuvent abaisser la classification d'un document",
-          403
-        );
-      }
     }
   }
 
@@ -192,9 +169,6 @@ export async function PATCH(
     }
   }
 
-  // Projection explicite : `contentText` est exclu de la reponse de l'API publique
-  // (voir documentMetadataColumns), un `.returning()` nu le renvoyait tel quel via
-  // apiSuccess a toute cle disposant du scope documents:write.
   const [updated] = await db
     .update(documents)
     .set(updateData)
@@ -213,7 +187,7 @@ export async function PATCH(
     documentId: id,
     spaceId: doc.spaceId,
     title: updated.title,
-  }, auth.user.id);
+  }, auth.user.id, await organizationIdOfSpace(doc.spaceId));
 
   return apiSuccess(updated);
 }
@@ -265,7 +239,7 @@ export async function DELETE(
     documentId: id,
     spaceId: doc.spaceId,
     title: doc.title,
-  }, auth.user.id);
+  }, auth.user.id, await organizationIdOfSpace(doc.spaceId));
 
   return apiSuccess({ deleted: true });
 }

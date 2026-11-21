@@ -1,9 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef, memo } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { useState, useEffect, useRef, memo, useMemo } from "react";
+import { useRouter, Link, usePathname } from "@/i18n/routing";
+import { useTranslations } from "next-intl";
 import {
   SortableContext,
   verticalListSortingStrategy,
@@ -29,7 +28,7 @@ import { LabelBadge } from "@/components/labels/label-badge";
 import { LabelPicker } from "@/components/labels/label-picker";
 import type { DocumentItem } from "./types";
 
-// ─── Folder droppable (cible de dépôt uniquement, pas de tri) ───────────────
+// ─── Folder droppable (drop target only, no sorting) ─────────────────────────
 
 const FolderNode = memo(function FolderNode({
   doc,
@@ -42,6 +41,7 @@ const FolderNode = memo(function FolderNode({
   depth: number;
   onDeleted?: () => void;
 }) {
+  const t = useTranslations("shell.sidebar");
   const [expanded, setExpanded] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
@@ -69,18 +69,18 @@ const FolderNode = memo(function FolderNode({
 
   async function handleDelete() {
     setContextMenu(null);
-    if (!window.confirm("Supprimer ce dossier et tout son contenu ? Cette action est irréversible.")) return;
+    if (!window.confirm(t("document.confirmDeleteFolder"))) return;
     try {
       const res = await fetch(`/api/documents/${doc.id}`, { method: "DELETE" });
       if (res.ok) {
-        toast.success("Dossier supprimé");
+        toast.success(t("toasts.folderDeleted"));
         onDeleted?.();
       } else {
         const data = await res.json().catch(() => ({}));
-        toast.error(data.error || "Erreur lors de la suppression");
+        toast.error(data.error || t("toasts.deleteError"));
       }
     } catch {
-      toast.error("Erreur réseau");
+      toast.error(t("toasts.networkError"));
     }
   }
 
@@ -94,7 +94,7 @@ const FolderNode = memo(function FolderNode({
         style={{ paddingLeft: `${8 + depth * 8}px` }}
         onContextMenu={handleContextMenu}
       >
-        {/* Spacer aligné sur le grip des documents */}
+        {/* Spacer to align with document grip */}
         <span className="w-3 flex-shrink-0" />
         <button
           onClick={() => setExpanded(!expanded)}
@@ -132,7 +132,7 @@ const FolderNode = memo(function FolderNode({
             className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-left text-sm text-destructive transition-colors hover:bg-destructive/10"
           >
             <Trash2 className="h-4 w-4 shrink-0" />
-            Supprimer
+            {t("document.deleteAction")}
           </button>
         </div>
       )}
@@ -140,7 +140,7 @@ const FolderNode = memo(function FolderNode({
   );
 });
 
-// ─── Document sortable (draggable + réordonnable) ───────────────────────────
+// ─── Sortable document node (draggable + reorderable) ────────────────────────
 
 const SortableDocumentNode = memo(function SortableDocumentNode({
   doc: initialDoc,
@@ -155,6 +155,7 @@ const SortableDocumentNode = memo(function SortableDocumentNode({
   pathname: string;
   onDeleted?: () => void;
 }) {
+  const t = useTranslations("shell.sidebar");
   const [doc, setDoc] = useState<DocumentItem>(initialDoc);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
@@ -168,7 +169,7 @@ const SortableDocumentNode = memo(function SortableDocumentNode({
   const href = `/s/${spaceSlug}/${doc.id}`;
   const isActive = pathname === href;
 
-  // Sync doc quand la prop change (ex : rechargement arborescence)
+  // Sync doc when prop changes (e.g. tree reload)
   useEffect(() => {
     setDoc(initialDoc);
   }, [initialDoc]);
@@ -206,21 +207,21 @@ const SortableDocumentNode = memo(function SortableDocumentNode({
 
   async function handleDelete() {
     setContextMenu(null);
-    if (!window.confirm("Supprimer ce document ? Cette action est irréversible.")) return;
+    if (!window.confirm(t("document.confirmDeleteDocument"))) return;
     try {
       const res = await fetch(`/api/documents/${doc.id}`, { method: "DELETE" });
       if (res.ok) {
-        toast.success("Document supprimé");
+        toast.success(t("toasts.documentDeleted"));
         if (isActive) {
           router.push(`/s/${spaceSlug}`);
         }
         onDeleted?.();
       } else {
         const data = await res.json().catch(() => ({}));
-        toast.error(data.error || "Erreur lors de la suppression");
+        toast.error(data.error || t("toasts.deleteError"));
       }
     } catch {
-      toast.error("Erreur réseau");
+      toast.error(t("toasts.networkError"));
     }
   }
 
@@ -230,7 +231,7 @@ const SortableDocumentNode = memo(function SortableDocumentNode({
     try {
       const res = await fetch(`/api/documents/${doc.id}`);
       if (!res.ok) {
-        toast.error("Impossible de récupérer le contenu du document");
+        toast.error(t("toasts.documentContentError"));
         return;
       }
       const data = await res.json();
@@ -238,7 +239,7 @@ const SortableDocumentNode = memo(function SortableDocumentNode({
       setDocumentSpaceId(data.spaceId ?? "");
       setSaveAsTemplateOpen(true);
     } catch {
-      toast.error("Erreur réseau");
+      toast.error(t("toasts.networkError"));
     } finally {
       setIsFetchingContent(false);
     }
@@ -250,8 +251,7 @@ const SortableDocumentNode = memo(function SortableDocumentNode({
   }
 
   function handleLabelsChange(newLabelIds: string[]) {
-    // Mise à jour optimiste locale des labels affichés
-    // On conserve les objets label existants qui correspondent aux nouveaux ids
+    // Optimistic local update of displayed labels
     const existingLabels = doc.labels ?? [];
     const updatedLabels = newLabelIds.map((id) => {
       const found = existingLabels.find((l) => l.id === id);
@@ -285,7 +285,7 @@ const SortableDocumentNode = memo(function SortableDocumentNode({
             className="flex items-center gap-2 min-w-0"
             onClick={(e) => { if (isDragging) e.preventDefault(); }}
           >
-            {/* Spacer aligné sur le chevron des dossiers */}
+            {/* Spacer to align with folder chevron */}
             <span className="w-3.5 flex-shrink-0" />
             {doc.icon ? (
               <span className="text-base leading-none flex-shrink-0">{doc.icon}</span>
@@ -324,7 +324,7 @@ const SortableDocumentNode = memo(function SortableDocumentNode({
             className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-left text-sm transition-colors hover:bg-accent"
           >
             <Tag className="h-4 w-4 shrink-0" />
-            Labels
+            {t("document.labelsAction")}
           </button>
           <div className="my-1 h-px bg-border" />
           <button
@@ -333,7 +333,7 @@ const SortableDocumentNode = memo(function SortableDocumentNode({
             className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-left text-sm transition-colors hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <BookMarked className="h-4 w-4 shrink-0" />
-            {isFetchingContent ? "Chargement…" : "Enregistrer comme template"}
+            {isFetchingContent ? t("document.loading") : t("document.saveAsTemplate")}
           </button>
           <div className="my-1 h-px bg-border" />
           <button
@@ -341,11 +341,11 @@ const SortableDocumentNode = memo(function SortableDocumentNode({
             className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-left text-sm text-destructive transition-colors hover:bg-destructive/10"
           >
             <Trash2 className="h-4 w-4 shrink-0" />
-            Supprimer
+            {t("document.deleteAction")}
           </button>
         </div>
       )}
-      {/* LabelPicker déclenché depuis le menu contextuel */}
+      {/* LabelPicker triggered from context menu */}
       {labelPickerOpen && (
         <div className="px-3 pb-1">
           <LabelPicker
@@ -369,7 +369,7 @@ const SortableDocumentNode = memo(function SortableDocumentNode({
   );
 });
 
-// ─── Arbre de documents ─────────────────────────────────────────────────────
+// ─── Document tree ────────────────────────────────────────────────────────────
 
 export function SortableDocumentTree({
   documents,
@@ -388,7 +388,7 @@ export function SortableDocumentTree({
 
   return (
     <ul className="space-y-0.5">
-      {/* Dossiers : droppable uniquement, hors du SortableContext */}
+      {/* Folders: droppable only, outside SortableContext */}
       {folders.map((folder) => (
         <FolderNode
           key={folder.id}
@@ -398,9 +398,9 @@ export function SortableDocumentTree({
           onDeleted={onDeleted}
         />
       ))}
-      {/* Documents : sortable (réordonnement + draggable) */}
+      {/* Documents: sortable (reorder + draggable) */}
       <SortableContext
-        items={docs.map((d) => d.id)}
+        items={useMemo(() => docs.map((d) => d.id), [docs])}
         strategy={verticalListSortingStrategy}
       >
         {docs.map((doc) => (

@@ -13,8 +13,14 @@ export async function fetchDataFromSource(
   });
 
   if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.error || "Erreur de synchronisation");
+    let message = "Erreur de synchronisation";
+    try {
+      const err = await res.json();
+      if (err?.error) message = err.error;
+    } catch {
+      // Reponse d'erreur non-JSON : on garde le message generique.
+    }
+    throw new Error(message);
   }
 
   const result = await res.json();

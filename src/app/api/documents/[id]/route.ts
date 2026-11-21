@@ -1,7 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { documents, spaces, documentLinks } from "@/lib/db/schema";
+import { documents, spaces, documentLinks, documentCollabStates } from "@/lib/db/schema";
 import { eq, inArray } from "drizzle-orm";
+
+/** Supprime récursivement tous les descendants d'un document (dossiers inclus). */
+async function deleteDocumentTree(docId: string): Promise<void> {
+  const children = await db
+    .select({ id: documents.id })
+    .from(documents)
+    .where(eq(documents.parentId, docId));
+  for (const child of children) {
+    await deleteDocumentTree(child.id);
+  }
+  await db.delete(documents).where(eq(documents.id, docId));
+}
 import { getSessionUser } from "@/lib/auth/get-user";
 import {
   checkDocumentViewAccess,
@@ -11,6 +23,8 @@ import {
 import { documentMetadataColumns } from "@/lib/db/projections";
 import { readDocument, writeDocument } from "@/lib/storage/filesystem";
 import { commitFile } from "@/lib/git/repository";
+import { rewriteDocumentRefs } from "@/lib/media/rewrite-document-refs";
+import { createOrgKeyLookup } from "@/lib/media/attachment-key-lookup";
 import { parseWikiLinks } from "@/lib/graph/links";
 import { indexDocument } from "@/lib/ai/embeddings";
 import { logActivity } from "@/lib/activity";
@@ -30,7 +44,7 @@ export async function GET(
   const { id } = await params;
 
   const [doc] = await db
-    .select({ ...documentMetadataColumns, contentText: documents.contentText })
+    .select()
     .from(documents)
     .where(eq(documents.id, id))
     .limit(1);
@@ -109,13 +123,36 @@ export async function PATCH(
   const canEdit = await checkDocumentEditAccess(user, doc.spaceId, doc.id);
   if (!canEdit) return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
 
-  const body = await request.json();
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "JSON invalide" }, { status: 400 });
+  }
   const parsed = updateDocSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
   }
 
-  const { title, content, visibility, classification, icon, properties } = parsed.data;
+  const { title, visibility, classification, icon, properties } = parsed.data;
+  let content = parsed.data.content;
+
+  // Changer la classification exige le droit de lecture (écrire n'est pas lire), et
+  // l'abaisser est réservé à l'auteur, aux admins d'espace et aux admins globaux :
+  // sinon un éditeur déclasse un document secret puis le relit.
+  if (classification && classification !== doc.classification) {
+    const canView = await checkDocumentViewAccess(user, doc.spaceId, doc.id);
+    if (!canView) return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+    if (isDeclassification(doc.classification as ClassificationLevel, classification)) {
+      const canDeclassify = await checkDocumentDeclassifyAccess(user, doc.spaceId, doc.id);
+      if (!canDeclassify) {
+        return NextResponse.json(
+          { error: "Seuls l'auteur et les administrateurs peuvent abaisser la classification" },
+          { status: 403 }
+        );
+      }
+    }
+  }
 
   const [space] = await db
     .select()
@@ -134,29 +171,27 @@ export async function PATCH(
     }
   }
 
-  // Changer la classification est un acte de securite, pas une simple edition.
-  // Sans ce garde-fou, un utilisateur qui peut ecrire mais pas lire (document `secret`
-  // dont il n'est ni auteur ni admin d'espace) declasse le document en `internal`,
-  // puis le relit par le GET : la projection de la reponse PATCH ne ferait que rendre
-  // l'exfiltration deux fois plus longue.
-  const currentClassification = (doc.classification || "internal") as ClassificationLevel;
-  if (classification && classification !== currentClassification) {
-    const canReadBeforeReclassifying = await checkDocumentViewAccess(user, doc.spaceId, doc.id);
-    if (!canReadBeforeReclassifying) {
-      return NextResponse.json(
-        { error: "Accès refusé : modifier la classification exige le droit de lecture sur le document" },
-        { status: 403 }
-      );
-    }
-
-    if (isDeclassification(currentClassification, classification)) {
-      const canDeclassify = await checkDocumentDeclassifyAccess(user, doc.spaceId, doc.id);
-      if (!canDeclassify) {
-        return NextResponse.json(
-          { error: "Accès refusé : seuls l'auteur, les administrateurs de l'espace et les administrateurs globaux peuvent abaisser la classification d'un document" },
-          { status: 403 }
+  // B69 : anciennes références /api/attachments/<clé> réécrites en /api/media/<id> à la
+  // prochaine édition. Voie non collaborative seulement : si un état Yjs existe, il garderait
+  // les anciennes références et les deux versions divergeraient, donc on ne réécrit pas.
+  // Un échec ne bloque jamais la sauvegarde.
+  if (content !== undefined && space && !doc.isFolder) {
+    try {
+      const [collab] = await db
+        .select({ documentId: documentCollabStates.documentId })
+        .from(documentCollabStates)
+        .where(eq(documentCollabStates.documentId, id))
+        .limit(1);
+      if (!collab) {
+        const result = await rewriteDocumentRefs(
+          content,
+          space.organizationId,
+          createOrgKeyLookup(space.organizationId, doc.spaceId),
         );
+        content = result.markdown;
       }
+    } catch (err) {
+      logger.warn({ err }, "[rewriteDocumentRefs] réécriture ignorée");
     }
   }
 
@@ -212,9 +247,6 @@ export async function PATCH(
   if (icon !== undefined) updateData.icon = icon;
   if (properties !== undefined) updateData.properties = properties;
 
-  // Projection explicite : `contentText` est volontairement exclu de la reponse
-  // (voir documentMetadataColumns). Un `.returning()` nu renverrait le contenu complet
-  // du document a un utilisateur autorise a ecrire mais pas a lire.
   const [updated] = await db
     .update(documents)
     .set(updateData)
@@ -287,7 +319,7 @@ export async function DELETE(
   const canEdit = await checkDocumentEditAccess(user, doc.spaceId, id);
   if (!canEdit) return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
 
-  await db.delete(documents).where(eq(documents.id, id));
+  await deleteDocumentTree(id);
 
   logActivity({
     userId: user.id,

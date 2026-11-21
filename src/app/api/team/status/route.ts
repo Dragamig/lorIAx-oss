@@ -10,8 +10,8 @@ import {
 } from "@/lib/db/schema";
 import { eq, and, inArray, lte, gte } from "drizzle-orm";
 import { getSessionUser } from "@/lib/auth/get-user";
-import { getOrgSlugFromHeaders, getOrgId } from "@/lib/org/get-org-id";
-import { headers } from "next/headers";
+import { getRequestOrgId } from "@/lib/org/get-request-org";
+import { getOrgMemberIds } from "@/lib/org/org-members";
 import { computeDayAvailability } from "@/lib/presence/availability";
 
 function deriveEffectiveStatus(
@@ -30,8 +30,12 @@ export async function GET() {
   const currentUser = await getSessionUser();
   if (!currentUser) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
 
-  const orgSlug = await getOrgSlugFromHeaders(headers);
-  const orgId = await getOrgId(orgSlug);
+  // Cloisonnement multi-tenant : sans appartenance à l'organisation du
+  // sous-domaine, aucun annuaire de présence n'est exposé.
+  const orgId = await getRequestOrgId(currentUser);
+  if (!orgId) {
+    return NextResponse.json({ error: "Organisation introuvable" }, { status: 404 });
+  }
 
   // Trouver les équipes de l'utilisateur courant
   const myTeams = await db
@@ -58,10 +62,11 @@ export async function GET() {
       .filter((id) => id !== currentUser.id);
   }
 
-  // Fallback : aucune équipe ou aucun coéquipier → afficher tous les utilisateurs du système
+  // Fallback : aucune équipe ou aucun coéquipier → afficher les membres de
+  // l'organisation courante (cloisonnement multi-tenant, jamais tout le système).
   if (memberIds.length === 0) {
-    const allUsers = await db.select({ userId: users.id }).from(users);
-    memberIds = allUsers.map((u) => u.userId).filter((id) => id !== currentUser.id);
+    const orgMemberIds = await getOrgMemberIds(orgId);
+    memberIds = orgMemberIds.filter((id) => id !== currentUser.id);
   }
 
   if (memberIds.length === 0) {

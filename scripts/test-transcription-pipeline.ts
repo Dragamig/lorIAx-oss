@@ -7,7 +7,7 @@
  */
 
 import { resolve } from "path";
-import { readdir, stat, writeFile } from "fs/promises";
+import { readdir } from "fs/promises";
 import { existsSync } from "fs";
 
 const WHISPER_URL = process.env.WHISPER_API_URL || "http://localhost:9000";
@@ -32,7 +32,7 @@ async function checkService(name: string, url: string, path: string = ""): Promi
     }
     log(name, "fail", `${url}${path} → ${res.status}`);
     return false;
-  } catch (err) {
+  } catch {
     log(name, "fail", `${url}${path} → connexion refusée`);
     return false;
   }

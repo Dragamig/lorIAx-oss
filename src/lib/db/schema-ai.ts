@@ -27,6 +27,13 @@ export const aiUsageTypeEnum = pgEnum("ai_usage_type", [
   "summary_meeting",
   "embeddings",
   "playground",
+  "database_ai_create",
+  "database_ai_formula",
+  "automation_ai",
+  "help",
+  "voice_note_summary",
+  "voice_note_cleanup",
+  "rerank",
 ]);
 
 export const aiLogStatusEnum = pgEnum("ai_log_status", [

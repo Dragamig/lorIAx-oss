@@ -43,8 +43,8 @@ export const InPersonMeetingBlock = Node.create({
   addNodeView() {
     return ReactNodeViewRenderer(LazyInPersonMeetingBlockView, {
       stopEvent: ({ event }) => {
-        const target = event.target as HTMLElement;
-        return !!target.closest("input, button, select, textarea, [role='button']");
+        const target = event.target;
+        return target instanceof HTMLElement && !!target.closest("input, button, select, textarea, [role='button']");
       },
     });
   },

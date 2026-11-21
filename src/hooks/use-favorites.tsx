@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, createContext, useContext, type ReactNode } from "react";
 
-export type EntityType = 'document' | 'space' | 'template' | 'calendar_event' | 'meeting';
+export type EntityType = 'document' | 'space' | 'template' | 'calendar_event' | 'meeting' | 'database';
 
 export interface ResolvedFavorite {
   id: string;

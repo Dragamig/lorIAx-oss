@@ -5,16 +5,9 @@ import { db } from "@/lib/db";
 import { aiUsageLogs } from "@/lib/db/schema-ai";
 import { users, aiProviders } from "@/lib/db/schema";
 import { sql, eq, gte, lte, and, desc } from "drizzle-orm";
+import { aiUsageShortLabel } from "@/lib/ai/usage-labels";
 
 const MAX_EXPORT_ROWS = 10000;
-
-const USAGE_TYPE_LABELS: Record<string, string> = {
-  chat: "Chat",
-  summary_doc: "Résumé doc",
-  summary_meeting: "Résumé réunion",
-  embeddings: "Embeddings",
-  playground: "Playground",
-};
 
 const STATUS_LABELS: Record<string, string> = {
   success: "Succès",
@@ -50,10 +43,17 @@ export async function GET(request: NextRequest) {
 
   const conditions = [];
   if (from) {
-    conditions.push(gte(aiUsageLogs.createdAt, new Date(from)));
+    const fromDate = new Date(from);
+    if (isNaN(fromDate.getTime())) {
+      return NextResponse.json({ error: 'Invalid from date' }, { status: 400 });
+    }
+    conditions.push(gte(aiUsageLogs.createdAt, fromDate));
   }
   if (to) {
     const toDate = new Date(to);
+    if (isNaN(toDate.getTime())) {
+      return NextResponse.json({ error: 'Invalid to date' }, { status: 400 });
+    }
     toDate.setHours(23, 59, 59, 999);
     conditions.push(lte(aiUsageLogs.createdAt, toDate));
   }
@@ -127,7 +127,7 @@ export async function GET(request: NextRequest) {
         escapeCsvField(r.userName ?? ""),
         escapeCsvField(r.userEmail ?? ""),
         r.teamId ?? "",
-        escapeCsvField(USAGE_TYPE_LABELS[r.usageType] ?? r.usageType),
+        escapeCsvField(aiUsageShortLabel(r.usageType)),
         escapeCsvField(r.providerName ?? ""),
         escapeCsvField(r.model ?? ""),
         r.tokensIn ?? "",

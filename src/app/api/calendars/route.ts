@@ -1,13 +1,11 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import {
-  calendars,
-  calendarSubscriptions,
-  teamMembers,
-} from "@/lib/db/schema";
-import { eq, and, inArray } from "drizzle-orm";
+import { calendars, teams, spaces } from "@/lib/db/schema";
+import { eq, inArray } from "drizzle-orm";
 import { getSessionUser } from "@/lib/auth/get-user";
 import { hasGlobalRole } from "@/lib/auth/rbac";
+import { getRequestOrgId } from "@/lib/org/get-request-org";
+import { getAccessibleCalendarIds } from "@/lib/calendar/permissions";
 import { z } from "zod";
 import slugify from "slugify";
 import crypto from "crypto";
@@ -16,70 +14,16 @@ export async function GET() {
   const user = await getSessionUser();
   if (!user) return NextResponse.json([], { status: 401 });
 
-  if (hasGlobalRole(user.globalRole, "admin")) {
-    const all = await db.select().from(calendars).orderBy(calendars.name);
-    return NextResponse.json(all);
-  }
+  // Cloisonnement multi-tenant : on s'appuie sur l'unique source de vérité
+  // (getAccessibleCalendarIds), confinée à l'org du sous-domaine courant.
+  const orgId = await getRequestOrgId(user);
+  if (!orgId) return NextResponse.json([], { status: 404 });
 
-  // Own calendars
-  const ownCalendars = await db
-    .select()
-    .from(calendars)
-    .where(eq(calendars.ownerUserId, user.id));
+  const ids = await getAccessibleCalendarIds(user, orgId);
+  if (ids.length === 0) return NextResponse.json([]);
 
-  // Subscribed calendars
-  const subs = await db
-    .select({ calendarId: calendarSubscriptions.calendarId })
-    .from(calendarSubscriptions)
-    .where(eq(calendarSubscriptions.userId, user.id));
-
-  const subIds = subs.map((s) => s.calendarId);
-  let subscribedCalendars: (typeof calendars.$inferSelect)[] = [];
-  if (subIds.length > 0) {
-    subscribedCalendars = await db
-      .select()
-      .from(calendars)
-      .where(inArray(calendars.id, subIds));
-  }
-
-  // Organization calendars
-  const orgCalendars = await db
-    .select()
-    .from(calendars)
-    .where(eq(calendars.type, "organization"));
-
-  // Team calendars
-  const userTeams = await db
-    .select({ teamId: teamMembers.teamId })
-    .from(teamMembers)
-    .where(eq(teamMembers.userId, user.id));
-
-  let teamCalendars: (typeof calendars.$inferSelect)[] = [];
-  if (userTeams.length > 0) {
-    const teamIds = userTeams.map((t) => t.teamId);
-    teamCalendars = await db
-      .select()
-      .from(calendars)
-      .where(
-        and(
-          eq(calendars.type, "team"),
-          inArray(calendars.ownerTeamId, teamIds)
-        )
-      );
-  }
-
-  // Deduplicate by ID
-  const allCals = new Map<string, typeof calendars.$inferSelect>();
-  for (const cal of [
-    ...ownCalendars,
-    ...subscribedCalendars,
-    ...orgCalendars,
-    ...teamCalendars,
-  ]) {
-    allCals.set(cal.id, cal);
-  }
-
-  return NextResponse.json([...allCals.values()].sort((a, b) => a.name.localeCompare(b.name)));
+  const rows = await db.select().from(calendars).where(inArray(calendars.id, ids));
+  return NextResponse.json(rows.sort((a, b) => a.name.localeCompare(b.name)));
 }
 
 const createCalendarSchema = z.object({
@@ -115,6 +59,43 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "ownerTeamId requis pour un calendrier d'équipe" }, { status: 400 });
   }
 
+  const orgId = await getRequestOrgId(user);
+  if (!orgId) {
+    return NextResponse.json({ error: "Organisation introuvable" }, { status: 404 });
+  }
+
+  // Cloisonnement multi-tenant : l'org du calendrier est dérivée de son rattachement.
+  //   personal   → NULL (org-neutre, scopé par propriétaire)
+  //   team        → org de l'équipe (doit appartenir à l'org courante)
+  //   space       → org de l'espace (doit appartenir à l'org courante)
+  //   organization→ org de la requête
+  let organizationId: string | null = null;
+  if (calType === "team" && ownerTeamId) {
+    const [team] = await db
+      .select({ organizationId: teams.organizationId })
+      .from(teams)
+      .where(eq(teams.id, ownerTeamId))
+      .limit(1);
+    if (!team || team.organizationId !== orgId) {
+      return NextResponse.json({ error: "Équipe introuvable" }, { status: 404 });
+    }
+    organizationId = team.organizationId;
+  } else if (calType === "organization") {
+    organizationId = orgId;
+  }
+
+  if (spaceId) {
+    const [space] = await db
+      .select({ organizationId: spaces.organizationId })
+      .from(spaces)
+      .where(eq(spaces.id, spaceId))
+      .limit(1);
+    if (!space || space.organizationId !== orgId) {
+      return NextResponse.json({ error: "Espace introuvable" }, { status: 404 });
+    }
+    organizationId = space.organizationId;
+  }
+
   const baseSlug = slugify(name, { lower: true, strict: true });
   const caldavSlug = `${baseSlug}-${crypto.randomBytes(4).toString("hex")}`;
 
@@ -129,6 +110,7 @@ export async function POST(request: Request) {
       ownerUserId: calType !== "team" ? user.id : undefined,
       ownerTeamId: calType === "team" ? ownerTeamId : undefined,
       spaceId,
+      organizationId,
       caldavSlug,
       isDefault: false,
     })

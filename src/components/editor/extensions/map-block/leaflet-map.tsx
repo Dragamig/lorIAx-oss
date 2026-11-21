@@ -7,11 +7,13 @@ import { MARKER_COLORS } from "./constants";
 export function LeafletMap({
   config,
   onConfigChange,
+  onMarkerClick,
   isEditable,
   fullscreen = false,
 }: {
   config: MapConfig;
   onConfigChange: (config: MapConfig) => void;
+  onMarkerClick?: (markerId: string) => void;
   isEditable: boolean;
   fullscreen?: boolean;
 }) {
@@ -83,8 +85,15 @@ export function LeafletMap({
     if (isEditable) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       map.on("click", (e: any) => {
+        const id = (() => {
+          try {
+            return crypto.randomUUID();
+          } catch {
+            return Math.random().toString(36).slice(2);
+          }
+        })();
         const newMarker: MapMarker = {
-          id: crypto.randomUUID(),
+          id,
           lat: e.latlng.lat,
           lng: e.latlng.lng,
           label: `Point ${configRef.current.markers.length + 1}`,
@@ -148,11 +157,14 @@ export function LeafletMap({
             ),
           });
         });
+        marker.on("click", () => {
+          onMarkerClick?.(m.id);
+        });
       }
 
       markersLayerRef.current.addLayer(marker);
     });
-  }, [config.markers, L, isEditable, onConfigChange]);
+  }, [config.markers, L, isEditable, onConfigChange, onMarkerClick]);
 
   // Update routes (polylines + arrows)
   useEffect(() => {

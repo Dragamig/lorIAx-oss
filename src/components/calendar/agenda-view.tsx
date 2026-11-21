@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { Clock, MapPin, Repeat } from "lucide-react";
+import { useTranslations, useFormatter } from "next-intl";
 import type { CalendarEvent, Calendar } from "@/types";
 
 interface AgendaViewProps {
@@ -10,13 +11,6 @@ interface AgendaViewProps {
   calendars: Calendar[];
   visibleCalendarIds: Set<string>;
   onEventClick: (event: CalendarEvent) => void;
-}
-
-const WEEKDAY_FR = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
-const MONTH_FR = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
-
-function formatDate(date: Date): string {
-  return `${WEEKDAY_FR[date.getDay()]} ${date.getDate()} ${MONTH_FR[date.getMonth()]}`;
 }
 
 function formatTime(date: Date): string {
@@ -38,6 +32,8 @@ export default function AgendaView({
   visibleCalendarIds,
   onEventClick,
 }: AgendaViewProps) {
+  const t = useTranslations("calendar");
+  const format = useFormatter();
   const calColorMap = new Map(calendars.map((c) => [c.id, c.color]));
   const calNameMap = new Map(calendars.map((c) => [c.id, c.name]));
 
@@ -55,23 +51,23 @@ export default function AgendaView({
     }
     return [...groups.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([, events]) => ({
-        date: new Date(events[0].startAt),
-        events,
+      .map(([, evs]) => ({
+        date: new Date(evs[0].startAt),
+        events: evs,
       }));
   }, [filteredEvents]);
 
   if (filteredEvents.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center flex-1 text-muted-foreground">
-        <p className="text-sm">Aucun événement pour cette période</p>
+        <p className="text-sm">{t("agendaView.empty")}</p>
       </div>
     );
   }
 
   return (
     <div className="flex-1 overflow-y-auto px-3 md:px-6 py-4 space-y-6">
-      {grouped.map(({ date, events }) => (
+      {grouped.map(({ date, events: dayEvents }) => (
         <div key={date.toISOString()}>
           {/* Day header */}
           <div
@@ -79,13 +75,13 @@ export default function AgendaView({
               isToday(date) ? "text-primary" : "text-foreground"
             }`}
           >
-            {isToday(date) ? "Aujourd'hui — " : ""}
-            {formatDate(date)}
+            {isToday(date) ? t("agendaView.todayPrefix") : ""}
+            {format.dateTime(date, { weekday: "short", day: "numeric", month: "long" })}
           </div>
 
           {/* Events */}
           <div className="space-y-2">
-            {events.map((event) => {
+            {dayEvents.map((event) => {
               const start = new Date(event.startAt);
               const end = new Date(event.endAt);
               const color = event.color || calColorMap.get(event.calendarId) || "#3b82f6";
@@ -114,7 +110,7 @@ export default function AgendaView({
                       <span className="flex items-center gap-1">
                         <Clock className="h-3 w-3" />
                         {event.allDay
-                          ? "Journée entière"
+                          ? t("agendaView.allDay")
                           : `${formatTime(start)} – ${formatTime(end)}`}
                       </span>
                       {event.location && (
@@ -126,7 +122,7 @@ export default function AgendaView({
                       {event.recurrenceRule && (
                         <span className="flex items-center gap-1">
                           <Repeat className="h-3 w-3" />
-                          Récurrent
+                          {t("agendaView.recurring")}
                         </span>
                       )}
                     </div>

@@ -2,499 +2,632 @@
 
 # LorIAx
 
-**Suite collaborative auto-hébergée type Notion/Obsidian, avec IA intégrée, pour les organismes qui veulent garder la main sur leurs données.**
+**Votre savoir, votre infrastructure, votre intelligence.**
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Stack](https://img.shields.io/badge/stack-Next.js%2016%20%C2%B7%20PostgreSQL%20%C2%B7%20TipTap%20%C2%B7%20Yjs-22c55e.svg)
-![Status](https://img.shields.io/badge/status-v1.21.0%20%C2%B7%20stable-orange.svg)
+Plateforme de gestion de connaissances collaborative et auto-hébergée, avec IA intégrée.
 
-[Fonctionnalités](#fonctionnalités) • [Démarrage](#démarrage-rapide) • [Déploiement](#déploiement) • [Architecture](#architecture) • [Stack](#stack-technique--dépendances-oss) • [Contribuer](#contribuer)
+Créé par Studio Dragamig avec l'aide de Claude d'Anthropic
+
+[Lancement rapide](#lancement-rapide) • [Fonctionnalités](#fonctionnalités) • [Architecture](#architecture) • [Configuration](#configuration) • [Déploiement](#déploiement) • [Contribuer](#contribuer) • [Licence](#licence)
 
 </div>
 
 ---
 
-LorIAx est une plateforme de **gestion de connaissances et de productivité collaborative**, conçue pour les organismes qui veulent un Notion-like souverain et auto-hébergeable. Édition WYSIWYG temps réel, IA multi-provider, calendrier, visio, whiteboard, mindmap et bases de données : le tout dans une seule app cohérente. Cette édition open source est extraite du produit commercial de Studio Dragamig, publiée sous licence MIT.
+LorIAx réunit un éditeur de documents riche, la collaboration en temps réel, des bases de données, un calendrier partagé, la visioconférence et une IA branchée sur vos propres documents. L'ensemble tourne sur votre serveur, avec PostgreSQL et un stockage objet S3 que vous hébergez vous-même.
 
-> **Pour qui ?** Équipes, associations, collectivités, PME et services internes qui veulent un outil de productivité collaboratif **sans verrou cloud**, déployable sur leur propre infrastructure (VPS, on-premise, datacenter souverain).
+> **Pour qui ?** Les organismes multi-services qui veulent garder leurs données chez eux : collectivités, associations, PME structurées.
 
-## Aperçu
+**Version** : lorIAx-oss 2.0.0, basée sur LorIAx 1.210.x, sous licence FSL-1.1-MIT. Tous les modules sont actifs, sans quota ni clé de licence. Seul le studio vidéo n'est pas inclus. Les versions 1.21.0 et 1.21.1 restent sous licence MIT : le tag [`v1.21.1`](https://github.com/Flavien-Dragamig/lorIAx-oss/tree/v1.21.1) donne la dernière version MIT.
 
-| Éditeur collaboratif avec backlinks | Graphe de connaissances |
-|---|---|
-| ![Éditeur TipTap avec wiki-links et backlinks](docs/screenshots/editor.png) | ![Visualisation du graphe documentaire](docs/screenshots/graph.png) |
-| **Assistant IA contextuel (RAG)** | |
-| ![Chat IA sur la base de connaissances](docs/screenshots/ai.png) | |
+## Lancement rapide
 
-*Captures recadrées depuis une instance de démonstration. La barre latérale d'origine a été retirée pour ne montrer que des fonctionnalités présentes dans cette édition open source.*
+Installation sur un serveur Linux avec Docker, à la main ou pilotée par un assistant en ligne de commande. Les exemples prennent un VPS Hostinger ; tout serveur Ubuntu avec Docker convient.
 
-## Fonctionnalités
+**Dimensionnement** : 8 Go de RAM pour construire l'application (`next build` est gourmand en mémoire). Une fois construits, les services de `docker-compose.yml` sont plafonnés à environ 4 Go au total (application 2 Go, PostgreSQL 1 Go, Garage 512 Mo, sauvegarde 256 Mo). L'IA locale Ollama, facultative, peut prendre jusqu'à 8 Go de plus.
 
-### Édition collaborative temps réel
+**Code** : le dépôt est public et se clone sans authentification. `docker-compose.yml` construit l'application depuis les sources, aucune image préconstruite n'est requise.
 
-- Éditeur WYSIWYG markdown avec slash-commands, mentions `@`, wiki-links `[[doc]]`, callouts, tables, code highlighting.
-- Édition simultanée multi-curseur sans conflit (CRDT).
-- Historique versionné de chaque document, navigation et diff visuel.
-- Mode hors-ligne avec synchronisation différée à la reconnexion.
+<details>
+<summary><strong>Avec les commandes</strong></summary>
 
-### Blocs riches
+1. Créer le serveur (chez Hostinger : modèle Ubuntu avec Docker dans hPanel), ajouter sa clé SSH publique, puis s'y connecter : `ssh root@<ip-du-serveur>`.
+2. Vérifier Docker : `docker --version` et `docker compose version`. `openssl`, `curl` et `git` sont aussi nécessaires.
+3. Récupérer le code et lancer l'installeur.
 
-- Whiteboard infini, mindmaps, tableurs compatibles Excel, charts, cartes Leaflet.
-- Bases de données type Notion (vues table, kanban, calendrier).
-- Calendriers et réunions vidéo embarqués directement dans un document.
+   ```bash
+   git clone https://github.com/Flavien-Dragamig/lorIAx-oss.git
+   cd lorIAx-oss
+   LORIAX_URL=https://wiki.exemple.fr bash install.sh
+   ```
 
-### IA multi-provider
+   `install.sh` vérifie les prérequis, écrit le `.env` avec des secrets aléatoires (`scripts/generate-env.sh`), construit l'application, démarre les services et affiche la clé d'installation. Sans `LORIAX_URL`, il demande l'adresse publique. Un `.env` déjà présent est conservé tel quel. L'option `--livekit` ajoute la visioconférence : `bash install.sh --livekit`.
 
-- Chat contextuel sur vos documents, résumés, traductions, génération de blocs.
-- Providers commutables : Claude, OpenAI, Mistral, Ollama (local).
-- RAG sémantique sur votre base via embeddings vectoriels.
-- Quotas par utilisateur / organisation, logs d'usage, prompts personnalisables.
+   Les mêmes étapes à la main :
 
-### Graphe de connaissances
+   ```bash
+   bash scripts/generate-env.sh https://wiki.exemple.fr > .env
+   chmod 600 .env
+   docker compose up -d --build
+   ```
 
-- Liens `[[document]]` automatiques avec backlinks.
-- Visualisation interactive du graphe documentaire.
-- Recherche full-text **et** sémantique.
+4. Vérifier le démarrage : `curl -fsS http://127.0.0.1:3000/api/health`. Les journaux se lisent avec `docker compose logs -f app`.
+5. Placer un reverse proxy HTTPS (Caddy, Nginx ou Traefik) devant `http://127.0.0.1:3000`. L'application n'écoute que sur la machine, aucun port n'est ouvert vers l'extérieur. Exemple de `Caddyfile` :
 
-### Calendrier & visio
+   ```text
+   wiki.exemple.fr {
+       reverse_proxy 127.0.0.1:3000
+   }
+   ```
 
-- Serveur CalDAV intégré (synchronisable Apple Calendar, Thunderbird, DAVx⁵).
-- Visioconférence self-host avec transcription audio automatique.
-- Vues mois / semaine / jour / agenda, invitations, rappels.
+6. Faire pointer le domaine vers l'IP du serveur (enregistrement A, chez le registrar ou dans hPanel).
+7. Ouvrir `https://wiki.exemple.fr/setup` pour créer le premier super administrateur. La clé demandée est celle affichée par `install.sh` ; elle se relit avec `grep '^SETUP_BOOTSTRAP_TOKEN=' .env` et cesse d'être acceptée une fois la configuration terminée.
 
-### Multi-tenants & accès
+Ne jamais versionner le `.env` : il contient les secrets de l'instance. Les régénérer rend la base et le stockage existants inaccessibles.
 
-- Authentification credentials, OAuth, LDAP.
-- RBAC granulaire (super_admin, admin, editor, viewer).
-- Multi-organisations avec permissions par espace.
-- Partages publics révocables avec expiration.
+</details>
 
-### PWA & souveraineté
+<details>
+<summary><strong>Avec Claude Code</strong></summary>
 
-- Installable comme app native (Android, iOS, desktop).
-- Stockage objet S3-compatible (Garage, MinIO, AWS, B2, …) ou filesystem.
-- Sauvegardes automatiques planifiées.
-- Webhooks sortants pour intégration externe.
+Le plugin `hostinger` (marketplace officielle `claude-plugins-official`) déclare le serveur MCP distant Hostinger (`https://mcp.hostinger.com`) : VPS, pare-feu, snapshots, domaines, DNS. Ses skills de déploiement ciblent l'hébergement mutualisé, pas un VPS Docker : pour LorIAx, le plugin crée le VPS et gère le DNS, le reste passe par SSH et Docker Compose.
 
-## Architecture
-
-```
-                    ┌──────────────────────────────┐
-                    │  Navigateur / PWA (React 19) │
-                    └──────────────┬───────────────┘
-                                   │ HTTPS + WebSocket
-                                   ▼
-        ┌──────────────────────────────────────────────────┐
-        │  Reverse proxy (Caddy / Traefik / Nginx)         │
-        └──────────────┬─────────────────────┬─────────────┘
-                       │                     │
-                       ▼                     ▼ /ws/collab
-        ┌──────────────────────────┐  ┌───────────────────┐
-        │  Next.js 16 App Router   │  │  Hocuspocus       │
-        │  + API routes + RBAC     │  │  (Yjs CRDT WS)    │
-        │  + RAG + IA orchestration│  └─────────┬─────────┘
-        └────┬─────────┬──────┬────┘            │
-             │         │      │                 │
-             ▼         ▼      ▼                 ▼
-       ┌──────────┐ ┌─────┐ ┌─────────┐  ┌──────────────┐
-       │ Postgres │ │ S3  │ │ LLM     │  │ Doc states   │
-       │ pgvector │ │     │ │ provider│  │ (Yjs binary) │
-       │ pg_trgm  │ │ Gar.│ │ Claude/ │  └──────────────┘
-       └──────────┘ │MinIO│ │ OpenAI/ │
-                    │ AWS │ │ Ollama  │
-                    └─────┘ └─────────┘
-                       ▲
-                       │
-                   ┌───┴────┐
-                   │LiveKit │  (visio + transcription Whisper/Voxtral)
-                   └────────┘
+```text
+/plugin marketplace add anthropics/claude-plugins-official
+/plugin install hostinger@claude-plugins-official
 ```
 
-Trois plans d'exécution dans un seul process Node :
+La première commande est inutile si la marketplace officielle est déjà présente. L'authentification se fait par OAuth dans le navigateur à la première utilisation, ou par un jeton d'API créé dans hPanel (`HOSTINGER_API_TOKEN`).
 
-1. **HTTP/REST** : Next.js App Router (routes UI + `/api/*`).
-2. **WebSocket collab** : Hocuspocus sur `/ws/collab`, sauvegarde des `Y.Doc` dans Postgres.
-3. **Workers** : schedulers croner (backups, télémétrie, purges).
+Invite à donner à Claude Code :
 
-## Stack technique & dépendances OSS
+```text
+Déploie LorIAx sur un VPS Hostinger avec le plugin Hostinger. Crée un VPS Ubuntu avec Docker (8 Go de RAM),
+connecte-toi en SSH, clone le dépôt (git clone https://github.com/Flavien-Dragamig/lorIAx-oss.git),
+lance LORIAX_URL=https://<domaine> bash install.sh depuis la racine du dépôt, installe un reverse proxy HTTPS
+pour mon domaine <domaine> devant http://127.0.0.1:3000, crée l'enregistrement DNS et vérifie /api/health.
+Ne m'affiche aucun secret, sauf la clé d'installation de /setup.
+```
 
-La quasi-totalité de la stack est sous licence libre au sens OSI. Seule exception : `react-leaflet` est distribué sous licence Hippocratic 2.1, une licence source-available à clause éthique, non approuvée par l'OSI. Chaque outil est listé avec sa licence d'origine, conformément à l'esprit OSS.
+</details>
 
-### Frontend
+<details>
+<summary><strong>Avec Gemini CLI (Google)</strong></summary>
 
-| Outil | Version | Licence | Rôle |
-|---|---|---|---|
-| [Next.js](https://nextjs.org) | 16 | MIT | Framework React + serveur custom |
-| [React](https://react.dev) | 19 | MIT | UI |
-| [TypeScript](https://www.typescriptlang.org) | 6 | Apache-2.0 | Typage statique |
-| [Tailwind CSS](https://tailwindcss.com) | 4 | MIT | Styling utility-first |
-| [shadcn/ui](https://ui.shadcn.com) + [@base-ui/react](https://base-ui.com) | 1.3 | MIT | Composants accessibles |
-| [TipTap](https://tiptap.dev) | 3 | MIT | Éditeur WYSIWYG headless |
-| [Yjs](https://yjs.dev) | 13 | MIT | CRDT collaboration temps réel |
-| [Excalidraw](https://excalidraw.com) | 0.18 | MIT | Whiteboard |
-| [Mind Elixir](https://mind-elixir.com) | 5 | MIT | Mindmaps |
-| [Univer](https://univer.ai) | 0.19 | Apache-2.0 | Tableur compatible Excel |
-| [Recharts](https://recharts.org) | 3 | MIT | Visualisations |
-| [Leaflet](https://leafletjs.com) + react-leaflet | 1.9 / 5 | BSD-2 / Hippocratic 2.1 (non OSI) | Cartes |
-| [Lucide](https://lucide.dev) | 0.577 | ISC | Icônes |
-| [Sonner](https://sonner.emilkowal.ski) | 2 | MIT | Toasts |
-| [cmdk](https://cmdk.paco.me) | 1 | MIT | Command palette |
-| [@dnd-kit](https://dndkit.com) | 6 | MIT | Drag & drop |
-| [Serwist](https://serwist.pages.dev) | 9 | BSD-3 | Service Worker / PWA |
-| [VizHash GD](https://sebsauvage.net/wiki/doku.php?id=php:vizhash_gd_source) (portage TS) | n/a | Zlib / libre | Avatars visuels déterministes (algorithme original de [Seb Sauvage](https://sebsauvage.net)) |
+Brancher le serveur MCP distant Hostinger (`https://mcp.hostinger.com`) dans Gemini CLI.
 
-### Backend
-
-| Outil | Licence | Rôle |
-|---|---|---|
-| [Drizzle ORM](https://orm.drizzle.team) + drizzle-kit | Apache-2.0 | ORM SQL typé + migrations |
-| [PostgreSQL](https://www.postgresql.org) | PostgreSQL | Base de données |
-| [pgvector](https://github.com/pgvector/pgvector) | PostgreSQL | Embeddings vectoriels |
-| [pg_trgm](https://www.postgresql.org/docs/current/pgtrgm.html) | PostgreSQL | Recherche fuzzy |
-| [NextAuth v5](https://authjs.dev) | ISC | Authentification |
-| [ldapjs](https://github.com/ldapjs/node-ldapjs) | MIT | Connecteur LDAP |
-| [jose](https://github.com/panva/jose) | MIT | JWT / JWS / JWE |
-| [bcryptjs](https://github.com/dcodeIO/bcrypt.js) | MIT | Hash de mots de passe |
-| [Zod](https://zod.dev) | MIT | Validation runtime |
-| [Hocuspocus](https://tiptap.dev/hocuspocus) | MIT | Serveur collab Yjs |
-| [Vercel AI SDK](https://sdk.vercel.ai) | Apache-2.0 | Abstraction LLM multi-provider |
-| [Ollama](https://ollama.com) (client) | MIT | LLM locaux |
-| [isomorphic-git](https://isomorphic-git.org) | MIT | Versioning Git pur JS |
-| [croner](https://github.com/Hexagon/croner) | MIT | Scheduler |
-| [pino](https://getpino.io) | MIT | Logger structuré |
-| [ioredis](https://github.com/redis/ioredis) | MIT | Client Redis |
-| [nodemailer](https://nodemailer.com) / [resend](https://resend.com) | MIT | Envoi d'emails |
-| [Sharp](https://sharp.pixelplumbing.com) | Apache-2.0 | Traitement d'images |
-| [FFmpeg](https://ffmpeg.org) (`@ffmpeg/ffmpeg`) | LGPL-2.1 | Traitement audio/vidéo |
-| [LiveKit](https://livekit.io) (server-sdk) | Apache-2.0 | Visio WebRTC |
-| [Whisper](https://github.com/openai/whisper) / [Voxtral](https://mistral.ai/news/voxtral) | MIT / Apache-2.0 | Transcription audio |
-
-### Qualité & tests
-
-| Outil | Licence | Rôle |
-|---|---|---|
-| [Vitest](https://vitest.dev) | MIT | Tests unitaires |
-| [Playwright](https://playwright.dev) | Apache-2.0 | Tests end-to-end |
-| [ESLint](https://eslint.org) + eslint-config-next | MIT | Lint |
-| [@testing-library/react](https://testing-library.com) | MIT | Test composants |
-
-### Infrastructure
-
-| Outil | Licence | Rôle |
-|---|---|---|
-| [Docker](https://www.docker.com) / [Docker Compose](https://docs.docker.com/compose/) | Apache-2.0 | Conteneurisation |
-| [Garage](https://garagehq.deuxfleurs.fr) | AGPL-3.0 | Stockage objet S3 distribué auto-hébergé (recommandé) |
-| [Traefik](https://traefik.io) / [Caddy](https://caddyserver.com) / [Nginx](https://nginx.org) | MIT / Apache-2.0 / BSD-2 | Reverse proxy au choix |
-
-Liste exhaustive et licences dans [`NOTICE.md`](./NOTICE.md) et `package.json`.
-
-## Démarrage rapide
-
-### Prérequis
-
-- **Node.js ≥ 20** (Node 22 recommandé, `.nvmrc` fourni, [nvm](https://github.com/nvm-sh/nvm) conseillé)
-- **Docker ≥ 24** + Docker Compose v2 (fournit PostgreSQL, Garage S3 et Ollama en local)
-
-### Installation en une commande
+Par OAuth :
 
 ```bash
-git clone https://github.com/Flavien-Dragamig/lorIAx-oss.git
-cd lorIAx-oss
-npm run dev:full
+gemini mcp add --scope user --transport http hostinger https://mcp.hostinger.com
 ```
 
-`npm run dev:full` fait tout : vérifie les prérequis, crée `.env.local` depuis `.env.example` (secrets générés automatiquement), installe les dépendances, démarre PostgreSQL + Garage + Ollama via Docker, applique le schéma, seed les comptes de dev et lance le serveur. Arrêt avec `npm run dev:stop`.
+Puis, dans Gemini CLI, `/mcp auth hostinger` ouvre le navigateur pour autoriser l'accès (un navigateur local est requis : sans lui, utiliser le jeton).
 
-### Installation manuelle (pas à pas)
-
-**1. Récupérer le projet et son fichier de configuration.**
+Par jeton d'API (créé dans hPanel, rubrique API) : ajouter l'en-tête à la commande, ou le déclarer dans `~/.gemini/settings.json`.
 
 ```bash
-git clone https://github.com/Flavien-Dragamig/lorIAx-oss.git
-cd lorIAx-oss
-cp .env.example .env.local
+gemini mcp add --scope user --transport http --header "Authorization: Bearer <jeton>" hostinger https://mcp.hostinger.com
 ```
 
-**2. Renseigner les deux secrets, obligatoire.** `.env.example` est complet pour un poste
-de développement à deux exceptions près : `NEXTAUTH_SECRET` et `ENCRYPTION_KEY` y sont
-**volontairement vides**, aucun secret n'étant versionné. Générez deux valeurs
-différentes :
-
-```bash
-openssl rand -base64 32    # valeur pour NEXTAUTH_SECRET
-openssl rand -base64 32    # valeur pour ENCRYPTION_KEY
-```
-
-Ouvrez `.env.local` et **collez chaque valeur à la suite du signe égal** sur les deux
-lignes vides correspondantes, pour obtenir :
-
-```dotenv
-NEXTAUTH_SECRET=<coller ici la première valeur générée>
-ENCRYPTION_KEY=<coller ici la seconde valeur générée>
-```
-
-Ne recopiez aucune valeur trouvée dans une documentation : un secret publié n'en est
-plus un.
-
-Sans cette étape, l'application s'arrête au démarrage : `NEXTAUTH_SECRET` doit faire au
-moins 16 caractères et `ENCRYPTION_KEY` est obligatoire.
-
-**3. Installer, démarrer les dépendances, initialiser la base et lancer le serveur.**
-
-```bash
-npm install
-docker compose up -d postgres garage garage-init   # dépendances (BDD + S3)
-npm run db:fresh                  # reset + migrations + comptes de démo + templates
-npm run dev
-```
-
-`npm run dev:full` exécute ces trois étapes pour vous, génération des secrets comprise :
-c'est le seul écart entre les deux chemins d'installation.
-
-Sans Docker, il faut fournir un PostgreSQL 16 avec les extensions `pgvector` et `pg_trgm`, et ajuster `DATABASE_URL` dans `.env.local`.
-
-App accessible sur **http://localhost:3000**.
-
-Comptes de démo (à changer avant tout déploiement public) :
-
-| Email | Mot de passe | Rôle |
-|---|---|---|
-| `admin@loriax.dev` | `admin123` | super_admin |
-| `user@loriax.dev` | `user123` | editor |
-
-### Première configuration : la clé d'installation
-
-L'assistant de configuration (`/setup`) crée le premier super administrateur : il n'est
-donc pas ouvert au premier visiteur venu. Sur une instance encore vide, il réclame une
-**clé d'installation**. Deux façons de l'obtenir.
-
-**Option 1, recommandée en production : la fixer vous-même.** Renseignez
-`SETUP_INSTALL_TOKEN` (16 caractères minimum) avant le premier démarrage. Elle n'est
-alors ni générée, ni stockée en base, ni écrite dans les journaux, et l'installation
-devient automatisable.
-
-```bash
-openssl rand -base64 32          # la valeur à mettre dans SETUP_INSTALL_TOKEN
-```
-
-**Option 2 : la laisser générer.** Sans cette variable, le serveur en crée une au
-premier affichage de `/setup` et l'écrit dans ses journaux, au niveau `warn`, avec le
-message `Jeton d'installation de cette instance`. En production les journaux sont au
-format NDJSON : la clé est la fin du champ `msg`.
-
-```bash
-# installation via install.sh
-docker compose -f docker-compose.client.yml logs app | grep "Jeton d'installation"
-# stack docker-compose.yml
-docker compose logs app | grep "Jeton d'installation"
-```
-
-Collez la clé dans l'assistant, puis déroulez les étapes. Une clé générée est supprimée
-de la base dès que la configuration est terminée ou reportée ; une clé fournie par
-`SETUP_INSTALL_TOKEN` cesse simplement d'être acceptée, l'assistant étant clos. Sur une
-instance déjà en service, aucune clé n'est nécessaire : il suffit d'être connecté avec
-un compte `super_admin`.
-
-## Configuration
-
-Toutes les variables d'environnement sont documentées dans [`.env.example`](./.env.example), qui fait office de source de vérité.
-
-Sous-ensemble essentiel :
-
-| Variable | Côté | Description |
-|---|---|---|
-| `DATABASE_URL` | serveur | URL PostgreSQL (pgvector + pg_trgm requis) |
-| `NEXTAUTH_SECRET` | serveur | Secret de signature des sessions (`openssl rand -base64 32`) |
-| `NEXTAUTH_URL` | serveur | URL publique pour les redirections OAuth |
-| `ENCRYPTION_KEY` | serveur | Clé 32 octets base64 chiffrant en base les secrets IA, LDAP, SMTP et sauvegarde (`openssl rand -base64 32`) |
-| `SETUP_INSTALL_TOKEN` | serveur | Clé d'accès à l'assistant `/setup` (optionnel, sinon générée et journalisée au premier affichage) |
-| `NEXT_PUBLIC_APP_URL` | client+serveur | URL publique (emails, webhooks, QR codes) |
-| `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` | serveur | Stockage objet (optionnel, filesystem par défaut) |
-| `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `MISTRAL_API_KEY` / `OLLAMA_HOST` | serveur | Providers IA (optionnels, configurables aussi en runtime via l'admin) |
-| `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | serveur | Visio (optionnel) |
-| `LDAP_URL`, `LDAP_BIND_DN`, `LDAP_BIND_CREDENTIALS`, `LDAP_SEARCH_BASE` | serveur | Annuaire (optionnel) |
-
-> ⚠️ Ne **jamais** committer un `.env` rempli. Seul `.env.example` doit être versionné.
-
-## Déploiement
-
-### Build de production
-
-```bash
-npm run build
-npm start    # Next.js + serveur WebSocket collaboration
-```
-
-### Docker Compose (recommandé)
-
-Stack tout-en-un : app + PostgreSQL (pgvector) + Garage (S3) + Ollama + backup planifié.
-
-```bash
-bash scripts/generate-env.sh > .env.local   # secrets tirés, puis ajuster les URLs
-cp .env.local .env                          # voir la note ci-dessous
-docker compose up -d
-```
-
-`scripts/generate-env.sh` tire `NEXTAUTH_SECRET`, `ENCRYPTION_KEY`,
-`POSTGRES_PASSWORD`, les identifiants S3 et `SETUP_INSTALL_TOKEN`. Il produit un fichier
-orienté production : relisez-le et complétez au minimum `NEXTAUTH_URL`, `S3_PUBLIC_URL`
-et `WS_URL`, qui pointent vers un domaine d'exemple, ainsi que `DATABASE_URL` si vous
-n'utilisez pas le PostgreSQL de la stack.
-
-> **Les deux fichiers sont nécessaires**, et ce n'est pas un doublon inutile :
-> `docker-compose.yml` lit `.env.local` comme `env_file` du conteneur applicatif, mais
-> Docker Compose n'interpole `${POSTGRES_PASSWORD}`, utilisé par les services `postgres`
-> et `app`, que depuis `.env` ou l'environnement du shell, jamais depuis un `env_file`.
-> Sans le `.env`, PostgreSQL démarrerait avec le mot de passe par défaut `loriax_secret`
-> alors que le port 5432 est publié.
-
-Variantes fournies à la racine :
-
-| Fichier | Usage |
-|---|---|
-| `docker-compose.yml` | Dev local tout-en-un |
-| `docker-compose.prod.yml` | Production avec Traefik et healthchecks renforcés |
-| `docker-compose.livekit.yml` | Ajout de la stack LiveKit (visio) |
-| `docker-compose.registry.yml` | Pull depuis un registry privé (GHCR par défaut) |
-| `docker/docker-compose.dev.yml` | Overlay de `docker/docker-compose.yml` : dépendances seules (BDD + S3, ports exposés, app désactivée), pour itérer en `npm run dev`. Usage : `docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml up -d` |
-
-### PaaS self-host (Dokploy, Coolify, Easypanel)
-
-Le `Dockerfile` est compatible. Configurer :
-
-- **Build** : Dockerfile
-- **Port exposé** : `3000` (HTTP **et** WS upgrade sur `/ws/collab`)
-- **Variables** : voir `.env.example`
-- **Volumes** : `/app/workspaces` (documents), migrations bundlées dans l'image
-- **Healthcheck** : `GET /api/health`
-
-### Reverse proxy
-
-Exemple Caddy minimal :
-
-```caddyfile
-loriax.example.com {
-    reverse_proxy localhost:3000
+```json
+{
+  "mcpServers": {
+    "hostinger": {
+      "httpUrl": "https://mcp.hostinger.com",
+      "headers": { "Authorization": "Bearer <jeton>" }
+    }
+  }
 }
 ```
 
-Caddy gère automatiquement l'upgrade WebSocket. Pour Nginx, ajouter `proxy_set_header Upgrade $http_upgrade;` et `proxy_set_header Connection "upgrade";` sur `/ws/collab`.
+Le jeton se trouve alors en clair dans ce fichier : le protéger (droits `600`) et ne jamais le versionner. Le format exact de l'en-tête attendu par Hostinger n'est pas documenté, l'OAuth reste la voie recommandée.
 
-### Migrations & sauvegardes
+Invite à donner à Gemini CLI :
 
-- Migrations Drizzle exécutées **automatiquement** au démarrage par `server.ts`.
-- Sauvegardes : service `backup` du compose (`pg_dump` quotidien + snapshot S3), réglable via `BACKUP_SCHEDULE` et `BACKUP_RETENTION_DAYS`.
+```text
+Déploie LorIAx sur un VPS Hostinger avec le serveur MCP Hostinger. Crée un VPS Ubuntu avec Docker (8 Go de RAM),
+connecte-toi en SSH, clone le dépôt (git clone https://github.com/Flavien-Dragamig/lorIAx-oss.git),
+lance LORIAX_URL=https://<domaine> bash install.sh depuis la racine du dépôt, installe un reverse proxy HTTPS
+pour mon domaine <domaine> devant http://127.0.0.1:3000, crée l'enregistrement DNS et vérifie /api/health.
+Ne m'affiche aucun secret, sauf la clé d'installation de /setup.
+```
+
+</details>
+
+<details>
+<summary><strong>Avec Codex CLI (OpenAI)</strong></summary>
+
+Brancher le serveur MCP distant Hostinger (`https://mcp.hostinger.com`) dans Codex CLI.
+
+Par OAuth, déclarer le serveur dans `~/.codex/config.toml` puis s'authentifier :
+
+```toml
+[mcp_servers.hostinger]
+url = "https://mcp.hostinger.com"
+```
+
+```bash
+codex mcp login hostinger
+```
+
+Sans navigateur local : `codex mcp login hostinger --no-browser`, ouvrir l'adresse affichée, puis coller l'URL de redirection complète dans le terminal.
+
+Par jeton d'API (créé dans hPanel, rubrique API) : le placer dans une variable d'environnement, jamais dans le fichier.
+
+```toml
+[mcp_servers.hostinger]
+url = "https://mcp.hostinger.com"
+bearer_token_env_var = "HOSTINGER_API_TOKEN"
+```
+
+```bash
+export HOSTINGER_API_TOKEN=<jeton>
+```
+
+Codex envoie la valeur dans l'en-tête `Authorization: Bearer`. Que Hostinger accepte ce format n'est pas documenté, l'OAuth reste la voie recommandée.
+
+Invite à donner à Codex :
+
+```text
+Déploie LorIAx sur un VPS Hostinger avec le serveur MCP Hostinger. Crée un VPS Ubuntu avec Docker (8 Go de RAM),
+connecte-toi en SSH, clone le dépôt (git clone https://github.com/Flavien-Dragamig/lorIAx-oss.git),
+lance LORIAX_URL=https://<domaine> bash install.sh depuis la racine du dépôt, installe un reverse proxy HTTPS
+pour mon domaine <domaine> devant http://127.0.0.1:3000, crée l'enregistrement DNS et vérifie /api/health.
+Ne m'affiche aucun secret, sauf la clé d'installation de /setup.
+```
+
+</details>
+
+---
+
+## Fonctionnalités
+
+### Éditeur de documents
+
+Éditeur WYSIWYG complet. Taper `/` insère n'importe quel type de contenu.
+
+- Mise en forme riche : gras, italique, listes, code, citations, encadrés
+- Wiki-links (`[[`) pour relier les documents entre eux
+- @mentions pour citer un collaborateur
+- Glisser-déposer pour réorganiser les blocs
+- Sauvegarde automatique et historique des versions
+
+### Blocs avancés
+
+| Bloc | Description |
+|------|-------------|
+| **Graphiques** | Barres, courbes, aires, camembert, avec import CSV et connecteurs de données |
+| **Bases de données** | Tableaux interactifs : vues tableau, kanban, galerie ; colonnes texte, nombre, date, sélection, relation, pièces jointes, formule ; synchronisation Airtable et Notion |
+| **Bloc synchronisé** | Référence vivante d'un autre document, entier ou limité à une section, en lecture seule |
+| **Base liée** | Base existante affichée en lecture seule, avec tri et filtres propres au document |
+| **Tableur** | Feuilles de calcul avec formules et graphiques intégrés |
+| **Tableau blanc** | Canvas infini : formes, flèches, texte, bibliothèques d'icônes et de schémas |
+| **Design** | Maquettes avec plans de travail ordinateur, tablette et mobile, export PNG |
+| **Carte mentale** | Nœuds, sous-nœuds, raccourcis clavier, export SVG |
+| **Carte interactive** | Marqueurs géolocalisés, itinéraires voiture, vélo et piéton, géocodage OpenStreetMap |
+| **Calendrier** | Mini-calendrier intégré au document |
+| **Vidéo intégrée** | Lecteur YouTube, Vimeo ou Dailymotion, converti automatiquement au collage du lien |
+| **Réunion présentielle** | Dictaphone avec transcription et identification des locuteurs |
+
+### Organisation
+
+- **Espaces** personnels, d'équipe et d'organisation
+- **Dossiers** imbriqués, réorganisables par glisser-déposer
+- **Modèles** de documents prêts à remplir, et création d'un modèle depuis n'importe quel document
+- **Étiquettes** colorées et filtrables, globales ou propres à un espace
+- **Favoris** en grille réorganisable
+- **Barre latérale** redimensionnable, avec sections repliables et filtre instantané
+
+### Bases (`/bases`)
+
+- Groupes de tables, vues grille, kanban, galerie, calendrier, formulaire et tableau de bord
+- Formulaire public par lien opaque, protégé contre les robots et limité en débit
+- Automatisations : déclencheurs sur création, modification, suppression de ligne ou planification ; actions webhook, notification, création ou modification de ligne
+- Export CSV et XLSX
+- Création de base et aide aux formules assistées par IA, quand un fournisseur d'IA est configuré
+
+### Recherche et intelligence artificielle
+
+- **Recherche hybride** : texte intégral, sémantique (pgvector), filtrage par espace
+- **Question IA** : questions en langage naturel sur vos documents
+- **Chat IA** : assistant conversationnel
+- **Assistant d'aide** : réponses aux questions d'usage à partir des [fiches d'aide](docs/kb/00-bienvenue.md) livrées avec l'application
+- **Résumé automatique** de documents
+- Fournisseurs au choix : Claude, OpenAI, Mistral, ou Ollama pour une IA locale
+- Modèle configurable par fonction (chat, aide, résumés, embeddings), avec réindexation à la demande
+
+### Collaboration en temps réel
+
+- **Édition simultanée** avec curseurs colorés
+- **Barre de présence** : avatars des collaborateurs connectés
+- **Commentaires** en fils de discussion, avec résolution
+- **Mode hors-ligne** : les modifications se synchronisent au retour du réseau
+
+### Calendrier partagé
+
+- Vues mois, semaine, jour, agenda et Gantt
+- Événements récurrents, participants, rappels
+- Compatible CalDAV (Thunderbird, Apple Calendar, DAVx5)
+- Import et export iCal (.ics), abonnement à des calendriers externes
+
+### Salles de réunion
+
+- Fiches salles : adresse, étage, capacité, équipement, photo et plan
+- Horaires d'ouverture avec jours fériés français
+- Droits par utilisateur, par équipe et par rôle
+- Réservation validée automatiquement, sans chevauchement possible
+- Tableau d'occupation et export CSV
+
+Détail du module : [docs/meeting-rooms.md](docs/meeting-rooms.md).
+
+### Visioconférence et transcription
+
+- Visioconférence WebRTC (LiveKit), invités sans compte
+- Enregistrement audio et transcription automatique
+- Résumé de la réunion rédigé par l'IA dans un document de l'espace
+
+Mise en place : [docs/livekit-integration.md](docs/livekit-integration.md).
+
+### Autres modules
+
+- **Médiathèque** : images, PDF et fichiers classés en dossiers et tags ([fiche](docs/kb/10-mediatheque.md))
+- **CRM** : contacts, dossiers et interactions portés par des bases ordinaires ([fiche](docs/kb/11-crm.md))
+- **Studio design** : visuels sur canvas, formats réseaux sociaux, exports PNG, SVG et PDF ([fiche](docs/kb/05-studio-design.md))
+- **Graphe de connaissances** : documents et liens en graphe interactif, liens entrants de chaque document
+- **Notes vocales** et **présentations**
+
+### Sécurité et permissions
+
+Chaque document porte un niveau de classification.
+
+| Niveau | Usage |
+|--------|-------|
+| Public | Contenu partageable à l'extérieur |
+| Interne | Visible par tous les membres de l'organisation |
+| Confidentiel | Réservé aux membres de l'espace |
+| Secret | Auteur et administrateurs uniquement |
+
+- Partage externe par lien public, pour les documents publics seulement
+- Authentification locale, LDAP ou Active Directory
+- Secrets chiffrés en base (AES-256-GCM), protection SSRF, journal d'audit, CSP avec nonce
+
+### Rôles et droits
+
+| Rôle | Création d'utilisateurs | Gestion des rôles | Administration de l'organisation | Administration de l'instance | Salles de réunion |
+|------|------------------------|-------------------|----------------------------------|------------------------------|-------------------|
+| **Super administrateur** | Oui, tous les rôles | Oui | Oui | Oui | Oui |
+| **Administrateur** | Oui, jusqu'à administrateur | Non | Oui | Non | Oui |
+| **Gestionnaire de salles** | Non | Non | Non | Non | Oui |
+| **Éditeur** | Non | Non | Non | Non | Non |
+| **Lecteur** | Non | Non | Non | Non | Non |
+
+Les réglages d'infrastructure sont réservés au super administrateur : sauvegardes et restauration, messagerie, annuaire LDAP, clés LiveKit, moteurs de transcription, fournisseurs d'IA de l'instance. Chaque espace a en plus ses propres rôles (lecteur, éditeur, administrateur d'espace), accordés à une personne ou à une équipe.
+
+**Organisation unique par défaut** : l'instance fonctionne avec une seule organisation, créée à l'initialisation de la base. Tous les utilisateurs, espaces et réglages lui sont rattachés, sans sous-domaine ni réglage supplémentaire.
+
+### API et intégrations
+
+- **API REST v1** avec pagination par curseur
+- **Clés d'API** (`lrx_...`) à périmètres granulaires
+- **Webhooks** signés en HMAC-SHA256
+- **Connecteurs de données** : API REST, Google Sheets, Airtable, Notion
+
+### Personnalisation
+
+- Thème sombre, clair ou automatique
+- Couleur d'accentuation, police, largeur et espacement de l'éditeur
+- Préréglages d'apparence, y compris par espace
+
+Le détail des fonctions par epic se trouve dans [docs/user-stories.md](docs/user-stories.md).
+
+## Architecture
+
+```text
+                Navigateur (PWA, mode hors-ligne)
+                          │ HTTPS et WebSocket
+                          ▼
+              Reverse proxy (Caddy, Nginx, Traefik)
+                          │ 127.0.0.1:3000
+                          ▼
+┌──────────────────────────────────────────────────────────┐
+│ app : serveur Node (server.ts)                           │
+│   Next.js (pages et API REST)                            │
+│   WebSocket de collaboration Yjs (/ws/collab)            │
+└──────┬───────────────┬───────────────┬───────────────────┘
+       ▼               ▼               ▼
+┌─────────────┐ ┌─────────────┐ ┌──────────────────────────┐
+│ postgres    │ │ garage      │ │ Options                  │
+│ PostgreSQL  │ │ stockage S3 │ │ ollama (IA locale)       │
+│ + pgvector  │ │ des fichiers│ │ livekit, whisper (visio) │
+└──────┬──────┘ └─────────────┘ └──────────────────────────┘
+       ▼
+┌─────────────┐
+│ backup      │  pg_dump quotidien, conservé 7 jours
+└─────────────┘
+```
+
+Les documents sont en plus versionnés sur disque dans le volume `workspaces_data`.
+
+## Stack technique et dépendances
+
+| Catégorie | Technologie |
+|-----------|-------------|
+| Framework | Next.js 16, React 19, TypeScript |
+| Interface | Tailwind CSS 4, shadcn/ui (Base UI) |
+| Éditeur | TipTap 3 (ProseMirror) |
+| Base de données | PostgreSQL 16 avec pgvector, Drizzle ORM |
+| Authentification | NextAuth v5, RBAC, LDAP |
+| Collaboration | Yjs et Hocuspocus (CRDT temps réel) |
+| IA | Vercel AI SDK : Claude, OpenAI, Mistral, Ollama |
+| Stockage | Garage (compatible S3) |
+| Versions des documents | isomorphic-git |
+| Graphe | D3.js |
+| Graphiques | Recharts |
+| Tableur | Univer |
+| Tableau blanc | Excalidraw |
+| Carte | Leaflet, OSRM |
+| Calendrier | ical.js, rrule, CalDAV (RFC 4791) |
+| Visioconférence | LiveKit (WebRTC) |
+| Transcription | Faster-Whisper (Speaches), Voxtral en option |
+| E-mail | Nodemailer (SMTP), Resend |
+| Tests | Vitest |
+| Déploiement | Docker Compose |
+
+La licence de chaque dépendance est recensée dans [NOTICE.md](NOTICE.md).
+
+## Démarrage rapide
+
+Pour travailler sur le code. Pour installer une instance, voir [Lancement rapide](#lancement-rapide).
+
+### Prérequis
+
+- Node.js 20 ou plus récent (l'image Docker utilise Node.js 22)
+- Docker et Docker Compose v2
+- 8 Go de RAM pour `npm run build`
+
+### Installation
+
+```bash
+git clone https://github.com/Flavien-Dragamig/lorIAx-oss.git
+cd lorIAx-oss
+npm ci --legacy-peer-deps
+npm run test -- --run
+npm run lint
+```
+
+`npm run dev` lance le serveur de développement (Next.js et WebSocket de collaboration) et lit ses variables dans `.env.local`. Il lui faut un PostgreSQL 16 avec pgvector et un stockage Garage joignables depuis la machine : `docker-compose.yml` ne publie pas PostgreSQL, et ne publie Garage que sur `127.0.0.1:3900`. Dans `.env.local`, `DATABASE_URL` et `S3_ENDPOINT` doivent donc viser des adresses joignables hors conteneur, pas les noms de service `postgres` et `garage`.
+
+## Configuration
+
+`.env.example` liste toutes les variables lues par l'application, avec leur caractère obligatoire ou facultatif. `scripts/generate-env.sh` produit un `.env` complet avec des secrets aléatoires.
+
+| Variable | Rôle |
+|----------|------|
+| `NEXTAUTH_URL`, `NEXT_PUBLIC_APP_URL` | Adresse publique de l'instance |
+| `NEXTAUTH_SECRET` | Signature des sessions |
+| `ENCRYPTION_KEY` | Chiffrement en base des clés de fournisseurs d'IA, du mot de passe LDAP, etc. |
+| `POSTGRES_PASSWORD`, `DATABASE_URL` | Base de données |
+| `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET` | Stockage objet Garage |
+| `CRON_SECRET` | Secret des appels aux routes `/api/cron` |
+| `SETUP_BOOTSTRAP_TOKEN` | Clé d'installation de l'assistant `/setup` |
+| `S3_PUBLIC_URL`, `WS_URL` | Adresses publiques du stockage et du WebSocket, pour la CSP |
+| `TRUSTED_PROXY_COUNT` | Nombre de reverse proxies de confiance devant l'application (1 par défaut) |
+| `DEFAULT_AI_PROVIDER`, `DEFAULT_AI_MODEL` | Fournisseur et modèle d'IA par défaut |
+| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `MISTRAL_API_KEY` | Clés des fournisseurs d'IA, configurables aussi dans l'administration |
+| `LIVEKIT_ENABLED`, `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | Visioconférence |
+| `WHISPER_ENABLED`, `VOXTRAL_ENABLED` | Transcription des réunions |
+
+> Ne jamais versionner un `.env` rempli. Seul `.env.example` est suivi par git.
+
+## Déploiement
+
+### Docker Compose
+
+`docker-compose.yml` démarre l'application, PostgreSQL, Garage et la sauvegarde quotidienne. L'installation complète est décrite dans [Lancement rapide](#lancement-rapide).
+
+```bash
+docker compose up -d --build        # construire et démarrer
+docker compose logs -f app          # suivre les journaux
+docker compose ps                   # état des services
+docker compose down                 # arrêter (les volumes sont conservés)
+```
+
+Seuls deux ports sont publiés, sur la machine uniquement : `127.0.0.1:3000` (application et WebSocket de collaboration) et `127.0.0.1:3900` (API S3 de Garage). Pour que le navigateur charge les fichiers par une adresse dédiée, exposer `127.0.0.1:3900` par le reverse proxy et renseigner `S3_PUBLIC_URL` ; `WS_URL` déclare l'adresse WebSocket publique. Les deux variables alimentent la CSP.
+
+### Options
+
+<details>
+<summary><strong>IA locale avec Ollama</strong></summary>
+
+```bash
+docker compose --profile ollama up -d
+docker compose --profile ollama exec ollama ollama pull gemma4:e4b
+```
+
+`gemma4:e4b` est le modèle par défaut écrit par `scripts/generate-env.sh` (`DEFAULT_AI_MODEL`). Le service `ollama` est plafonné à 8 Go de mémoire.
+
+</details>
+
+<details>
+<summary><strong>Visioconférence, enregistrement et transcription</strong></summary>
+
+Sur une instance neuve : `bash install.sh --livekit`. Sur une instance existante, renseigner dans `.env` :
+
+```text
+LIVEKIT_ENABLED=true
+LIVEKIT_URL=wss://visio.exemple.fr
+WHISPER_ENABLED=true
+```
+
+puis démarrer avec les deux fichiers :
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.livekit.yml up -d --build
+```
+
+`WHISPER_ENABLED=true` est facultatif et active la transcription. `LIVEKIT_API_KEY` et `LIVEKIT_API_SECRET` sont déjà générés par `scripts/generate-env.sh`. Ports à ouvrir sur le pare-feu : 7881/tcp et 50000-50050/udp pour le média WebRTC. La signalisation écoute sur `127.0.0.1:7880` et se place derrière le reverse proxy, à l'adresse donnée dans `LIVEKIT_URL`. La transcription par GPU (Voxtral, carte NVIDIA de 16 Go de mémoire vidéo au minimum) s'ajoute avec `--profile voxtral` et `VOXTRAL_ENABLED=true`.
+
+Détail : [docs/livekit-integration.md](docs/livekit-integration.md).
+
+</details>
+
+<details>
+<summary><strong>Sauvegardes</strong></summary>
+
+Le service `backup` écrit chaque jour un `pg_dump` de la base dans le volume `backup_data` et supprime les fichiers de plus de 7 jours.
+
+```bash
+docker compose exec backup ls -lh /backups
+docker compose exec -T postgres pg_dump -U loriax -Fc loriax > sauvegarde.dump
+```
+
+La seconde commande produit une sauvegarde immédiate sur la machine. Les fichiers téléversés (volumes `garage_data` et `garage_meta`) et les versions des documents (volume `workspaces_data`) ne sont pas couverts par ce service : les sauvegarder avec l'outil de sauvegarde du serveur.
+
+</details>
+
+### Mise à jour
+
+```bash
+# 1. Sauvegarder la base
+docker compose exec -T postgres pg_dump -U loriax -Fc loriax > sauvegarde-avant-mise-a-jour.dump
+
+# 2. Récupérer la nouvelle version
+git pull
+
+# 3. Reconstruire et redémarrer
+docker compose up -d --build
+```
+
+Le service `app-migrate` rapproche la base du nouveau schéma avant chaque démarrage de l'application : il applique les différences de schéma, crée les colonnes vectorielles, les déclencheurs et l'organisation par défaut, puis inscrit la migration initiale comme déjà appliquée. En cas d'échec, l'application ne démarre pas : `docker compose logs app-migrate`.
+
+**Depuis une version 1.21.x** : les volumes Docker portent les mêmes noms et le `.env` existant se conserve (ne pas le régénérer). Lui ajouter avant l'étape 3 le secret des tâches planifiées, exigé par `docker-compose.yml` :
+
+```bash
+echo "CRON_SECRET=$(openssl rand -hex 32)" >> .env
+```
+
+Les variantes de fichier compose des versions 1.21.x (production, client, registre) n'existent plus : tout passe par `docker-compose.yml`. Les changements incompatibles sont détaillés dans [CHANGELOG.md](CHANGELOG.md).
+
+### Sans Docker
+
+<details>
+<summary><strong>Construire et lancer le serveur Node directement</strong></summary>
+
+`npm start` exécute `node server.js`. Ce fichier n'existe pas dans le dépôt : il est produit en assemblant `server.ts` avec esbuild, après `npm run build`. Les commandes ci-dessous reprennent celles du `Dockerfile`.
+
+```bash
+npm ci --legacy-peer-deps
+NEXT_PUBLIC_APP_URL=https://wiki.exemple.fr npm run build
+node_modules/.bin/esbuild server.ts \
+  --bundle --platform=node --target=node22 --packages=external \
+  --alias:server-only=./esbuild-stubs/server-only.js \
+  --outfile=.next/standalone/server.js --tsconfig=tsconfig.json
+cp -r public .next/standalone/public
+cp -r .next/static .next/standalone/.next/static
+cp -r src/lib/db/migrations .next/standalone/migrations
+mkdir -p .next/standalone/docs && cp -r docs/kb .next/standalone/docs/kb
+npx tsx --env-file=.env scripts/init-db.ts
+cd .next/standalone
+NODE_ENV=production node --env-file=../../.env server.js
+```
+
+`scripts/init-db.ts` prépare la base (schéma, extensions, organisation par défaut) : le lancer avant `npm start` à la première installation et à chaque mise à jour.
+
+Le serveur écoute sur le port 3000 (`PORT`). Il attend un PostgreSQL 16 avec les extensions `vector`, `pg_trgm`, `pgcrypto` et `btree_gist`, et un stockage compatible S3 ; `DATABASE_URL` et `S3_ENDPOINT` du `.env` doivent viser des adresses joignables depuis la machine. Le rendu des designs côté serveur demande en plus les bibliothèques système Cairo, Pango, libjpeg, giflib, librsvg et Pixman.
+
+</details>
 
 ## Scripts npm
 
 | Commande | Effet |
-|---|---|
-| `npm run dev` | Serveur Next.js + WebSocket en mode dev (tsx watch) |
-| `npm run dev:full` | Stack complète (Docker + BDD + seed + serveur) |
-| `npm run dev:stop` | Arrête la stack `dev:full` |
-| `npm run build` | Build production Next.js |
-| `npm start` | Démarre `server.js` compilé en production |
+|----------|-------|
+| `npm run dev` | Serveur de développement (Next.js et WebSocket), variables lues dans `.env.local` |
+| `npm run build` | Construction de production (`next build`) |
+| `npm start` | `node server.js`, après la construction décrite dans [Sans Docker](#sans-docker) |
+| `npm run test` | Tests unitaires (Vitest) |
 | `npm run lint` | ESLint |
-| `npm test` | Vitest (tests unitaires) |
-| `npm run test:e2e` | Playwright (end-to-end) |
-| `npm run db:fresh` | Reset BDD + migrations + seed (dev users, base, démo) |
-| `npm run db:reset` | Reset BDD seul |
-| `npm run db:seed`, `db:seed:base`, `db:seed:templates`, `db:seed:ai-prompts`, `db:seed:demo` | Seeds ciblés |
-| `npm run db:generate` | Génère une nouvelle migration depuis le schéma |
-| `npm run db:migrate` | Applique les migrations manuellement |
-| `npm run db:push` | Sync schéma direct (dev uniquement, sans migration) |
-| `npm run db:studio` | Lance Drizzle Studio (UI BDD) |
-| `npm run db:migrate:fts` | Applique les triggers de recherche full-text |
+| `npm run i18n:check` | Contrôle des traductions |
+| `npm run db:generate` | Génère une migration Drizzle depuis le schéma |
+| `npm run db:studio` | Explorateur de base Drizzle |
+| `npm run kb:index` | Indexe les fiches d'aide de `docs/kb` |
 
 ## Structure du projet
 
-```
+```text
 .
-├── server.ts                  # Serveur custom (Next + Hocuspocus + crons)
 ├── src/
-│   ├── app/                   # Next.js App Router
-│   │   ├── (auth)/            # Login, register, reset password
-│   │   ├── (app)/             # App principale (avec sidebar)
-│   │   └── api/               # Route handlers REST + v1 publique
-│   ├── components/            # React
-│   │   ├── ui/                # shadcn/ui primitives
-│   │   ├── editor/            # TipTap + extensions custom
-│   │   ├── graph/             # Visualisation D3 du graphe
-│   │   ├── sidebar/           # Navigation
-│   │   └── ai/                # Chat IA, résumé
-│   ├── lib/                   # Logique métier
-│   │   ├── db/                # Schéma Drizzle, client, migrations
-│   │   ├── auth/              # NextAuth + RBAC + LDAP
-│   │   ├── collab/            # Hocuspocus + Yjs
-│   │   ├── storage/           # S3 (Garage) + filesystem
-│   │   ├── git/               # isomorphic-git
-│   │   ├── ai/                # Providers + RAG
-│   │   ├── editor/            # Conversion MD ↔ TipTap
-│   │   └── security/          # SSRF, rate-limit, URL validation
-│   ├── hooks/                 # Hooks React custom
-│   └── types/                 # Types TypeScript partagés
-├── scripts/                   # Seeds, migrations FTS, dev helpers
-├── docker/                    # Compose dev + sous-stacks (Garage, LiveKit, Voxtral)
-├── docker-compose*.yml        # Variantes d'orchestration
+│   ├── app/            # Routes Next.js : pages et API REST
+│   ├── components/     # Composants React (éditeur, graphe, barre latérale, IA)
+│   ├── lib/            # Logique métier : base, authentification, IA, stockage, collaboration
+│   ├── hooks/          # Hooks React
+│   └── types/          # Types TypeScript
+├── scripts/            # Génération du .env, initialisation de la base, jeux de données
+├── docker/             # Configuration de PostgreSQL, Garage, LiveKit et Voxtral
+├── docs/               # Fiches d'aide (docs/kb) et documentation des modules
+├── public/             # Fichiers statiques
+├── server.ts           # Serveur Node : Next.js, WebSocket, migrations au démarrage
 ├── Dockerfile
-├── drizzle.config.ts
-└── .env.example               # Source de vérité config
+├── docker-compose.yml
+├── docker-compose.livekit.yml
+└── install.sh
 ```
 
-## Tests & qualité
+## Tests et qualité
 
 ```bash
-npm test            # Vitest (unitaires + intégration)
-npm run test:e2e    # Playwright (parcours bout-en-bout)
-npm run lint        # ESLint
-npx tsc --noEmit    # Vérification TypeScript stricte
+npm run test -- --run     # suite Vitest, une seule passe
+npm run lint              # ESLint
+npx tsc --noEmit          # contrôle des types
 ```
 
-Couverture chiffrée pas encore publiée ; contributions bienvenues sur les chemins critiques (auth, RBAC, collab, RAG).
+## Documentation
+
+| Document | Contenu |
+|----------|---------|
+| [Fiches d'aide](docs/kb/00-bienvenue.md) | Prise en main, éditeur, bases, recherche, IA, calendrier, rôles, dépannage |
+| [Fonctions par epic](docs/user-stories.md) | Fonctionnalités détaillées |
+| [Salles de réunion](docs/meeting-rooms.md) | Module de réservation de salles |
+| [Visioconférence](docs/livekit-integration.md) | Intégration LiveKit |
+| [Conventions de traduction](docs/i18n-conventions.md) | Règles i18n, avec le [glossaire](docs/i18n-glossary.md) |
+| [Conflits de dépendances](docs/peer-deps-conflicts.md) | Raison de l'option `--legacy-peer-deps` |
+| [Composants tiers](NOTICE.md) | Dépendances et leurs licences |
 
 ## Contribuer
 
-Lire [`CONTRIBUTING.md`](./CONTRIBUTING.md). Conventions :
-
-- **Conventional Commits** obligatoires (`feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`, `perf:`).
-- TypeScript strict, alias `@/` pour `src/`.
-- Frugalité : pas de SaaS externe imposé, peu de dépendances lourdes.
-- UI en français, code en anglais.
-
-Bugs et propositions : [GitHub Issues](https://github.com/Flavien-Dragamig/lorIAx-oss/issues).
+Les règles de contribution sont dans [CONTRIBUTING.md](CONTRIBUTING.md), le code de conduite dans [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Les anomalies et les demandes se déposent dans les [issues GitHub](https://github.com/Flavien-Dragamig/lorIAx-oss/issues).
 
 ## Sécurité
 
-La politique de divulgation responsable est décrite dans [`SECURITY.md`](./SECURITY.md). En résumé : signaler toute vulnérabilité à `security@dragamig.fr` et **ne pas** ouvrir d'issue publique pour les failles non encore corrigées.
-
-L'app applique par défaut : CSP avec nonce, protection SSRF sur les URLs entrantes, rate-limiting, classification de documents, et hash bcrypt des mots de passe.
+Une faille se signale en privé à `security@dragamig.fr`, jamais dans une issue publique. La politique complète et les versions prises en charge sont dans [SECURITY.md](SECURITY.md).
 
 ## Changelog
 
-Voir [`CHANGELOG.md`](./CHANGELOG.md). Le projet suit [SemVer](https://semver.org/lang/fr/) et [Conventional Commits](https://www.conventionalcommits.org/fr/).
+L'historique des versions est dans [CHANGELOG.md](CHANGELOG.md). Le projet suit le versionnement sémantique et les Conventional Commits.
 
 ## À propos
 
-> **Créé par [Studio Dragamig](https://dragamig.fr) avec l'aide de [Claude d'Anthropic](https://www.anthropic.com/claude).**
-
-[Studio Dragamig](https://dragamig.fr) est un studio indépendant français qui conçoit des outils numériques souverains pour les organismes engagés. LorIAx est notre suite collaborative phare, dont nous publions ici l'édition open source.
-
-L'usage de Claude (Anthropic) intervient en assistance à la conception, à la documentation et à la maintenance, **toujours sous supervision humaine** : les choix d'architecture, de produit, de sécurité et de licensing restent ceux de Studio Dragamig.
+Les choix d'architecture, la relecture et la validation du code sont humains ; l'assistance de [Claude](https://claude.com/product/overview), le modèle d'[Anthropic](https://www.anthropic.com), a servi à l'écriture du code et de la documentation.
 
 ## Remerciements
 
-- **[Seb Sauvage](https://sebsauvage.net)** pour [VizHash GD](https://sebsauvage.net/wiki/doku.php?id=php:vizhash_gd_source), dont nous utilisons un portage TypeScript pour générer les avatars visuels déterministes des utilisateurs.
-- **[Deuxfleurs](https://deuxfleurs.fr)** pour [Garage](https://garagehq.deuxfleurs.fr), le stockage objet souverain.
-- **[Kevin Jahns](https://github.com/dmonad)** pour Yjs, l'épine dorsale de la collaboration temps réel.
-- **[L'équipe TipTap](https://tiptap.dev)** pour l'éditeur le plus modulaire de l'écosystème.
-- **[LiveKit](https://livekit.io)** pour avoir rendu la visio WebRTC self-host accessible.
-- **[Drizzle Team](https://orm.drizzle.team)** pour l'ORM SQL le plus agréable de l'écosystème Node.
-- **[Andrew Kane](https://github.com/ankane)** pour pgvector.
-- Toute la communauté **shadcn/ui** et **Tailwind**.
-- Et l'ensemble des mainteneurs OSS listés dans [`NOTICE.md`](./NOTICE.md) : sans vous, ce projet n'existerait pas.
+- [VizHash GD](https://sebsauvage.net/wiki/doku.php?id=php:vizhash_gd) de sebsauvage, dont les avatars déterministes de LorIAx sont un portage TypeScript
+- [Garage](https://garagehq.deuxfleurs.fr/) de l'association Deuxfleurs, pour le stockage objet
+- Les contributeurs d'[OpenStreetMap](https://www.openstreetmap.org/copyright) et le projet [OSRM](https://project-osrm.org/), pour le géocodage et les itinéraires
+- Les mainteneurs de Next.js, TipTap, Yjs, Hocuspocus, Drizzle, Excalidraw, Univer, LiveKit et des autres projets recensés dans [NOTICE.md](NOTICE.md)
 
 ## Licence
 
-[MIT](./LICENSE), Copyright © 2026 Dragamig SAS (Studio Dragamig).
+[FSL-1.1-MIT](LICENSE) (Functional Source License 1.1, licence future MIT). Le titulaire des droits est indiqué dans [LICENSE](LICENSE).
 
-Vous êtes libre d'utiliser, modifier, redistribuer et commercialiser ce logiciel, y compris dans un produit fermé, à condition de préserver la notice de copyright et de licence. Aucune garantie n'est fournie.
+Le code peut être utilisé, modifié et redistribué pour tout usage, sauf pour proposer un produit ou un service concurrent. Chaque version passe sous licence MIT deux ans après sa publication. Le logiciel est fourni sans garantie.
+
+Les versions 1.21.0 et 1.21.1 ont été publiées sous licence MIT et le restent : voir le tag [`v1.21.1`](https://github.com/Flavien-Dragamig/lorIAx-oss/tree/v1.21.1).
+
+---
+
+<div align="center">
+
+Créé par Studio Dragamig avec l'aide de Claude d'Anthropic
+
+</div>

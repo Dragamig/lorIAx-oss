@@ -17,23 +17,24 @@ export function useNetworkStatus(): NetworkStatus {
   const [isServerReachable, setIsServerReachable] = useState(true);
 
   const checkServer = useCallback(async () => {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(
-        () => controller.abort(),
-        SERVER_CHECK_TIMEOUT,
-      );
+    const controller = new AbortController();
+    const timeoutId = setTimeout(
+      () => controller.abort(),
+      SERVER_CHECK_TIMEOUT,
+    );
 
+    try {
       const response = await fetch("/api/ping", {
         method: "HEAD",
         cache: "no-store",
         signal: controller.signal,
       });
 
-      clearTimeout(timeoutId);
       setIsServerReachable(response.ok);
     } catch {
       setIsServerReachable(false);
+    } finally {
+      clearTimeout(timeoutId);
     }
   }, []);
 

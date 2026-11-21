@@ -79,7 +79,12 @@ export async function POST(
   const canViewForPost = await checkDocumentViewAccess(user, docForPost.spaceId, documentId);
   if (!canViewForPost) return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
 
-  const body = await request.json();
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "JSON invalide" }, { status: 400 });
+  }
   const { content, parentId } = body;
 
   if (!content || typeof content !== "string" || !content.trim()) {
@@ -224,12 +229,19 @@ export async function DELETE(
     .limit(1);
   if (!commentDocDel) return NextResponse.json({ error: "Document non trouvé" }, { status: 404 });
 
-  const canEditDel = await checkDocumentViewAccess(user, commentDocDel.spaceId, existing.documentId);
-  if (!canEditDel) return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+  // Lecture du document exigée dans tous les cas (cloisonnement org +
+  // classification), y compris pour l'auteur du commentaire.
+  const canViewDel = await checkDocumentViewAccess(user, commentDocDel.spaceId, existing.documentId);
+  if (!canViewDel) return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
 
-  // Only author or admin can delete
-  if (existing.userId !== user.id && user.globalRole !== "admin" && user.globalRole !== "super_admin") {
-    return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+  // Suppression autorisée à l'auteur du commentaire, sinon droit d'édition sur
+  // le document (qui couvre l'admin de l'espace et l'admin global).
+  const isCommentAuthor = existing.userId === user.id;
+  if (!isCommentAuthor) {
+    const canEditDel = await checkDocumentEditAccess(user, commentDocDel.spaceId, existing.documentId);
+    if (!canEditDel) {
+      return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+    }
   }
 
   await db.delete(documentComments).where(eq(documentComments.id, commentId));

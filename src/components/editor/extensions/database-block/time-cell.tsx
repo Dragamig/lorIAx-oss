@@ -1,5 +1,7 @@
 "use client";
 
+import { stopMouse } from "../../utils/stop-mouse";
+
 interface TimeCellProps {
   value: string | null | undefined;
   onChange: (value: string) => void;
@@ -22,6 +24,7 @@ export function TimeCell({ value, onChange, readOnly }: TimeCellProps) {
           type="time"
           value=""
           onChange={(e) => onChange(e.target.value.slice(0, 5))}
+          onMouseDown={stopMouse}
           className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
           placeholder="—"
         />
@@ -36,6 +39,7 @@ export function TimeCell({ value, onChange, readOnly }: TimeCellProps) {
         type="time"
         value={value || ""}
         onChange={(e) => onChange(e.target.value.slice(0, 5))}
+        onMouseDown={stopMouse}
         className="w-full bg-transparent text-sm outline-none"
       />
     </div>

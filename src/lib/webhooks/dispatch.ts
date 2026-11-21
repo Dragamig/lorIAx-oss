@@ -1,9 +1,9 @@
 import { createHmac, randomUUID } from "crypto";
 import { db } from "@/lib/db";
 import logger from "@/lib/logger";
-import { safeFetch } from "@/lib/security/safe-fetch";
-import { webhooks, webhookDeliveries, users } from "@/lib/db/schema";
+import { webhooks, webhookDeliveries, users, spaces } from "@/lib/db/schema";
 import { eq, and, sql } from "drizzle-orm";
+import { safeExternalFetch } from "@/lib/security/outbound-fetch";
 
 const MAX_FAILURES = 10;
 const RETRY_DELAYS = [10_000, 60_000, 300_000]; // 10s, 60s, 5min
@@ -36,16 +36,43 @@ function signPayload(payload: string, secret: string): string {
 }
 
 /**
+ * Organisation propriétaire d'un espace, ou `null` si l'espace n'existe pas.
+ *
+ * Fourni ici pour que les émetteurs d'événements puissent calculer, en une
+ * ligne et sur leur propre ligne d'appel, l'organisation qu'ils passent à
+ * `dispatchWebhookEvent`. La décision reste lisible chez l'appelant (ADR-079) :
+ * ce n'est pas le module de diffusion qui devine la portée d'un événement.
+ */
+export async function organizationIdOfSpace(
+  spaceId: string
+): Promise<string | null> {
+  const [space] = await db
+    .select({ organizationId: spaces.organizationId })
+    .from(spaces)
+    .where(eq(spaces.id, spaceId))
+    .limit(1);
+
+  return space?.organizationId ?? null;
+}
+
+/**
  * Dispatch a webhook event to all matching active webhooks.
  * Non-blocking — errors are caught and logged.
+ *
+ * `organizationId` est l'organisation de l'événement diffusé. Paramètre
+ * explicite et obligatoire : la portée se lit sur la ligne d'appel, et un
+ * mésusage se voit en revue (patron du lot 6, cf. `src/lib/meet/rooms.ts` et
+ * `src/lib/video/space-access.ts`). Une organisation absente vaut « on n'émet
+ * rien » : jamais un repli permissif qui rediffuserait à toute l'instance.
  */
 export async function dispatchWebhookEvent(
   eventType: WebhookEventType,
   data: Record<string, unknown>,
-  actorUserId: string
+  actorUserId: string,
+  organizationId: string | null
 ): Promise<void> {
   // Fire and forget
-  doDispatch(eventType, data, actorUserId).catch((err) => {
+  doDispatch(eventType, data, actorUserId, organizationId).catch((err) => {
     logger.error({ err }, "[webhook] Dispatch error");
   });
 }
@@ -53,8 +80,20 @@ export async function dispatchWebhookEvent(
 async function doDispatch(
   eventType: WebhookEventType,
   data: Record<string, unknown>,
-  actorUserId: string
+  actorUserId: string,
+  organizationId: string | null
 ): Promise<void> {
+  // Pas d'organisation identifiée : on n'émet rien. Sans cette porte, la
+  // sélection ci-dessous deviendrait non bornée et rediffuserait l'événement
+  // aux webhooks de tous les tenants (constat du lot 6).
+  if (!organizationId) {
+    logger.warn(
+      { eventType },
+      "[webhook] Événement sans organisation, diffusion abandonnée"
+    );
+    return;
+  }
+
   // Get actor info
   const [actor] = await db
     .select({ id: users.id, email: users.email, name: users.name })
@@ -67,13 +106,22 @@ async function doDispatch(
   // Find matching active webhooks
   const spaceId = data.spaceId as string | undefined;
 
+  // Le cloisonnement par organisation est une clause de requête, pas un test
+  // après coup : les lignes des autres tenants ne remontent jamais en mémoire.
+  //
+  // Les webhooks antérieurs au multi-tenant ne sont PAS concernés : la
+  // migration 0014 (`0014_org_backfill_notnull.sql`) les a tous rattachés à
+  // l'organisation `default`. La colonne est restée nullable, donc une ligne
+  // sans organisation reste représentable pour une insertion postérieure ;
+  // celle-là serait exclue de fait, ce qui est la direction sûre.
   const activeWebhooks = await db
     .select()
     .from(webhooks)
     .where(
       and(
         eq(webhooks.active, true),
-        sql`${webhooks.failureCount} < ${MAX_FAILURES}`
+        sql`${webhooks.failureCount} < ${MAX_FAILURES}`,
+        eq(webhooks.organizationId, organizationId)
       )
     );
 
@@ -81,7 +129,9 @@ async function doDispatch(
   const matching = activeWebhooks.filter((wh) => {
     const events = (wh.events as string[]) || [];
     if (!events.includes(eventType)) return false;
-    if (wh.spaceId && spaceId && wh.spaceId !== spaceId) return false;
+    // Un webhook déclaré sur un espace ne reçoit que les événements de cet
+    // espace. Un événement sans espace ne le concerne donc pas non plus.
+    if (wh.spaceId && wh.spaceId !== spaceId) return false;
     return true;
   });
 
@@ -113,21 +163,32 @@ async function deliverWebhook(
   let responseBody: string | null = null;
 
   try {
-    // URL saisie par un utilisateur : aucune dérogation réseau privé, et
-    // aucune redirection suivie (un 3xx est compté comme un échec de livraison).
-    const response = await safeFetch(webhook.url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-LorIAx-Signature": `sha256=${signature}`,
-        "X-LorIAx-Event": payload.event,
-        "X-LorIAx-Delivery": payload.id,
-        "User-Agent": "LorIAx-Webhook/1.0",
-      },
-      body: payloadStr,
+    // L'URL est contrôlée à l'écriture, mais elle a pu être posée avant ce
+    // contrôle, et un nom public peut résoudre vers l'intérieur au moment de
+    // l'appel. On revalide donc à l'émission, redirections comprises
+    // (audit du 2026-08-19, constat INJ-07).
+    //
+    // `WEBHOOK_ALLOW_PRIVATE_TARGETS` : exception pour les instances
+    // auto-hébergées dont les webhooks visent volontairement un service
+    // interne (ex: http://n8n:5678). Lue ici, à l'émission, plutôt qu'au
+    // chargement du module : une valeur figée au démarrage ne se
+    // reconfigure pas sans redéploiement, et complique les tests. Absente,
+    // le comportement ne change pas (refus des adresses privées).
+    const allowPrivateTargets = process.env.WEBHOOK_ALLOW_PRIVATE_TARGETS === "true";
+    const response = await safeExternalFetch(webhook.url, {
       timeoutMs: 10_000,
-      maxBytes: 1024 * 1024,
-      followRedirects: false,
+      allowPrivateTargets,
+      init: {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-LorIAx-Signature": `sha256=${signature}`,
+          "X-LorIAx-Event": payload.event,
+          "X-LorIAx-Delivery": payload.id,
+          "User-Agent": "LorIAx-Webhook/1.0",
+        },
+        body: payloadStr,
+      },
     });
 
     statusCode = response.status;

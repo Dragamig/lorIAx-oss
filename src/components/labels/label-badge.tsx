@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+
 interface LabelBadgeProps {
   label: { id: string; name: string; color: string };
   size?: "sm" | "md";
@@ -7,6 +9,7 @@ interface LabelBadgeProps {
 }
 
 export function LabelBadge({ label, size = "md", onRemove }: LabelBadgeProps) {
+  const t = useTranslations("labels");
   const { name, color } = label;
 
   const maxChars = size === "sm" ? 12 : 20;
@@ -32,7 +35,7 @@ export function LabelBadge({ label, size = "md", onRemove }: LabelBadgeProps) {
             onRemove();
           }}
           className="text-current opacity-60 hover:opacity-100 leading-none"
-          aria-label={`Retirer le label ${name}`}
+          aria-label={t("removeAria", { name })}
         >
           ×
         </button>

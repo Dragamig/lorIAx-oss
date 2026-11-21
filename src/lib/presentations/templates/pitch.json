@@ -1,0 +1,589 @@
+{
+  "format": "bento/slides",
+  "version": 1,
+  "title": "Présentation commerciale",
+  "size": {
+    "width": 1280,
+    "height": 720
+  },
+  "theme": {
+    "background": "#FFFFFF",
+    "color": "#1E2A3A",
+    "accent": "#F7A600",
+    "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+  },
+  "slides": [
+    {
+      "id": "pitch-s1",
+      "background": "#1E2A3A",
+      "transition": "fade",
+      "notes": "Remplacer le titre par le nom de l'offre et préciser à qui la présentation s'adresse.",
+      "elements": [
+        {
+          "id": "pitch-s1-kicker",
+          "type": "text",
+          "x": 96,
+          "y": 236,
+          "w": 900,
+          "h": 32,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "PRÉSENTATION COMMERCIALE",
+          "fontSize": 16,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 600,
+          "color": "#F7A600",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25,
+          "letterSpacing": 3,
+          "role": "kicker"
+        },
+        {
+          "id": "pitch-s1-bar",
+          "type": "shape",
+          "shape": "rect",
+          "x": 96,
+          "y": 284,
+          "w": 64,
+          "h": 6,
+          "rotation": 0,
+          "opacity": 1,
+          "fill": "#F7A600",
+          "stroke": "transparent",
+          "strokeWidth": 0,
+          "radius": 2
+        },
+        {
+          "id": "pitch-s1-title",
+          "type": "text",
+          "x": 96,
+          "y": 304,
+          "w": 1088,
+          "h": 120,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Nom de l'offre",
+          "fontSize": 60,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 700,
+          "color": "#FFFFFF",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.15,
+          "role": "title"
+        },
+        {
+          "id": "pitch-s1-sub",
+          "type": "text",
+          "x": 96,
+          "y": 436,
+          "w": 1088,
+          "h": 48,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Nom de l'entreprise · Interlocuteur · Date",
+          "fontSize": 24,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 400,
+          "color": "#C9D3E0",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25,
+          "role": "subtitle"
+        }
+      ]
+    },
+    {
+      "id": "pitch-s2",
+      "background": "#FFFFFF",
+      "transition": "fade",
+      "notes": "Décrire le problème avec les mots du client. Un chiffre vaut mieux qu'un adjectif.",
+      "elements": [
+        {
+          "id": "pitch-s2-title",
+          "type": "text",
+          "x": 96,
+          "y": 56,
+          "w": 1088,
+          "h": 68,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Le problème",
+          "fontSize": 38,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 700,
+          "color": "#1E2A3A",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25,
+          "role": "title"
+        },
+        {
+          "id": "pitch-s2-rule",
+          "type": "shape",
+          "shape": "rect",
+          "x": 96,
+          "y": 134,
+          "w": 1088,
+          "h": 3,
+          "rotation": 0,
+          "opacity": 1,
+          "fill": "#F7A600",
+          "stroke": "transparent",
+          "strokeWidth": 0,
+          "radius": 2
+        },
+        {
+          "id": "pitch-s2-body",
+          "type": "text",
+          "x": 96,
+          "y": 168,
+          "w": 1088,
+          "h": 456,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "• La situation actuelle du client, en une phrase<br>• Ce que cela coûte : temps, argent, qualité<br>• Exemple : 6 heures par semaine consacrées à la ressaisie des commandes",
+          "fontSize": 26,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 400,
+          "color": "#45566B",
+          "align": "left",
+          "valign": "top",
+          "lineHeight": 1.6,
+          "role": "body"
+        }
+      ]
+    },
+    {
+      "id": "pitch-s3",
+      "background": "#FFFFFF",
+      "transition": "fade",
+      "notes": "Rester sur ce que l'offre fait, pas sur la façon dont elle est construite.",
+      "elements": [
+        {
+          "id": "pitch-s3-title",
+          "type": "text",
+          "x": 96,
+          "y": 56,
+          "w": 1088,
+          "h": 68,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Notre solution",
+          "fontSize": 38,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 700,
+          "color": "#1E2A3A",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25,
+          "role": "title"
+        },
+        {
+          "id": "pitch-s3-rule",
+          "type": "shape",
+          "shape": "rect",
+          "x": 96,
+          "y": 134,
+          "w": 1088,
+          "h": 3,
+          "rotation": 0,
+          "opacity": 1,
+          "fill": "#F7A600",
+          "stroke": "transparent",
+          "strokeWidth": 0,
+          "radius": 2
+        },
+        {
+          "id": "pitch-s3-body",
+          "type": "text",
+          "x": 96,
+          "y": 168,
+          "w": 1088,
+          "h": 456,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "• Ce que fait l'offre, en une phrase<br>• À qui elle s'adresse<br>• Exemple : les commandes arrivent directement dans l'outil de facturation",
+          "fontSize": 26,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 400,
+          "color": "#45566B",
+          "align": "left",
+          "valign": "top",
+          "lineHeight": 1.6,
+          "role": "body"
+        }
+      ]
+    },
+    {
+      "id": "pitch-s4",
+      "background": "#FFFFFF",
+      "transition": "fade",
+      "notes": "Associer chaque bénéfice à une preuve vérifiable.",
+      "elements": [
+        {
+          "id": "pitch-s4-title",
+          "type": "text",
+          "x": 96,
+          "y": 56,
+          "w": 1088,
+          "h": 68,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Bénéfices et preuves",
+          "fontSize": 38,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 700,
+          "color": "#1E2A3A",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25,
+          "role": "title"
+        },
+        {
+          "id": "pitch-s4-rule",
+          "type": "shape",
+          "shape": "rect",
+          "x": 96,
+          "y": 134,
+          "w": 1088,
+          "h": 3,
+          "rotation": 0,
+          "opacity": 1,
+          "fill": "#F7A600",
+          "stroke": "transparent",
+          "strokeWidth": 0,
+          "radius": 2
+        },
+        {
+          "id": "pitch-s4-left-head",
+          "type": "text",
+          "x": 96,
+          "y": 168,
+          "w": 520,
+          "h": 40,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Ce que vous y gagnez",
+          "fontSize": 22,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 700,
+          "color": "#1E2A3A",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25
+        },
+        {
+          "id": "pitch-s4-left",
+          "type": "text",
+          "x": 96,
+          "y": 220,
+          "w": 520,
+          "h": 404,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "• Bénéfice 1, mesurable<br>• Bénéfice 2, mesurable<br>• Exemple : délai de facturation réduit de 5 à 2 jours",
+          "fontSize": 22,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 400,
+          "color": "#45566B",
+          "align": "left",
+          "valign": "top",
+          "lineHeight": 1.6,
+          "role": "body"
+        },
+        {
+          "id": "pitch-s4-right-head",
+          "type": "text",
+          "x": 664,
+          "y": 168,
+          "w": 520,
+          "h": 40,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Ce qui le démontre",
+          "fontSize": 22,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 700,
+          "color": "#1E2A3A",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25
+        },
+        {
+          "id": "pitch-s4-right",
+          "type": "text",
+          "x": 664,
+          "y": 220,
+          "w": 520,
+          "h": 404,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "• Référence client ou étude de cas<br>• Résultat obtenu, avec sa période<br>• Exemple : 40 clients équipés depuis 2 ans",
+          "fontSize": 22,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 400,
+          "color": "#45566B",
+          "align": "left",
+          "valign": "top",
+          "lineHeight": 1.6,
+          "role": "body"
+        }
+      ]
+    },
+    {
+      "id": "pitch-s5",
+      "background": "#FFFFFF",
+      "transition": "fade",
+      "notes": "Adapter les formules et les prix. Trois lignes suffisent.",
+      "elements": [
+        {
+          "id": "pitch-s5-title",
+          "type": "text",
+          "x": 96,
+          "y": 56,
+          "w": 1088,
+          "h": 68,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Offre et tarifs",
+          "fontSize": 38,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 700,
+          "color": "#1E2A3A",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25,
+          "role": "title"
+        },
+        {
+          "id": "pitch-s5-rule",
+          "type": "shape",
+          "shape": "rect",
+          "x": 96,
+          "y": 134,
+          "w": 1088,
+          "h": 3,
+          "rotation": 0,
+          "opacity": 1,
+          "fill": "#F7A600",
+          "stroke": "transparent",
+          "strokeWidth": 0,
+          "radius": 2
+        },
+        {
+          "id": "pitch-s5-table",
+          "type": "table",
+          "x": 96,
+          "y": 176,
+          "w": 1088,
+          "h": 192,
+          "rotation": 0,
+          "opacity": 1,
+          "header": true,
+          "columns": [
+            {
+              "w": 1.2
+            },
+            {
+              "w": 2
+            },
+            {
+              "w": 1
+            }
+          ],
+          "rows": [
+            {
+              "cells": [
+                {
+                  "html": "Formule"
+                },
+                {
+                  "html": "Contenu"
+                },
+                {
+                  "html": "Prix"
+                }
+              ]
+            },
+            {
+              "cells": [
+                {
+                  "html": "Essentiel"
+                },
+                {
+                  "html": "Fonctions de base, 3 utilisateurs"
+                },
+                {
+                  "html": "49 € par mois"
+                }
+              ]
+            },
+            {
+              "cells": [
+                {
+                  "html": "Équipe"
+                },
+                {
+                  "html": "Toutes les fonctions, 10 utilisateurs"
+                },
+                {
+                  "html": "129 € par mois"
+                }
+              ]
+            },
+            {
+              "cells": [
+                {
+                  "html": "Sur mesure"
+                },
+                {
+                  "html": "Volume et accompagnement à définir"
+                },
+                {
+                  "html": "Sur devis"
+                }
+              ]
+            }
+          ],
+          "style": {
+            "headerBg": "#1E2A3A",
+            "headerColor": "#FFFFFF",
+            "zebra": "rgba(30,42,58,0.05)",
+            "borderColor": "rgba(30,42,58,0.14)",
+            "borderWidth": 1,
+            "cellPadX": 16,
+            "cellPadY": 11,
+            "fontSize": 18,
+            "color": "#1E2A3A",
+            "radius": 10
+          }
+        }
+      ]
+    },
+    {
+      "id": "pitch-s6",
+      "background": "#FFFFFF",
+      "transition": "fade",
+      "notes": "Proposer une suite concrète et datée.",
+      "elements": [
+        {
+          "id": "pitch-s6-title",
+          "type": "text",
+          "x": 96,
+          "y": 56,
+          "w": 1088,
+          "h": 68,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Prochaines étapes",
+          "fontSize": 38,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 700,
+          "color": "#1E2A3A",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25,
+          "role": "title"
+        },
+        {
+          "id": "pitch-s6-rule",
+          "type": "shape",
+          "shape": "rect",
+          "x": 96,
+          "y": 134,
+          "w": 1088,
+          "h": 3,
+          "rotation": 0,
+          "opacity": 1,
+          "fill": "#F7A600",
+          "stroke": "transparent",
+          "strokeWidth": 0,
+          "radius": 2
+        },
+        {
+          "id": "pitch-s6-body",
+          "type": "text",
+          "x": 96,
+          "y": 168,
+          "w": 1088,
+          "h": 456,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "• Étape 1 : démonstration sur vos données<br>• Étape 2 : essai de 30 jours avec une équipe pilote<br>• Étape 3 : décision et calendrier de déploiement",
+          "fontSize": 26,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 400,
+          "color": "#45566B",
+          "align": "left",
+          "valign": "top",
+          "lineHeight": 1.6,
+          "role": "body"
+        }
+      ]
+    },
+    {
+      "id": "pitch-s7",
+      "background": "#FFFFFF",
+      "transition": "fade",
+      "notes": "Indiquer la personne à contacter après la présentation.",
+      "elements": [
+        {
+          "id": "pitch-s7-bar",
+          "type": "shape",
+          "shape": "rect",
+          "x": 96,
+          "y": 236,
+          "w": 64,
+          "h": 6,
+          "rotation": 0,
+          "opacity": 1,
+          "fill": "#F7A600",
+          "stroke": "transparent",
+          "strokeWidth": 0,
+          "radius": 2
+        },
+        {
+          "id": "pitch-s7-title",
+          "type": "text",
+          "x": 96,
+          "y": 256,
+          "w": 1088,
+          "h": 88,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Contact",
+          "fontSize": 48,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 700,
+          "color": "#1E2A3A",
+          "align": "left",
+          "valign": "middle",
+          "lineHeight": 1.25,
+          "role": "title"
+        },
+        {
+          "id": "pitch-s7-body",
+          "type": "text",
+          "x": 96,
+          "y": 360,
+          "w": 1088,
+          "h": 200,
+          "rotation": 0,
+          "opacity": 1,
+          "html": "Prénom Nom, fonction<br>prenom.nom@entreprise.fr<br>01 23 45 67 89",
+          "fontSize": 24,
+          "fontFamily": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+          "fontWeight": 400,
+          "color": "#45566B",
+          "align": "left",
+          "valign": "top",
+          "lineHeight": 1.6,
+          "role": "body"
+        }
+      ]
+    }
+  ],
+  "modified": "2026-11-16T00:00:00.000Z"
+}

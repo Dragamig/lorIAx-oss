@@ -2,7 +2,7 @@ import { db } from "@/lib/db";
 import { sql } from "drizzle-orm";
 import { authenticateApiRequest, requireScope } from "@/lib/api/auth-api";
 import { apiSuccess, apiError } from "@/lib/api/response";
-import { getAccessibleSpaceIds, isGlobalAdmin } from "@/lib/auth/check-access";
+import { getAccessibleSpaceIds } from "@/lib/auth/check-access";
 
 /**
  * GET /api/v1/search?q=... — Full-text search across documents.
@@ -23,13 +23,13 @@ export async function GET(request: Request) {
   }
 
   const user = auth.user;
-  const admin = isGlobalAdmin(user);
-  const spaceIds = admin ? [] : await getAccessibleSpaceIds(user);
+  // Espaces accessibles dans l'org courante (résolue par authenticateApiRequest).
+  // Liste autoritative, admins inclus → pas de fuite cross-org.
+  const spaceIds = await getAccessibleSpaceIds(user);
 
-  // Build space filter
-  const spaceFilter = admin
-    ? sql`1=1`
-    : spaceIds.length > 0
+  // Build space filter — liste vide = aucun accès (fail-closed).
+  const spaceFilter =
+    spaceIds.length > 0
       ? sql`d.space_id IN (${sql.join(
           spaceIds.map((id) => sql`${id}`),
           sql`, `

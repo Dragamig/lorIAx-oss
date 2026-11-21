@@ -49,6 +49,8 @@ export function getLanguageModel(config?: AIProviderConfig) {
   return provider.languageModel(cfg.model);
 }
 
-// Re-export new resolver for progressive migration
-export { resolveProviderForUsage, getLanguageModelForUsage } from "./provider-resolver";
+// Les résolutions cloisonnées vivent dans `provider-resolver.ts` et exigent
+// une portée d'organisation explicite : elles s'importent depuis là, pas via ce
+// module. Ce fichier ne garde que la construction de client à partir de
+// l'environnement.
 export type { UsageType } from "./provider-resolver";

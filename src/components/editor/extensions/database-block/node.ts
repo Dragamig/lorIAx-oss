@@ -36,6 +36,38 @@ export const DatabaseBlock = Node.create({
           element.getAttribute("viewmode") ||
           element.getAttribute("data-view-mode"),
       },
+      intent: {
+        default: null,
+        rendered: false,
+      },
+      // Mode « base liée » : intégration en lecture seule d'une base existante,
+      // avec tri/filtre propres à ce document (stockés dans le nœud, sans
+      // modifier la base source ni ses vues).
+      readOnly: {
+        default: false,
+        parseHTML: (element: HTMLElement) =>
+          element.getAttribute("data-read-only") === "true",
+        renderHTML: (attrs) => (attrs.readOnly ? { "data-read-only": "true" } : {}),
+      },
+      linked: {
+        default: false,
+        parseHTML: (element: HTMLElement) =>
+          element.getAttribute("data-linked") === "true",
+        renderHTML: (attrs) => (attrs.linked ? { "data-linked": "true" } : {}),
+      },
+      // Tri/filtre locaux sérialisés (JSON) — propres à cette intégration.
+      localSorts: {
+        default: null,
+        parseHTML: (element: HTMLElement) => element.getAttribute("data-local-sorts"),
+        renderHTML: (attrs) =>
+          attrs.localSorts ? { "data-local-sorts": attrs.localSorts as string } : {},
+      },
+      localFilters: {
+        default: null,
+        parseHTML: (element: HTMLElement) => element.getAttribute("data-local-filters"),
+        renderHTML: (attrs) =>
+          attrs.localFilters ? { "data-local-filters": attrs.localFilters as string } : {},
+      },
     };
   },
 

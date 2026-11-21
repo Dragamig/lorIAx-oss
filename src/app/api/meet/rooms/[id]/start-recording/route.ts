@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/get-user";
-import { getMeeting, updateMeetingStatus } from "@/lib/meet/rooms";
+import { getRequestOrgId } from "@/lib/org/get-request-org";
+import { logActivity } from "@/lib/activity";
+import { getMeetingInOrg, canAccessMeeting, updateMeetingStatus } from "@/lib/meet/rooms";
 import { startRecording } from "@/lib/meet/egress";
 import logger from "@/lib/logger";
 
@@ -16,20 +18,25 @@ export async function POST(
   }
 
   const { id } = await params;
-  const meeting = await getMeeting(id);
+  const orgId = await getRequestOrgId(user);
+  // Fail-closed : org non résolue (non membre, slug inconnu) = réunion inexistante
+  if (!orgId) {
+    return NextResponse.json({ error: "Réunion introuvable" }, { status: 404 });
+  }
+
+  const meeting = await getMeetingInOrg(id, orgId);
 
   if (!meeting) {
     return NextResponse.json({ error: "Réunion introuvable" }, { status: 404 });
   }
 
-  // H12 : la route n'avait aucun contrôle d'accès à la réunion. Elle s'aligne sur
-  // les trois autres routes MUTANTES de la famille (`activate`, `end`,
-  // `speaker-mapping`), qui exigent l'organisateur, et non sur les deux routes de
-  // LECTURE (`status`, `notes`), qui se contentent de `canAccessMeeting` et
-  // ouvriraient donc à tout participant. Déclencher l'enregistrement audio puis la
-  // transcription de tous les présents est la seule action de la famille à toucher
-  // la vie privée de tiers : elle appartient à l'organisateur.
-  if (meeting.createdBy !== user.id) {
+  // Déclencher un enregistrement Egress est une action sensible (captation,
+  // transcription puis résumé en aval) : la seule présence d'une session ne
+  // suffit pas. Seuls l'organisateur, un participant, un administrateur de
+  // l'espace ou un administrateur de l'organisation peuvent la lancer.
+  const allowed = await canAccessMeeting(user, meeting);
+  if (!allowed) {
+    void logActivity({ userId: user.id, action: "meeting.recording_start_denied", entityType: "meeting", entityId: id, metadata: { } });
     return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
   }
 
@@ -48,6 +55,8 @@ export async function POST(
     if (egressId) {
       await updateMeetingStatus(id, "active", { egressId });
       log.info({ meetingId: id, egressId }, "Recording started via manual trigger");
+      void logActivity({ userId: user.id, action: "meeting.recording_start", entityType: "meeting", entityId: id, metadata: { } });
+
       return NextResponse.json({ status: "recording", egressId });
     }
     return NextResponse.json({ error: "Impossible de démarrer l'enregistrement" }, { status: 502 });

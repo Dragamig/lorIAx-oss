@@ -2,11 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSessionUser } from "@/lib/auth/get-user";
 import { s3Client, BUCKET } from "@/lib/storage/s3";
-import { resolveReadableAttachment } from "@/lib/storage/attachment-access";
-import { presentationOverrides } from "@/lib/storage/safe-content-type";
+import { canReadStorageKey } from "@/lib/storage/attachment-access";
+import { getMediaByStorageKey, getMediaFull } from "@/lib/media/access";
+import { serveMediaObject } from "@/lib/media/serve";
+import { buildContentDisposition } from "@/lib/media/content-disposition";
+import { serveContentType } from "@/lib/storage/serve-content-type";
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ key: string[] }> }
 ) {
   const user = await getSessionUser();
@@ -17,24 +20,31 @@ export async function GET(
   const { key: segments } = await params;
   const key = segments.join("/");
 
-  // H8 - The key must belong to a registered attachment the caller may read.
-  // An unknown key is reported as missing so the route cannot be used to probe
-  // the content of the bucket.
-  const access = await resolveReadableAttachment(user, key);
-  if (!access.ok) {
-    if (access.reason === "forbidden") {
-      return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
-    }
-    return NextResponse.json({ error: "Fichier introuvable" }, { status: 404 });
+  // Sans ce contrôle, la route sert n'importe quel objet du bucket à n'importe
+  // quel utilisateur authentifié, toutes organisations confondues.
+  if (!(await canReadStorageKey(user, key))) {
+    return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
   }
 
-  try {
-    // Objet lu par la clé relue en base, pas par la chaîne d'URL : les deux sont
-    // égales par construction, l'invariant devient structurel.
-    const command = new GetObjectCommand({
-      Bucket: BUCKET,
-      Key: access.attachment.storageKey,
+  // Alias permanent : une clé qui a une ligne media passe par le pipeline de
+  // lecture en flux (Range, ETag). Inline seulement pour la liste blanche.
+  const access = await getMediaByStorageKey(key);
+  const row = access ? await getMediaFull(access.id) : null;
+  if (row) {
+    return serveMediaObject({
+      req,
+      key: row.storageKey,
+      mime: row.mimeType,
+      filename: row.filename,
+      etagSeed: `${row.id}-${row.updatedAt.getTime()}`,
+      inline: true,
+      maxAgeSeconds: 300,
     });
+  }
+
+  // Clés sans ligne media (avatars, branding, video-editor/, repli UUID d'espace).
+  try {
+    const command = new GetObjectCommand({ Bucket: BUCKET, Key: key });
     const response = await s3Client.send(command);
 
     if (!response.Body) {
@@ -42,23 +52,16 @@ export async function GET(
     }
 
     const buffer = Buffer.from(await response.Body.transformToByteArray());
-
-    // H9 : le type renvoyé par S3 est celui posé au dépôt, donc, pour un objet
-    // antérieur au durcissement, celui déclaré par son déposant. Il passe par la
-    // même règle de restitution que l'URL signée. Cette route sert des
-    // téléchargements, la disposition reste `attachment` en toutes circonstances.
-    const contentType = presentationOverrides(
-      response.ContentType || "application/octet-stream"
-    ).contentType;
-
-    const filename = access.attachment.filename || segments[segments.length - 1] || "file";
+    const filename = segments[segments.length - 1] ?? "file";
+    // H9 : type recompose cote serveur, jamais repris de l'objet stocke.
+    const served = serveContentType(response.ContentType ?? "", filename);
     return new NextResponse(buffer, {
       status: 200,
       headers: {
-        "Content-Type": contentType,
+        "Content-Type": served.contentType,
         "X-Content-Type-Options": "nosniff",
         "Cache-Control": "private, max-age=300",
-        "Content-Disposition": `attachment; filename="${filename.replace(/"/g, "")}"`,
+        "Content-Disposition": buildContentDisposition(filename, false),
       },
     });
   } catch (err: unknown) {

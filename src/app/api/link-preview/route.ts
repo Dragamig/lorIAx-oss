@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/get-user";
 import { validateExternalUrl } from "@/lib/security/url-validator";
-import { SafeFetchError, isBlockedTargetError, safeFetch } from "@/lib/security/safe-fetch";
-import { checkRateLimit, RATE_LIMITS, getClientIp } from "@/lib/rate-limit";
+import { safeExternalFetch, OutboundRequestError } from "@/lib/security/outbound-fetch";
+import { checkRateLimitAsync, RATE_LIMITS, getClientIpOrNull } from "@/lib/rate-limit";
 import logger from "@/lib/logger";
 
-export const runtime = "nodejs";
+// Borne de taille raisonnable pour une page HTML récupérée (10 Mo).
+const MAX_PREVIEW_BYTES = 10 * 1024 * 1024;
 
 /** Strip HTML tags and decode common entities to prevent stored XSS via metadata. */
 function stripHtml(value: string | undefined | null): string | undefined {
@@ -52,9 +53,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "URL manquante" }, { status: 400 });
   }
 
-  // Rate limiting
-  const ip = getClientIp(request);
-  const rl = checkRateLimit(`link-preview:${ip}`, RATE_LIMITS.linkPreview);
+  // Rate limiting. Sans en-tête exploitable, `getClientIpOrNull` rend `null` :
+  // indexer la constante « adresse inconnue » mettrait tous les clients dans le
+  // même seau (AZ-25). La route étant authentifiée, on retombe sur l'identité du
+  // compte, qui est une dimension au moins aussi fine que l'adresse.
+  const ip = getClientIpOrNull(request);
+  const bucket = ip ? `ip:${ip}` : `user:${user.id}`;
+  const rl = await checkRateLimitAsync(`link-preview:${bucket}`, RATE_LIMITS.linkPreview);
   if (!rl.success) {
     return NextResponse.json({ error: "Trop de requêtes" }, { status: 429 });
   }
@@ -79,14 +84,19 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // URL fournie par l'utilisateur : aucune dérogation réseau privé.
-    // Les redirections sont suivies par safeFetch, chaque saut étant revalidé.
-    const response = await safeFetch(parsedUrl.href, {
+    // Sécurité (constat INJ-08, audit du 2026-08-19) : la route rend au
+    // client les métadonnées extraites de la page, donc un SSRF y est en
+    // lecture quasi complète. Le fetch passe par `safeExternalFetch`
+    // (résolution DNS anti-rebinding, revalidation de chaque redirection)
+    // au lieu d'un `fetch` dont seule la cible initiale était validée.
+    const response = await safeExternalFetch(parsedUrl.href, {
       timeoutMs: 5000,
-      maxBytes: 8 * 1024 * 1024,
-      headers: {
-        "User-Agent": "LorIAx-Bot/1.0 (Link Preview)",
-        Accept: "text/html, application/xhtml+xml",
+      maxBytes: MAX_PREVIEW_BYTES,
+      init: {
+        headers: {
+          "User-Agent": "LorIAx-Bot/1.0 (Link Preview)",
+          Accept: "text/html, application/xhtml+xml",
+        },
       },
     });
 
@@ -143,23 +153,17 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(result);
   } catch (err: unknown) {
-    if (isBlockedTargetError(err)) {
-      return NextResponse.json({ error: err.message }, { status: 400 });
-    }
-    if (
-      err instanceof SafeFetchError &&
-      (err.code === "response_too_large" || err.code === "too_many_redirects")
-    ) {
-      return NextResponse.json({ error: err.message }, { status: 422 });
-    }
-    if (
-      (err instanceof SafeFetchError && err.code === "timeout") ||
-      (err instanceof Error && err.name === "AbortError")
-    ) {
+    if (err instanceof Error && (err.name === "AbortError" || err.name === "TimeoutError")) {
       return NextResponse.json(
         { error: "Délai d'attente dépassé (5s)" },
         { status: 408 }
       );
+    }
+    // Message générique : ne pas révéler au client la raison précise (adresse
+    // privée, DNS rebinding…), ce qui cartographierait le réseau interne.
+    if (err instanceof OutboundRequestError) {
+      logger.warn({ reason: err.reason, url: parsedUrl.href }, "Cible refusée pour link preview");
+      return NextResponse.json({ error: "URL non autorisée" }, { status: 422 });
     }
     logger.error({ err, url: parsedUrl.href }, "Erreur link preview");
     return NextResponse.json(

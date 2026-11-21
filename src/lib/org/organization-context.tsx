@@ -10,8 +10,9 @@ export interface OrgContextValue {
     slug: string;
     name: string;
     plan: string;
-    maxUsers: number;
-    maxSpaces: number;
+    /** Plafonds de l'organisation, `null` = pas de plafond. */
+    maxUsers: number | null;
+    maxSpaces: number | null;
     memberCount: number;
   } | null;
   role: OrgRole | null;

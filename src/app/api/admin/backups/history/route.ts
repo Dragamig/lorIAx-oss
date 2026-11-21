@@ -1,18 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/get-user";
-import { hasGlobalRole } from "@/lib/auth/rbac";
+import { hasGlobalRole, INSTANCE_ADMIN_ONLY_MESSAGE } from "@/lib/auth/rbac";
 import { db } from "@/lib/db";
 import { backupJobs } from "@/lib/db/schema";
 import { desc, eq, and, count } from "drizzle-orm";
 
 export async function GET(request: NextRequest) {
   const user = await getSessionUser();
-  if (!user || !hasGlobalRole(user.globalRole, "admin")) {
-    return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+  // Portée instance : cet historique décrit les dumps multi-tenants de
+  // l'instance, il ne se découpe pas par organisation (audit du 2026-08-19,
+  // AZ-07).
+  if (!user || !hasGlobalRole(user.globalRole, "super_admin")) {
+    return NextResponse.json(
+      { error: INSTANCE_ADMIN_ONLY_MESSAGE },
+      { status: 403 }
+    );
   }
 
   const { searchParams } = new URL(request.url);
-  const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
+  const pageNum = parseInt(searchParams.get("page") || "1", 10);
+  const page = Math.max(1, !isNaN(pageNum) ? pageNum : 1);
   const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") || "20", 10)));
   const type = searchParams.get("type");
   const offset = (page - 1) * limit;

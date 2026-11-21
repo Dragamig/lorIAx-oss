@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/get-user";
-import { hasGlobalRole } from "@/lib/auth/rbac";
+import { hasGlobalRole, INSTANCE_ADMIN_ONLY_MESSAGE } from "@/lib/auth/rbac";
 import { db } from "@/lib/db";
 import { backupJobs, users } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { createBackupS3Client } from "@/lib/backup/s3-backup";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { spawn } from "child_process";
-import { createWriteStream, chmodSync, rmSync, mkdtempSync } from "fs";
+import { createWriteStream, chmodSync, rmSync, mkdtempSync, writeFileSync } from "fs";
+import { filterRestoreToc } from "@/lib/backup/restore-toc";
 import { tmpdir } from "os";
 import { join } from "path";
 import bcrypt from "bcryptjs";
@@ -18,8 +19,14 @@ import { pipeline } from "stream/promises";
 
 export async function POST(request: NextRequest) {
   const user = await getSessionUser();
-  if (!user || !hasGlobalRole(user.globalRole, "admin")) {
-    return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+  // Portée instance : une restauration écrase la base entière, donc les
+  // données de toutes les organisations, pas seulement celles de l'appelant
+  // (audit du 2026-08-19, AZ-07).
+  if (!user || !hasGlobalRole(user.globalRole, "super_admin")) {
+    return NextResponse.json(
+      { error: INSTANCE_ADMIN_ONLY_MESSAGE },
+      { status: 403 }
+    );
   }
 
   const body = await request.json();
@@ -99,10 +106,37 @@ export async function POST(request: NextRequest) {
       throw new Error("DATABASE_URL non définie");
     }
 
+    // Une sauvegarde de 1.204.x contient la table attachments, retirée du
+    // schéma : ses entrées sont écartées de la liste de restauration.
+    const listing = spawn("pg_restore", ["-l", tmpFile], {
+      stdio: ["ignore", "pipe", "inherit"],
+    });
+    let toc = "";
+    listing.stdout.on("data", (chunk: Buffer) => {
+      toc += chunk.toString();
+    });
+    const listCode = await new Promise<number>((resolve, reject) => {
+      listing.on("close", resolve);
+      listing.on("error", reject);
+    });
+    if (listCode !== 0) {
+      throw new Error(`pg_restore -l a échoué (code ${listCode})`);
+    }
+    const { list, ignored } = filterRestoreToc(toc);
+    if (ignored.length > 0) {
+      console.warn(
+        `[backup.restore] ${ignored.length} entrée(s) de tables retirées ignorée(s) pour ${job.id}`,
+      );
+    }
+    const listFile = join(tempDir, "restore.list");
+    writeFileSync(listFile, list, { mode: 0o600 });
+
     const pgRestore = spawn("pg_restore", [
       "-Fc",
       "--clean",
       "--if-exists",
+      "-L",
+      listFile,
       `--dbname=${databaseUrl}`,
       tmpFile,
     ], {
@@ -111,7 +145,7 @@ export async function POST(request: NextRequest) {
 
     let stderr = "";
     pgRestore.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString();
+      if (stderr.length < 10000) stderr += chunk.toString();
     });
 
     const exitCode = await new Promise<number>((resolve, reject) => {

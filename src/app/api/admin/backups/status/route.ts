@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/get-user";
-import { hasGlobalRole } from "@/lib/auth/rbac";
+import { hasGlobalRole, INSTANCE_ADMIN_ONLY_MESSAGE } from "@/lib/auth/rbac";
 import { db } from "@/lib/db";
 import { backupJobs } from "@/lib/db/schema";
 import { eq, desc, and } from "drizzle-orm";
@@ -8,8 +8,13 @@ import { getBackupS3Config } from "@/lib/backup/s3-backup";
 
 export async function GET() {
   const user = await getSessionUser();
-  if (!user || !hasGlobalRole(user.globalRole, "admin")) {
-    return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+  // Portée instance : cet état porte sur les dumps multi-tenants de
+  // l'instance et sur sa configuration S3 (audit du 2026-08-19, AZ-07).
+  if (!user || !hasGlobalRole(user.globalRole, "super_admin")) {
+    return NextResponse.json(
+      { error: INSTANCE_ADMIN_ONLY_MESSAGE },
+      { status: 403 }
+    );
   }
 
   // Running jobs

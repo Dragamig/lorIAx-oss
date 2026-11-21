@@ -3,20 +3,11 @@ import { db } from "@/lib/db";
 import { spaces, documents, spacePermissions } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { getSessionUser } from "@/lib/auth/get-user";
-import { checkSpaceViewAccess } from "@/lib/auth/check-access";
 import { hasGlobalRole } from "@/lib/auth/rbac";
 import type { UserRole } from "@/types";
 import { logActivity } from "@/lib/activity";
+import { getSpaceBySlugForRequest } from "@/lib/org/scoped-space";
 import { z } from "zod";
-
-async function getSpaceBySlug(slug: string) {
-  const [space] = await db
-    .select()
-    .from(spaces)
-    .where(eq(spaces.slug, slug))
-    .limit(1);
-  return space || null;
-}
 
 async function canManageSpace(userId: string, globalRole: UserRole, spaceId: string, ownerUserId: string | null) {
   if (hasGlobalRole(globalRole, "admin")) return true;
@@ -45,18 +36,10 @@ export async function GET(
   if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
 
   const { slug } = await params;
-  const space = await getSpaceBySlug(slug);
+  const space = await getSpaceBySlugForRequest(slug, user);
 
   if (!space) {
     return NextResponse.json({ error: "Espace introuvable" }, { status: 404 });
-  }
-
-  // Route detail de l'espace : elle renvoyait la ligne complete sur simple slug, dont
-  // `gitRepoPath`, un chemin du systeme de fichiers serveur. Elle est alignee sur la
-  // route liste, comme l'arborescence et le journal d'activite.
-  const canView = await checkSpaceViewAccess(user, space.id);
-  if (!canView) {
-    return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
   }
 
   return NextResponse.json(space);
@@ -78,7 +61,7 @@ export async function PATCH(
   if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
 
   const { slug } = await params;
-  const space = await getSpaceBySlug(slug);
+  const space = await getSpaceBySlugForRequest(slug, user);
 
   if (!space) {
     return NextResponse.json({ error: "Espace introuvable" }, { status: 404 });
@@ -127,7 +110,7 @@ export async function DELETE(
   if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
 
   const { slug } = await params;
-  const space = await getSpaceBySlug(slug);
+  const space = await getSpaceBySlugForRequest(slug, user);
 
   if (!space) {
     return NextResponse.json({ error: "Espace introuvable" }, { status: 404 });

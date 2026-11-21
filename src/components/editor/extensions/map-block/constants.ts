@@ -14,6 +14,8 @@ export const MARKER_COLORS = [
   "#ea580c", // orange
   "#9333ea", // purple
   "#0891b2", // cyan
+  "#db2777", // pink
+  "#ca8a04", // yellow
 ];
 
 export const ROUTE_COLORS = [

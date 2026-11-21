@@ -6,8 +6,10 @@ import { getSessionUser } from "@/lib/auth/get-user";
 import { checkDocumentEditAccess, checkDocumentViewAccess } from "@/lib/auth/check-access";
 import { canShareExternally } from "@/lib/auth/classification";
 import { logActivity } from "@/lib/activity";
-import { dispatchWebhookEvent } from "@/lib/webhooks/dispatch";
+import { dispatchWebhookEvent, organizationIdOfSpace } from "@/lib/webhooks/dispatch";
 import { randomBytes } from "crypto";
+import { syncDocumentUsages } from "@/lib/media/usages";
+import logger from "@/lib/logger";
 
 // POST — Create a public share link
 export async function POST(
@@ -64,6 +66,14 @@ export async function POST(
     })
     .returning();
 
+  // Extraction synchrone des médias de ce seul document : le lien public ne doit
+  // pas attendre le balayage différé. Un échec n'empêche pas le partage.
+  try {
+    await syncDocumentUsages(id);
+  } catch (err) {
+    logger.error({ err, documentId: id }, "Extraction des usages médias échouée à la création du partage");
+  }
+
   // Log activity
   logActivity({
     userId: user.id,
@@ -76,8 +86,15 @@ export async function POST(
   // Dispatch webhook
   dispatchWebhookEvent(
     "share.created",
-    { documentId: id, shareId: share.id, token },
-    user.id
+    // `spaceId` fait partie de la charge utile, et pas seulement par confort :
+    // depuis le lot 6, un webhook déclaré sur un espace ne reçoit que les
+    // événements portant CET espace, et un événement sans espace n'en concerne
+    // aucun. Sans ce champ, un abonnement par espace ne verrait jamais les
+    // partages. L'espace est ici déjà chargé, il n'y a rien à relire.
+    { documentId: id, spaceId: doc.spaceId, shareId: share.id, token },
+    user.id,
+    // Organisation de l'événement : celle de l'espace qui porte le document.
+    space.organizationId
   );
 
   return NextResponse.json({
@@ -168,8 +185,11 @@ export async function DELETE(
   // Dispatch webhook
   dispatchWebhookEvent(
     "share.revoked",
-    { documentId: id, shareId },
-    user.id
+    // Même raison qu'à la création : sans `spaceId`, le filtre par espace de
+    // l'émission écarterait l'événement de tout webhook déclaré sur un espace.
+    { documentId: id, spaceId: doc.spaceId, shareId },
+    user.id,
+    await organizationIdOfSpace(doc.spaceId)
   );
 
   return NextResponse.json({ success: true });

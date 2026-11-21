@@ -1,23 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/get-user";
 import { validateExternalUrl } from "@/lib/security/url-validator";
-import { SafeFetchError, isBlockedTargetError, safeFetch } from "@/lib/security/safe-fetch";
-import { checkRateLimit, getClientIp, RATE_LIMITS } from "@/lib/rate-limit";
-import logger from "@/lib/logger";
+import { safeExternalFetch, OutboundRequestError } from "@/lib/security/outbound-fetch";
 
-export const runtime = "nodejs";
-
-// Cette route alimente les blocs base de données et tableur : ingérer de gros
-// jeux JSON ou CSV est son métier. Le plafond porte sur les octets bruts comme
-// sur les octets décompressés. Il reste volontairement modéré car le corps est
-// entièrement bufferisé en mémoire, puis re-sérialisé par NextResponse.json
-// sur la branche rest-api, ce qui multiplie l'empreinte côté V8.
-const MAX_PAYLOAD_BYTES = 10 * 1024 * 1024;
+// Borne de taille raisonnable pour une réponse proxifiée (10 Mo).
+const MAX_PROXY_BYTES = 10 * 1024 * 1024;
 
 /**
  * POST /api/data-proxy
  * Proxy server-side pour récupérer des données externes (évite CORS).
  * Supporte : REST API (JSON) et Google Sheets (CSV public).
+ *
+ * Sécurité (constat INJ-08, audit du 2026-08-19) : la route rend le corps
+ * intégral de la réponse au client, donc un SSRF y est en lecture complète.
+ * Le fetch passe par `safeExternalFetch` (résolution DNS anti-rebinding et
+ * revalidation de chaque redirection) plutôt que par un `fetch` en `follow`
+ * qui ne validait la cible initiale que par syntaxe.
  */
 export async function POST(req: NextRequest) {
   const user = await getSessionUser();
@@ -25,18 +23,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
   }
 
-  // Plafond de débit : sans lui, N requêtes parallèles d'un même compte
-  // multiplient par N les 10 Mio bufferisés en mémoire.
-  const ip = getClientIp(req);
-  const rl = checkRateLimit(`data-proxy:${ip}`, RATE_LIMITS.dataProxy);
-  if (!rl.success) {
-    return NextResponse.json(
-      { error: "Trop de requêtes. Réessayez dans un instant." },
-      { status: 429 }
-    );
+  let body;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: 'JSON invalide' }, { status: 400 });
   }
-
-  const body = await req.json();
   const { type, url, jsonPath, gid } = body;
 
   if (!url || !type) {
@@ -51,11 +43,10 @@ export async function POST(req: NextRequest) {
 
   try {
     if (type === "rest-api") {
-      // URL fournie par l'utilisateur : aucune dérogation réseau privé.
-      const res = await safeFetch(url, {
-        headers: { Accept: "application/json" },
+      const res = await safeExternalFetch(url, {
         timeoutMs: 15000,
-        maxBytes: MAX_PAYLOAD_BYTES,
+        maxBytes: MAX_PROXY_BYTES,
+        init: { headers: { Accept: "application/json" } },
       });
       if (!res.ok) {
         return NextResponse.json(
@@ -103,14 +94,14 @@ export async function POST(req: NextRequest) {
       const sheetGid = gid || "0";
 
       const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${sheetGid}`;
-      const res = await safeFetch(csvUrl, {
+      const res = await safeExternalFetch(csvUrl, {
         timeoutMs: 15000,
-        maxBytes: MAX_PAYLOAD_BYTES,
+        maxBytes: MAX_PROXY_BYTES,
       });
 
       if (!res.ok) {
         return NextResponse.json(
-          { error: `Google Sheets HTTP ${res.status}, vérifiez que la feuille est partagée publiquement` },
+          { error: `Google Sheets HTTP ${res.status} — vérifiez que la feuille est partagée publiquement` },
           { status: 502 }
         );
       }
@@ -121,25 +112,15 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ error: "Type de source non supporté" }, { status: 400 });
   } catch (err: unknown) {
-    if (isBlockedTargetError(err)) {
-      return NextResponse.json({ error: err.message }, { status: 400 });
-    }
-    if (err instanceof SafeFetchError && err.code === "timeout") {
-      return NextResponse.json({ error: "Délai d'attente dépassé (15s)" }, { status: 504 });
+    // Message générique : ne pas révéler au client la raison précise (adresse
+    // privée, DNS rebinding…), ce qui cartographierait le réseau interne.
+    if (err instanceof OutboundRequestError) {
+      return NextResponse.json({ error: "URL non autorisée" }, { status: 400 });
     }
     if (err instanceof Error && err.name === "TimeoutError") {
       return NextResponse.json({ error: "Délai d'attente dépassé (15s)" }, { status: 504 });
     }
-    if (err instanceof SafeFetchError && err.code === "response_too_large") {
-      return NextResponse.json(
-        { error: "Réponse trop volumineuse (limite 10 Mo)" },
-        { status: 502 }
-      );
-    }
-    // Le message brut d'une erreur réseau expose l'adresse résolue et le port
-    // ("connect ECONNREFUSED 93.184.216.34:22"), ce qui transformerait cette
-    // route en scanner de ports. Détail journalisé côté serveur uniquement.
-    logger.warn({ err, type }, "[data-proxy] Échec de récupération");
-    return NextResponse.json({ error: "Erreur de récupération" }, { status: 502 });
+    const message = err instanceof Error ? err.message : "Erreur de récupération";
+    return NextResponse.json({ error: message }, { status: 502 });
   }
 }

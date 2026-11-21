@@ -2,7 +2,7 @@ import { db } from "@/lib/db";
 import { activityLog } from "@/lib/db/schema";
 import logger from "@/lib/logger";
 
-type EntityType = "document" | "space" | "user" | "template" | "share";
+type EntityType = "document" | "space" | "user" | "template" | "share" | "meeting" | "media" | "database_row";
 
 interface LogActivityParams {
   userId: string;

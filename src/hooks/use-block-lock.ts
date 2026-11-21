@@ -18,7 +18,7 @@ interface UseBlockLockReturn {
 
 /**
  * Hook partagé pour la gestion du verrou optimiste sur les blocs éditeur
- * (whiteboard, mindmap, penpot, etc.).
+ * (whiteboard, mindmap, etc.).
  *
  * Gère :
  * - le calcul `isLockedByOther` (verrou tenu par un autre utilisateur non expiré)

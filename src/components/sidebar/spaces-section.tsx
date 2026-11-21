@@ -1,7 +1,8 @@
 "use client";
 
-import Link from "next/link";
+import { Link } from "@/i18n/routing";
 import { Search, X } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { useFavoritesContext } from "@/hooks/use-favorites";
 import { FavoriteStar } from "@/components/ui/favorite-star";
 import { SpaceIcon } from "./space-icon";
@@ -26,11 +27,12 @@ export function SpacesSection({
   onSpaceSearchChange,
   onActiveSpaceChange,
 }: SpacesSectionProps) {
+  const t = useTranslations("shell.sidebar");
   const { isFavorite, toggleFavorite } = useFavoritesContext();
 
   return (
     <div className="px-3 py-2">
-      {/* Recherche */}
+      {/* Search filter */}
       {spaces.length > 3 && (
         <div className="relative mb-2">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
@@ -38,7 +40,7 @@ export function SpacesSection({
             type="text"
             value={spaceSearch}
             onChange={(e) => onSpaceSearchChange(e.target.value)}
-            placeholder="Filtrer les espaces..."
+            placeholder={t("filterSpacesPlaceholder")}
             className="w-full pl-7 pr-2 py-1 text-xs rounded-md bg-sidebar-accent/50 border border-transparent focus:border-primary/30 outline-none placeholder:text-muted-foreground/60 transition-colors"
           />
           {spaceSearch && (
@@ -52,12 +54,12 @@ export function SpacesSection({
         </div>
       )}
 
-      {/* Liste groupée par type */}
+      {/* Grouped space list */}
       <div className="space-y-2">
         {spaceGroups.map(({ type, label, spaces: groupSpaces }) =>
           groupSpaces.length > 0 ? (
             <div key={type}>
-              {/* Header de groupe (masqué si recherche active) */}
+              {/* Group header (hidden when search is active) */}
               {!spaceSearch && spaceGroups.filter((g) => g.spaces.length > 0).length > 1 && (
                 <span className="text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider px-2 mb-0.5 block">
                   {label}
@@ -92,9 +94,9 @@ export function SpacesSection({
                             space.classification === "secret" ? "bg-red-500" : ""
                           }`}
                           title={
-                            space.classification === "public" ? "Public" :
-                            space.classification === "confidential" ? "Confidentiel" :
-                            space.classification === "secret" ? "Secret" : ""
+                            space.classification === "public" ? t("classification.public") :
+                            space.classification === "confidential" ? t("classification.confidential") :
+                            space.classification === "secret" ? t("classification.secret") : ""
                           }
                         />
                       )}
@@ -107,7 +109,7 @@ export function SpacesSection({
         )}
         {filteredSpaces.length === 0 && spaceSearch && (
           <p className="text-xs text-muted-foreground px-2 py-2">
-            Aucun espace trouvé.
+            {t("noSpacesFound")}
           </p>
         )}
       </div>

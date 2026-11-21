@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useTranslations } from "next-intl";
 import { Tag, Check } from "lucide-react";
 import { toast } from "sonner";
 import { LabelBadge } from "./label-badge";
@@ -30,6 +31,7 @@ export function LabelPicker({
   defaultOpen = false,
   onClose,
 }: LabelPickerProps) {
+  const t = useTranslations("labels");
   const [open, setOpen] = useState(defaultOpen);
   const [labels, setLabels] = useState<Label[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>(currentLabelIds);
@@ -47,15 +49,15 @@ export function LabelPicker({
     setLoading(true);
     try {
       const res = await fetch(`/api/spaces/${spaceSlug}/labels`);
-      if (!res.ok) throw new Error("Impossible de charger les labels");
+      if (!res.ok) throw new Error("load error");
       const data = await res.json();
       setLabels(data);
     } catch {
-      toast.error("Impossible de charger les labels");
+      toast.error(t("toasts.loadError"));
     } finally {
       setLoading(false);
     }
-  }, [spaceSlug]);
+  }, [spaceSlug, t]);
 
   // Si defaultOpen, charger les labels au montage
   useEffect(() => {
@@ -83,7 +85,7 @@ export function LabelPicker({
     };
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
-  }, [open]);
+  }, [open, onClose]);
 
   const toggleLabel = async (label: Label) => {
     const isSelected = selectedIds.includes(label.id);
@@ -111,8 +113,8 @@ export function LabelPicker({
       onLabelsChange?.(selectedIds);
       toast.error(
         isSelected
-          ? "Impossible de retirer le label"
-          : "Impossible d'assigner le label"
+          ? t("toasts.removeError")
+          : t("toasts.assignError")
       );
     }
   };
@@ -131,7 +133,7 @@ export function LabelPicker({
         aria-haspopup="listbox"
       >
         <Tag className="h-3.5 w-3.5" />
-        <span>Labels</span>
+        <span>{t("button")}</span>
       </button>
 
       {open && (
@@ -139,7 +141,7 @@ export function LabelPicker({
           className="absolute left-0 top-full z-50 mt-1 w-60 rounded-lg border bg-background shadow-lg"
           role="listbox"
           aria-multiselectable="true"
-          aria-label="Sélectionner des labels"
+          aria-label={t("listboxAria")}
         >
           {/* Search */}
           <div className="border-b p-2">
@@ -147,7 +149,7 @@ export function LabelPicker({
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Rechercher…"
+              placeholder={t("searchPlaceholder")}
               className="w-full rounded-md border border-input bg-transparent px-2 py-1 text-sm outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
               autoFocus
             />
@@ -157,12 +159,12 @@ export function LabelPicker({
           <ul className="max-h-56 overflow-y-auto py-1">
             {loading && (
               <li className="px-3 py-2 text-sm text-muted-foreground">
-                Chargement…
+                {t("loading")}
               </li>
             )}
             {!loading && filtered.length === 0 && (
               <li className="px-3 py-2 text-sm text-muted-foreground">
-                Aucun label trouvé
+                {t("empty")}
               </li>
             )}
             {!loading &&
@@ -193,7 +195,7 @@ export function LabelPicker({
               href="/admin/labels"
               className="block w-full rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors text-center"
             >
-              + Créer un label
+              {t("createLabel")}
             </a>
           </div>
         </div>

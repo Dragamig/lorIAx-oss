@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { WhiteboardModal } from "./whiteboard-modal";
 import { useBlockLock } from "@/hooks/use-block-lock";
 import { ModalLockBanner } from "@/components/editor/modal-lock-banner";
+import { getMetaDocId } from "./meta-context";
 
 export function WhiteboardBlockView({ node, updateAttributes, editor, selected, deleteNode }: NodeViewProps) {
   const { canvasId, title, thumbnailUrl, lockedBy, lockedAt } = node.attrs;
@@ -44,8 +45,10 @@ export function WhiteboardBlockView({ node, updateAttributes, editor, selected, 
       <div className="editor-block" contentEditable={false}>
         {/* Toolbar */}
         <div className={`editor-block-toolbar ${selected ? "is-visible" : ""}`}>
-          <div className="flex items-center gap-2 flex-1 min-w-0" data-drag-handle>
-            <GripHorizontal className="h-4 w-4 text-muted-foreground cursor-grab shrink-0" />
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <span data-drag-handle className="cursor-grab shrink-0">
+              <GripHorizontal className="h-4 w-4 text-muted-foreground" />
+            </span>
             <PenLine className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
             <input
               type="text"
@@ -114,6 +117,7 @@ export function WhiteboardBlockView({ node, updateAttributes, editor, selected, 
       {modalOpen && canvasId && typeof document !== "undefined" && createPortal(
         <WhiteboardModal
           canvasId={canvasId}
+          documentId={getMetaDocId(editor)}
           title={title || "Tableau blanc"}
           onClose={handleClose}
         />,

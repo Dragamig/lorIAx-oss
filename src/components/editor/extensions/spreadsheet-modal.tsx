@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
-import { X, Table2, Loader2, BarChart2, LineChart, PieChart, AreaChart } from "lucide-react";
+import { X, Table2, Loader2, Download, BarChart2, LineChart, PieChart, AreaChart } from "lucide-react";
 import dynamic from "next/dynamic";
+import { toast } from "sonner";
 
 const ChartRenderer = dynamic(() => import("./chart-renderer"), { ssr: false });
 
@@ -16,6 +17,8 @@ interface ChartDataRow {
 
 interface SpreadsheetModalProps {
   sheetId: string;
+  /** Espace de rattachement — requis par l'API à la création du tableur. */
+  spaceId?: string;
   title: string;
   initialChartRange?: string;
   initialChartType?: string;
@@ -109,7 +112,7 @@ function defaultWorkbookData(sheetId: string) {
 
 // ─── Composant principal ──────────────────────────────────────────────────────
 
-export function SpreadsheetModal({ sheetId, title, initialChartRange, initialChartType, onClose }: SpreadsheetModalProps) {
+export function SpreadsheetModal({ sheetId, spaceId, title, initialChartRange, initialChartType, onClose }: SpreadsheetModalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const univerRef = useRef<any>(null);
@@ -154,22 +157,32 @@ export function SpreadsheetModal({ sheetId, title, initialChartRange, initialCha
 
     (async () => {
       const [
-        { createUniver, LocaleType, mergeLocales },
+        { LocaleType, mergeLocales },
+        { createUniver },
         { UniverSheetsCorePreset },
         { default: frFR },
+        { UniverSheetsDataValidationPreset },
+        { default: frFRValidation },
       ] = await Promise.all([
-        import("@univerjs/presets"),
+        import("@univerjs/core"),
+        import("@/lib/univer/create-univer"),
         import("@univerjs/preset-sheets-core"),
         import("@univerjs/preset-sheets-core/locales/fr-FR"),
+        import("@univerjs/preset-sheets-data-validation"),
+        import("@univerjs/preset-sheets-data-validation/locales/fr-FR"),
       ]);
       await import("@univerjs/preset-sheets-core/lib/index.css");
+      await import("@univerjs/preset-sheets-data-validation/lib/index.css");
 
       if (disposed || !containerRef.current) return;
 
       const { univerAPI } = createUniver({
         locale: LocaleType.FR_FR,
-        locales: { [LocaleType.FR_FR]: mergeLocales(frFR) },
-        presets: [UniverSheetsCorePreset({ container: containerRef.current })],
+        locales: { [LocaleType.FR_FR]: mergeLocales(frFR, frFRValidation) },
+        presets: [
+          UniverSheetsCorePreset({ container: containerRef.current }),
+          UniverSheetsDataValidationPreset(),
+        ],
       });
 
       univerAPI.createWorkbook(workbookDataRef.current);
@@ -211,13 +224,45 @@ export function SpreadsheetModal({ sheetId, title, initialChartRange, initialCha
       fetch(`/api/spreadsheet/${sheetId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ data: snap }),
+        body: JSON.stringify({ data: snap, spaceId }),
         keepalive: true,
       });
     };
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [sheetId, getSnapshot]);
+  }, [sheetId, spaceId, getSnapshot]);
+
+  const [exporting, setExporting] = useState(false);
+  const handleExport = useCallback(async () => {
+    setExporting(true);
+    try {
+      // Enregistrer d'abord pour exporter l'état courant.
+      const snap = getSnapshot();
+      if (snap) {
+        const put = await fetch(`/api/spreadsheet/${sheetId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ data: snap, spaceId }),
+        });
+        if (!put.ok) throw new Error("save");
+      }
+      const res = await fetch(`/api/spreadsheet/${sheetId}/export?name=${encodeURIComponent(title || "tableur")}`);
+      if (!res.ok) throw new Error("export");
+      const blob = await res.blob();
+      const fileName = `${(title || "tableur").replace(/[/\\?%*:|"<>]/g, "-")}.xlsx`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success(`Export prêt : ${fileName}`);
+    } catch {
+      toast.error("Échec de l'export .xlsx");
+    } finally {
+      setExporting(false);
+    }
+  }, [sheetId, spaceId, title, getSnapshot]);
 
   const handleClose = useCallback(async () => {
     setSaving(true);
@@ -228,7 +273,7 @@ export function SpreadsheetModal({ sheetId, title, initialChartRange, initialCha
         await fetch(`/api/spreadsheet/${sheetId}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ data: snap }),
+          body: JSON.stringify({ data: snap, spaceId }),
         });
       } catch { /* fermeture même en cas d'erreur réseau */ }
     }
@@ -236,7 +281,11 @@ export function SpreadsheetModal({ sheetId, title, initialChartRange, initialCha
     let maxRow = 0, maxCol = 0;
     if (snap?.sheets) {
       for (const sheet of Object.values(snap.sheets) as Record<string, unknown>[]) {
-        for (const [r, row] of Object.entries((sheet as { cellData?: Record<string, Record<string, { v?: unknown }>> }).cellData ?? {})) {
+        const cellData = (sheet as Record<string, unknown> | undefined)?.cellData;
+        if (!cellData || typeof cellData !== 'object') {
+          continue;
+        }
+        for (const [r, row] of Object.entries(cellData as Record<string, Record<string, { v?: unknown }>>)) {
           for (const [c, cell] of Object.entries(row as Record<string, { v?: unknown }>)) {
             if ((cell as { v?: unknown })?.v !== null && (cell as { v?: unknown })?.v !== undefined) {
               maxRow = Math.max(maxRow, Number(r) + 1);
@@ -249,7 +298,7 @@ export function SpreadsheetModal({ sheetId, title, initialChartRange, initialCha
 
     setSaving(false);
     onClose(maxRow > 0 ? { rowCount: maxRow, colCount: maxCol, chartRange, chartType } : undefined);
-  }, [sheetId, onClose, getSnapshot, chartRange, chartType]);
+  }, [sheetId, spaceId, onClose, getSnapshot, chartRange, chartType]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => { if (e.key === "Escape") handleClose(); };
@@ -305,6 +354,17 @@ export function SpreadsheetModal({ sheetId, title, initialChartRange, initialCha
             </button>
           </div>
         </div>
+        <div className="flex items-center gap-1">
+        <button
+          onClick={handleExport}
+          disabled={exporting || loading}
+          className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded border border-border hover:bg-muted text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+          title={loading ? "Chargement du tableur en cours" : "Exporter en .xlsx"}
+          aria-label="Exporter en .xlsx"
+        >
+          {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+          Exporter en .xlsx
+        </button>
         <button
           onClick={handleClose}
           disabled={saving}
@@ -314,6 +374,7 @@ export function SpreadsheetModal({ sheetId, title, initialChartRange, initialCha
         >
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
         </button>
+        </div>
       </div>
 
       {/* Contenu */}

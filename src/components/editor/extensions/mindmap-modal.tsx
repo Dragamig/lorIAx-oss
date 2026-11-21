@@ -5,13 +5,24 @@ import { X, Network } from "lucide-react";
 import { createPortal } from "react-dom";
 import "mind-elixir/style.css";
 
+/** Ajoute le document porteur en query : requis à la création du canevas. */
+function withDoc(url: string, documentId?: string): string {
+  return documentId ? `${url}?documentId=${encodeURIComponent(documentId)}` : url;
+}
+
 interface MindmapModalProps {
   mindmapId: string;
+  /**
+   * Document porteur. Indispensable seulement à la création (aucune ligne en
+   * base) : ensuite le serveur s'appuie sur le rattachement stocké et ignore
+   * ce paramètre.
+   */
+  documentId?: string;
   title: string;
   onClose: (thumbnailUrl?: string) => void;
 }
 
-export function MindmapModal({ mindmapId, title, onClose }: MindmapModalProps) {
+export function MindmapModal({ mindmapId, documentId, title, onClose }: MindmapModalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const meRef = useRef<any>(null);
@@ -29,7 +40,8 @@ export function MindmapModal({ mindmapId, title, onClose }: MindmapModalProps) {
       // Charger les données existantes
       let data = MindElixir.new(title || "Nouvelle carte");
       try {
-        const res = await fetch(`/api/mindmap/${mindmapId}`);
+        const res = await fetch(withDoc(`/api/mindmap/${mindmapId}`, documentId));
+        if (!res.ok) throw new Error(`HTTP ${res.status}: Failed to fetch mindmap data`);
         const json = await res.json();
         if (json.data) data = typeof json.data === "string" ? JSON.parse(json.data) : json.data;
       } catch {
@@ -59,12 +71,13 @@ export function MindmapModal({ mindmapId, title, onClose }: MindmapModalProps) {
     return () => {
       cancelled = true;
     };
-  }, [mindmapId, title]);
+  }, [mindmapId, documentId, title]);
 
   const handleClose = async () => {
     if (meRef.current) {
       try {
         const data = meRef.current.getData();
+        if (!data || typeof data !== "object") throw new Error("Invalid mindmap data from getData()");
 
         const body: { data: string; thumbnailUrl?: string } = {
           data: JSON.stringify(data),
@@ -78,7 +91,7 @@ export function MindmapModal({ mindmapId, title, onClose }: MindmapModalProps) {
           body.thumbnailUrl = `data:image/svg+xml;base64,${b64}`;
         }
 
-        await fetch(`/api/mindmap/${mindmapId}`, {
+        await fetch(withDoc(`/api/mindmap/${mindmapId}`, documentId), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),

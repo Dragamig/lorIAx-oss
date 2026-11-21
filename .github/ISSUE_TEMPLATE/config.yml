@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Vulnérabilité de sécurité
+    url: mailto:security@dragamig.fr
+    about: Signalement privé par courriel, pas d'issue publique.

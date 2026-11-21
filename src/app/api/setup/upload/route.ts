@@ -3,7 +3,7 @@ import { uploadFile } from "@/lib/storage/s3";
 import { db } from "@/lib/db";
 import { systemSettings } from "@/lib/db/schema";
 import sharp from "sharp";
-import { guardSetupAccess } from "@/lib/setup/guards";
+import { guardSetupRoute } from "@/lib/setup/guards";
 
 const ALLOWED_MIME = new Set(["image/jpeg", "image/png", "image/webp"]);
 const MAX_SIZE = 2 * 1024 * 1024; // 2 Mo
@@ -34,8 +34,8 @@ function detectMimeFromBuffer(buffer: Buffer): string | null {
 }
 
 export async function POST(request: NextRequest) {
-  const access = await guardSetupAccess();
-  if (!access.allowed) return access.response;
+  const blocked = await guardSetupRoute(request);
+  if (blocked) return blocked;
 
   const formData = await request.formData();
   const file = formData.get("file") as File | null;
@@ -104,9 +104,6 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({ url });
 }
 
-// Lecture publique volontaire : cette route sert le logo et la favicon de
-// l'organisation (org_logo_url pointe dessus) et doit rester accessible une fois
-// la configuration terminée. Aucune donnée sensible, aucune écriture.
 export async function GET(request: NextRequest) {
   const type = request.nextUrl.searchParams.get("type");
   if (!type || !["logo", "favicon"].includes(type)) {

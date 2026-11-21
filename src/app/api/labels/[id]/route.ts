@@ -19,8 +19,12 @@ export async function PATCH(
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
 
-  if (!hasGlobalRole(user.globalRole, "admin")) {
-    return NextResponse.json({ error: "Réservé aux administrateurs" }, { status: 403 });
+  // Cloisonnement multi-tenant : les labels globaux sont une taxonomie partagée
+  // par toute l'instance (sans org). Leur écriture est réservée au super_admin
+  // (propriétaire d'instance) — un admin d'org ne doit pas affecter les autres
+  // organisations.
+  if (!hasGlobalRole(user.globalRole, "super_admin")) {
+    return NextResponse.json({ error: "Réservé au super-administrateur" }, { status: 403 });
   }
 
   const { id } = await params;
@@ -59,8 +63,12 @@ export async function DELETE(
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
 
-  if (!hasGlobalRole(user.globalRole, "admin")) {
-    return NextResponse.json({ error: "Réservé aux administrateurs" }, { status: 403 });
+  // Cloisonnement multi-tenant : les labels globaux sont une taxonomie partagée
+  // par toute l'instance (sans org). Leur écriture est réservée au super_admin
+  // (propriétaire d'instance) — un admin d'org ne doit pas affecter les autres
+  // organisations.
+  if (!hasGlobalRole(user.globalRole, "super_admin")) {
+    return NextResponse.json({ error: "Réservé au super-administrateur" }, { status: 403 });
   }
 
   const { id } = await params;

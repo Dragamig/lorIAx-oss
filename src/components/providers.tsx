@@ -2,27 +2,22 @@
 
 import { SessionProvider } from "next-auth/react";
 import { AppearanceProvider } from "./appearance-provider";
-import { LicenseProvider } from "@/lib/license/license-context";
+import { getClientSlots } from "@/lib/modules/hooks.client";
+import type { ClientLicense } from "@/lib/modules/hooks";
 import { ThemeProvider } from "@/contexts/theme-context";
 import type { ReactNode } from "react";
 
 interface ProvidersProps {
   children: ReactNode;
-  licenseData?: {
-    plan: "free" | "growth" | "enterprise";
-    valid: boolean;
-    expired: boolean;
-    gracePeriod: boolean;
-    customerEmail?: string;
-    expiresAt?: number;
-  } | null;
+  licenseData?: ClientLicense | null;
 }
 
 export function Providers({ children, licenseData }: ProvidersProps) {
+  const { LicenseProvider } = getClientSlots();
   return (
     <ThemeProvider>
       <SessionProvider>
-        <LicenseProvider licenseData={licenseData ?? null}>
+        <LicenseProvider license={licenseData ?? null}>
           <AppearanceProvider>{children}</AppearanceProvider>
         </LicenseProvider>
       </SessionProvider>

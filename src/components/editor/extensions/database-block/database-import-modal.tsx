@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { X, Upload } from "lucide-react";
 import { toast } from "sonner";
 import type { ColumnType, CellValue, DbColumn, DbData } from "./types";
@@ -85,11 +85,26 @@ export function CsvImportModal({
   const [hasHeader, setHasHeader] = useState(true);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    function onEsc(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        onClose();
+      }
+    }
+    document.addEventListener("keydown", onEsc, true);
+    return () => document.removeEventListener("keydown", onEsc, true);
+  }, [onClose]);
+
   function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
 
     const reader = new FileReader();
+    reader.onerror = () => {
+      console.error("Erreur fichier:", reader.error);
+      toast.error("Erreur lecture fichier");
+    };
     reader.onload = async (ev) => {
       const text = ev.target?.result as string;
       const Papa = (await import("papaparse")).default;
@@ -147,7 +162,9 @@ export function CsvImportModal({
       const updatedDb = await fetchJson<DbData>(`/api/databases/${databaseId}`);
       const colMap = new Map(updatedDb.columns.map((c) => [c.id, c]));
 
-      // Create rows in batches
+      // Create rows in batches, grouped as one import in the row history
+      const importBatchId = crypto.randomUUID();
+      const importHeaders = { "X-Row-Source": "import", "X-Batch-Id": importBatchId };
       const batchSize = 50;
       for (let b = 0; b < csvData.length; b += batchSize) {
         const batch = csvData.slice(b, b + batchSize);
@@ -161,7 +178,7 @@ export function CsvImportModal({
                 cells[colId] = parseCsvValue(row[i] ?? "", col.type);
               }
             });
-            return apiPost(`/api/databases/${databaseId}/rows`, { cells });
+            return apiPost(`/api/databases/${databaseId}/rows`, { cells }, { headers: importHeaders });
           })
         );
       }

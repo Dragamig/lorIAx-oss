@@ -12,8 +12,13 @@ import {
   uniqueIndex,
   index,
   primaryKey,
+  check,
 } from "drizzle-orm/pg-core";
-import { relations } from "drizzle-orm";
+import { relations, InferSelectModel, InferInsertModel, sql } from "drizzle-orm";
+import type { WidgetConfig } from "@/lib/dashboards/types";
+// Type-only (effacé à la compilation) : aucune dépendance runtime ni code client
+// tiré dans le schéma. design-constants.ts n'importe rien → pas de cycle.
+import type { DesignDocument } from "@/components/editor/extensions/design-constants";
 import { connectorTypeEnum } from "./schema-ai";
 
 /** Structure stockée dans la colonne speaker_mapping (JSONB).
@@ -26,6 +31,8 @@ export type SpeakerMappingData =
 export * from "./schema-ai";
 import { organizations } from "./schema-org";
 export * from "./schema-org";
+export * from "./schema-chat";
+export * from "./schema-kb";
 
 // ============================================================
 // ENUMS
@@ -36,6 +43,17 @@ export const userRoleEnum = pgEnum("user_role", [
   "admin",
   "editor",
   "viewer",
+  "facility_manager",
+  "automation_manager",
+  "template_doc_editor",
+  "template_graphic_editor",
+]);
+
+export const userCapabilityEnum = pgEnum("user_capability", [
+  "facility_manager",
+  "automation_manager",
+  "template_doc_editor",
+  "template_graphic_editor",
 ]);
 
 export const spaceTypeEnum = pgEnum("space_type", [
@@ -70,6 +88,11 @@ export const notificationTypeEnum = pgEnum("notification_type", [
   "share",
   "calendar_reminder",
   "calendar_invitation",
+  "meeting_room_cancelled",
+  "chat_message",
+  "task_assigned",
+  "automation",
+  "media",
 ]);
 
 export const syncProviderEnum = pgEnum("sync_provider", [
@@ -131,6 +154,19 @@ export const entityTypeEnum = pgEnum("entity_type", [
   "template",
   "calendar_event",
   "meeting",
+  "database",
+]);
+
+// Enum locale_enum — doit rester en sync avec LOCALES dans src/i18n/config.ts
+// (le test i18n/locale-schema vérifie la parité à la compilation).
+export const localeEnum = pgEnum("locale_enum", [
+  "fr",
+  "en",
+  "es",
+  "de",
+  "ja",
+  "zh",
+  "br",
 ]);
 
 // ============================================================
@@ -144,9 +180,12 @@ export const users = pgTable("users", {
   passwordHash: varchar("password_hash", { length: 255 }),
   avatarUrl: varchar("avatar_url", { length: 512 }),
   globalRole: userRoleEnum("global_role").notNull().default("editor"),
+  capabilities: userCapabilityEnum("capabilities").array().notNull().default(sql`'{}'::user_capability[]`),
+  locale: localeEnum("locale").notNull().default("fr"),
   ldapDn: varchar("ldap_dn", { length: 512 }),
   themePreferences: jsonb("theme_preferences").default("{}"),
   tokenInvalidatedAt: timestamp("token_invalidated_at", { withTimezone: true }),
+  mustResetPassword: boolean("must_reset_password").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -210,6 +249,7 @@ export const spaces = pgTable(
     classification: classificationLevelEnum("classification").notNull().default("internal"),
     icon: varchar("icon", { length: 50 }),
     appearancePreset: jsonb("appearance_preset"), // preset d'apparence par défaut de l'espace
+    isDemo: boolean("is_demo").notNull().default(false),
     organizationId: uuid("organization_id").notNull().references(() => organizations.id, { onDelete: "restrict" }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -354,6 +394,7 @@ export const templates = pgTable("templates", {
   name: varchar("name", { length: 255 }).notNull(),
   description: text("description"),
   content: jsonb("content").notNull(),
+  variables: jsonb("variables").notNull().default("[]"),
   icon: varchar("icon", { length: 50 }),
   category: varchar("category", { length: 100 }),
   createdBy: uuid("created_by")
@@ -372,39 +413,37 @@ export const templates = pgTable("templates", {
 });
 
 // ============================================================
-// FILE ATTACHMENTS
+// DESIGN TEMPLATES
 // ============================================================
 
-export const attachments = pgTable(
-  "attachments",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    documentId: uuid("document_id").references(() => documents.id, {
-      onDelete: "set null",
-    }),
-    spaceId: uuid("space_id")
-      .notNull()
-      .references(() => spaces.id, { onDelete: "cascade" }),
-    filename: varchar("filename", { length: 500 }).notNull(),
-    mimeType: varchar("mime_type", { length: 255 }).notNull(),
-    sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
-    storageKey: varchar("storage_key", { length: 1024 }).notNull(),
-    uploadedBy: uuid("uploaded_by")
-      .notNull()
-      .references(() => users.id),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-  },
-  (table) => [
-    index("idx_attachments_document").on(table.documentId),
-    // Point d'entree unique du controle d'acces aux pieces jointes
-    // (`resolveReadableAttachment`) : chaque lecture resout la cle S3 par cette
-    // colonne. Sans index, parcours sequentiel d'une table qui grossit a chaque
-    // televersement et a chaque synchronisation externe.
-    index("idx_attachments_storage_key").on(table.storageKey),
-  ]
-);
+// Calque de la table `templates`, adapté aux designs du Studio.
+// `content` = un DesignDocument ({ version:2, title, pages:[...] }).
+export const designTemplates = pgTable("design_templates", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  // Voir DesignDocument (src/components/editor/extensions/design-constants.ts).
+  content: jsonb("content").notNull().$type<DesignDocument>(),
+  // Calques texte variabilisés (data-binding des templates de design).
+  variables: jsonb("variables")
+    .notNull()
+    .default("[]")
+    .$type<{ key: string; label: string; layerId: string }[]>(),
+  category: varchar("category", { length: 100 }),
+  createdBy: uuid("created_by")
+    .notNull()
+    .references(() => users.id),
+  isGlobal: boolean("is_global").notNull().default(false),
+  spaceId: uuid("space_id").references(() => spaces.id, {
+    onDelete: "cascade",
+  }),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
 
 // ============================================================
 // EMBEDDINGS (pgvector)
@@ -545,6 +584,11 @@ export const notifications = pgTable(
     actorId: uuid("actor_id").references(() => users.id, {
       onDelete: "set null",
     }),
+    databaseId: uuid("database_id").references(() => userDatabases.id, {
+      onDelete: "cascade",
+    }),
+    // No foreign key: a restore re-inserts the row with the same id.
+    rowId: uuid("row_id"),
     read: boolean("read").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -623,7 +667,31 @@ export const columnTypeEnum = pgEnum("column_type", [
   "email",
   "attachment",
   "time",
+  "autonumber",
+  "person",
+  "document_link",
 ]);
+
+export const userDatabaseGroups = pgTable(
+  "user_database_groups",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    spaceId: uuid("space_id")
+      .notNull()
+      .references(() => spaces.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 255 }).notNull(),
+    icon: varchar("icon", { length: 64 }),
+    position: integer("position").notNull().default(0),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index("idx_user_database_groups_space").on(table.spaceId)]
+);
 
 export const userDatabases = pgTable(
   "user_databases",
@@ -632,11 +700,18 @@ export const userDatabases = pgTable(
     spaceId: uuid("space_id")
       .notNull()
       .references(() => spaces.id, { onDelete: "cascade" }),
+    groupId: uuid("group_id").references(() => userDatabaseGroups.id, {
+      onDelete: "set null",
+    }),
     name: varchar("name", { length: 255 }).notNull(),
     description: text("description"),
+    icon: varchar("icon", { length: 64 }),
+    position: integer("position").notNull().default(0),
     createdBy: uuid("created_by")
       .notNull()
       .references(() => users.id),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -644,7 +719,167 @@ export const userDatabases = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (table) => [index("idx_user_databases_space").on(table.spaceId)]
+  (table) => [
+    index("idx_user_databases_space").on(table.spaceId),
+    index("idx_user_databases_group").on(table.groupId),
+    index("idx_user_databases_space_status").on(table.spaceId, table.archivedAt, table.deletedAt),
+  ]
+);
+
+export const userDatabaseRecents = pgTable(
+  "user_database_recents",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    databaseId: uuid("database_id")
+      .notNull()
+      .references(() => userDatabases.id, { onDelete: "cascade" }),
+    openedAt: timestamp("opened_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.databaseId] }),
+    index("idx_user_database_recents_opened").on(table.userId, table.openedAt),
+  ]
+);
+
+export const viewTypeEnum = pgEnum("database_view_type", [
+  "grid",
+  "kanban",
+  "gallery",
+  "calendar",
+  "form",
+  "dashboard",
+]);
+
+export const automationTriggerEnum = pgEnum("database_automation_trigger", [
+  "row_created",
+  "row_updated",
+  "row_deleted",
+  "cron",
+  "date_reached",
+  "value_changed",
+  // Déclencheur manuel de 1er ordre : bouton dans un document (workflow autonome).
+  "manual",
+  // Déclencheur webhook entrant (Spec 1 — unification façon Airtable).
+  "webhook_inbound",
+]);
+
+export const automationActionEnum = pgEnum("database_automation_action", [
+  "webhook",
+  "notify_user",
+  "create_row",
+  "update_row",
+  "send_email",
+  "ai",
+  // Actions « workflow » découplées de la base (cibles : espace, document, user).
+  "create_document",
+  "create_task",
+  // Génère un design à partir d'un template (Spec 2 — data-binding des calques).
+  "create_design",
+]);
+
+export const userDatabaseAutomations = pgTable(
+  "automations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Cible/contexte optionnel — invariant applicatif : databaseId OU spaceId
+    // non-null. Les automatisations base-liées historiques gardent databaseId ;
+    // les workflows autonomes (bouton dans un doc) portent spaceId.
+    databaseId: uuid("database_id").references(() => userDatabases.id, {
+      onDelete: "cascade",
+    }),
+    spaceId: uuid("space_id").references(() => spaces.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 255 }).notNull(),
+    triggerType: automationTriggerEnum("trigger_type").notNull(),
+    triggerConfig: jsonb("trigger_config").notNull().default("{}"),
+    actionType: automationActionEnum("action_type").notNull(),
+    actionConfig: jsonb("action_config").notNull().default("{}"),
+    // Graphe d'actions/conditions optionnel (C5.2a). Null = automatisation
+    // linéaire historique (action_type/action_config) ; l'executor synthétise
+    // alors un graphe à un nœud. Voir lib/automations/automation-graph.ts.
+    graph: jsonb("graph"),
+    enabled: boolean("enabled").notNull().default(true),
+    lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("idx_user_database_automations_database").on(table.databaseId),
+    index("idx_user_database_automations_space").on(table.spaceId),
+  ]
+);
+
+export const userDatabaseAutomationRuns = pgTable(
+  "automation_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    automationId: uuid("automation_id")
+      .notNull()
+      .references(() => userDatabaseAutomations.id, { onDelete: "cascade" }),
+    triggeredAt: timestamp("triggered_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    status: varchar("status", { length: 20 }).notNull(),
+    durationMs: integer("duration_ms"),
+    errorMessage: text("error_message"),
+    payload: jsonb("payload"),
+    // Trace par étape (rédigée, plafonnée) et origine du run (lot 6).
+    steps: jsonb("steps"),
+    traceTruncated: boolean("trace_truncated").notNull().default(false),
+    source: varchar("source", { length: 20 }).notNull().default("trigger"),
+  },
+  (table) => [
+    index("idx_user_database_automation_runs_automation").on(table.automationId, table.triggeredAt),
+  ]
+);
+
+// Alias canoniques (Spec 1 — unification). Mêmes objets Drizzle : le nouveau
+// code peut importer `automations`/`automationRuns`, le code historique garde
+// `userDatabaseAutomations`/`userDatabaseAutomationRuns`.
+export const automations = userDatabaseAutomations;
+export const automationRuns = userDatabaseAutomationRuns;
+
+export const VIEW_SCOPES = ["shared", "personal"] as const;
+export type ViewScope = (typeof VIEW_SCOPES)[number];
+
+export const userDatabaseViews = pgTable(
+  "user_database_views",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    databaseId: uuid("database_id")
+      .notNull()
+      .references(() => userDatabases.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 255 }).notNull(),
+    type: viewTypeEnum("type").notNull(),
+    config: jsonb("config").notNull().default("{}"),
+    isDefault: boolean("is_default").notNull().default(false),
+    isPublic: boolean("is_public").notNull().default(false),
+    publicToken: varchar("public_token", { length: 64 }).unique(),
+    position: integer("position").notNull().default(0),
+    scope: varchar("scope", { length: 16 }).$type<ViewScope>().notNull().default("shared"),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("idx_user_database_views_database").on(table.databaseId),
+    uniqueIndex("idx_user_database_views_name_shared")
+      .on(table.databaseId, table.name)
+      .where(sql`${table.scope} = 'shared'`),
+    uniqueIndex("idx_user_database_views_name_personal")
+      .on(table.databaseId, table.createdBy, table.name)
+      .where(sql`${table.scope} = 'personal'`),
+  ]
 );
 
 export const userDatabaseColumns = pgTable(
@@ -682,6 +917,61 @@ export const userDatabaseRows = pgTable(
       .defaultNow(),
   },
   (table) => [index("idx_user_db_rows_database").on(table.databaseId)]
+);
+
+// ============================================================
+// DASHBOARDS
+// ============================================================
+
+export const dashboardWidgetTypeEnum = pgEnum("dashboard_widget_type", [
+  "kpi",
+  "bar",
+  "pie",
+]);
+
+export const dashboards = pgTable(
+  "dashboards",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    spaceId: uuid("space_id")
+      .notNull()
+      .references(() => spaces.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 255 }).notNull(),
+    description: text("description"),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index("idx_dashboards_space").on(table.spaceId)]
+);
+
+export const dashboardWidgets = pgTable(
+  "dashboard_widgets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    dashboardId: uuid("dashboard_id")
+      .notNull()
+      .references(() => dashboards.id, { onDelete: "cascade" }),
+    databaseId: uuid("database_id")
+      .notNull()
+      .references(() => userDatabases.id, { onDelete: "cascade" }),
+    type: dashboardWidgetTypeEnum("type").notNull(),
+    title: varchar("title", { length: 255 }).notNull(),
+    position: integer("position").notNull().default(0),
+    size: varchar("size", { length: 10 }).notNull().default("half"),
+    config: jsonb("config").notNull().default("{}").$type<WidgetConfig>(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index("idx_dashboard_widgets_dashboard").on(table.dashboardId)]
 );
 
 // ============================================================
@@ -917,6 +1207,9 @@ export const calendars = pgTable(
     ownerUserId: uuid("owner_user_id").references(() => users.id, { onDelete: "cascade" }),
     ownerTeamId: uuid("owner_team_id").references(() => teams.id, { onDelete: "cascade" }),
     spaceId: uuid("space_id").references(() => spaces.id, { onDelete: "set null" }),
+    // Cloisonnement multi-tenant. NULL = calendrier personnel (scopé par owner,
+    // org-neutre). Renseigné pour les calendriers d'équipe/espace/organisation.
+    organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }),
     caldavSlug: varchar("caldav_slug", { length: 255 }).unique().notNull(),
     isDefault: boolean("is_default").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -930,6 +1223,7 @@ export const calendars = pgTable(
     index("idx_calendars_owner_user").on(table.ownerUserId),
     index("idx_calendars_owner_team").on(table.ownerTeamId),
     index("idx_calendars_space").on(table.spaceId),
+    index("idx_calendars_org").on(table.organizationId),
   ]
 );
 
@@ -968,6 +1262,10 @@ export const calendarEvents = pgTable(
     meetingId: uuid("meeting_id").references((): any => meetings.id, {
       onDelete: "set null",
     }),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    meetingRoomId: uuid("meeting_room_id").references((): any => meetingRooms.id, {
+      onDelete: "set null",
+    }),
     createdBy: uuid("created_by")
       .notNull()
       .references(() => users.id),
@@ -986,6 +1284,7 @@ export const calendarEvents = pgTable(
     index("idx_calendar_events_parent").on(table.parentEventId),
     index("idx_calendar_events_uid").on(table.uid),
     index("idx_calendar_events_meeting").on(table.meetingId),
+    index("idx_calendar_events_meeting_room").on(table.meetingRoomId),
   ]
 );
 
@@ -1238,6 +1537,72 @@ export const backupJobs = pgTable("backup_jobs", {
 ]);
 
 // ============================================================
+// TASKS
+// ============================================================
+
+export const taskKindEnum = pgEnum("task_kind", ["document_item", "gantt_event", "database_row"]);
+export const taskStatusEnum = pgEnum("task_status", ["open", "in_progress", "done", "cancelled"]);
+
+export const tasks = pgTable(
+  "tasks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    kind: taskKindEnum("kind").notNull(),
+    title: varchar("title", { length: 500 }).notNull(),
+    status: taskStatusEnum("status").notNull().default("open"),
+    dueAt: timestamp("due_at", { withTimezone: true }),
+    assigneeId: uuid("assignee_id").references(() => users.id, { onDelete: "set null" }),
+    createdBy: uuid("created_by").notNull().references(() => users.id),
+    // document_item context
+    documentId: uuid("document_id").references(() => documents.id, { onDelete: "cascade" }),
+    nodeId: varchar("node_id", { length: 100 }),
+    // gantt_event context
+    calendarEventId: uuid("calendar_event_id").references(() => calendarEvents.id, { onDelete: "cascade" }),
+    // database_row context (no foreign key on rowId: a restore re-inserts the row)
+    databaseId: uuid("database_id").references(() => userDatabases.id, { onDelete: "cascade" }),
+    rowId: uuid("row_id"),
+    // timestamps
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_tasks_database_row").on(table.databaseId, table.rowId),
+    check(
+      "tasks_database_row_ctx",
+      sql`${table.kind} <> 'database_row' OR (${table.databaseId} IS NOT NULL AND ${table.rowId} IS NOT NULL)`,
+    ),
+    index("idx_tasks_assignee_status").on(table.assigneeId, table.status),
+    index("idx_tasks_document").on(table.documentId),
+    index("idx_tasks_calendar_event").on(table.calendarEventId),
+    uniqueIndex("idx_tasks_document_node").on(table.documentId, table.nodeId),
+  ]
+);
+
+export type Task = InferSelectModel<typeof tasks>;
+export type NewTask = InferInsertModel<typeof tasks>;
+
+export const tasksRelations = relations(tasks, ({ one }) => ({
+  assignee: one(users, {
+    fields: [tasks.assigneeId],
+    references: [users.id],
+    relationName: "taskAssignee",
+  }),
+  creator: one(users, {
+    fields: [tasks.createdBy],
+    references: [users.id],
+    relationName: "taskCreator",
+  }),
+  document: one(documents, {
+    fields: [tasks.documentId],
+    references: [documents.id],
+  }),
+  calendarEvent: one(calendarEvents, {
+    fields: [tasks.calendarEventId],
+    references: [calendarEvents.id],
+  }),
+}));
+
+// ============================================================
 // RELATIONS
 // ============================================================
 
@@ -1292,7 +1657,6 @@ export const documentsRelations = relations(documents, ({ one, many }) => ({
   outgoingLinks: many(documentLinks, { relationName: "source" }),
   incomingLinks: many(documentLinks, { relationName: "target" }),
   embeddings: many(documentEmbeddings),
-  attachments: many(attachments),
   permissions: many(documentPermissions),
   comments: many(documentComments),
   publicShares: many(publicShares),
@@ -1701,22 +2065,58 @@ export const documentLabelsRelations = relations(documentLabels, ({ one }) => ({
 // WHITEBOARD & MINDMAP
 // ============================================================
 
-export const whiteboardSnapshots = pgTable("whiteboard_snapshots", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  canvasId: text("canvas_id").unique().notNull(),
-  snapshot: text("snapshot").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+// `documentId` rattache le canevas au document porteur : sans lui, l'API se
+// contentait de l'identifiant de canevas (un UUID généré côté client, en clair
+// dans le markdown) et tout compte authentifié pouvait lire ou écraser le
+// canevas de n'importe quelle organisation. Nullable pour les lignes
+// antérieures au backfill (fail-closed côté route), indexé pour la purge.
+export const whiteboardSnapshots = pgTable(
+  "whiteboard_snapshots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    canvasId: text("canvas_id").unique().notNull(),
+    documentId: uuid("document_id").references(() => documents.id, {
+      onDelete: "cascade",
+    }),
+    snapshot: text("snapshot").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("idx_whiteboard_snapshots_document").on(table.documentId)]
+);
 
-export const mindmapSnapshots = pgTable("mindmap_snapshots", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  mindmapId: text("mindmap_id").unique().notNull(),
-  data: text("data").notNull(),
-  thumbnailUrl: text("thumbnail_url"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const mindmapSnapshots = pgTable(
+  "mindmap_snapshots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    mindmapId: text("mindmap_id").unique().notNull(),
+    documentId: uuid("document_id").references(() => documents.id, {
+      onDelete: "cascade",
+    }),
+    data: text("data").notNull(),
+    thumbnailUrl: text("thumbnail_url"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("idx_mindmap_snapshots_document").on(table.documentId)]
+);
+
+// Métadonnées seulement : la charge utile d'un design reste dans S3
+// (`designs/<id>.json`). Cette table n'existe que pour porter le rattachement
+// design → document, seul moyen de contrôler l'accès à l'objet S3.
+export const designSnapshots = pgTable(
+  "design_snapshots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    designId: text("design_id").unique().notNull(),
+    documentId: uuid("document_id").references(() => documents.id, {
+      onDelete: "cascade",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("idx_design_snapshots_document").on(table.documentId)]
+);
 
 export const userWhiteboardLibrary = pgTable("user_whiteboard_library", {
   userId: uuid("user_id")
@@ -1727,6 +2127,114 @@ export const userWhiteboardLibrary = pgTable("user_whiteboard_library", {
     .notNull()
     .defaultNow(),
 });
+
+// ============================================================
+// MEETING ROOMS (Sprint 12)
+// ============================================================
+
+export const meetingRoomPrincipalTypeEnum = pgEnum("meeting_room_principal_type", [
+  "user",
+  "team",
+  "role",
+]);
+
+export const meetingRoomBookingStatusEnum = pgEnum("meeting_room_booking_status", [
+  "confirmed",
+  "cancelled",
+]);
+
+export const meetingRooms = pgTable(
+  "meeting_rooms",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: varchar("name", { length: 255 }).notNull(),
+    address: text("address"),
+    floor: varchar("floor", { length: 100 }),
+    capacity: integer("capacity").notNull().default(0),
+    description: text("description"),
+    photoKey: varchar("photo_key", { length: 512 }),
+    floorPlanKey: varchar("floor_plan_key", { length: 512 }),
+    // Cloisonnement multi-tenant : org propriétaire de la salle. Nullable pour
+    // tolérer les salles préexistantes avant backfill (init-db.ts) ; le code
+    // applicatif traite null comme « aucune org » (fail-closed, inaccessible).
+    organizationId: uuid("organization_id").references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    openingHours: jsonb("opening_hours")
+      .notNull()
+      .default('{"mon":[{"from":"08:00","to":"19:00"}],"tue":[{"from":"08:00","to":"19:00"}],"wed":[{"from":"08:00","to":"19:00"}],"thu":[{"from":"08:00","to":"19:00"}],"fri":[{"from":"08:00","to":"19:00"}],"sat":[],"sun":[]}'),
+    equipment: jsonb("equipment").notNull().default("[]"),
+    isActive: boolean("is_active").notNull().default(true),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("idx_meeting_rooms_active").on(table.isActive),
+    index("idx_meeting_rooms_name").on(table.name),
+    index("idx_meeting_rooms_org").on(table.organizationId),
+  ]
+);
+
+export const meetingRoomPermissions = pgTable(
+  "meeting_room_permissions",
+  {
+    roomId: uuid("room_id")
+      .notNull()
+      .references(() => meetingRooms.id, { onDelete: "cascade" }),
+    principalType: meetingRoomPrincipalTypeEnum("principal_type").notNull(),
+    // varchar(64) : contient un UUID (user/team) ou un nom de rôle (role)
+    principalId: varchar("principal_id", { length: 64 }).notNull(),
+    canBook: boolean("can_book").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.roomId, table.principalType, table.principalId] }),
+    index("idx_meeting_room_perms_principal").on(table.principalType, table.principalId),
+    index("idx_meeting_room_perms_room").on(table.roomId),
+  ]
+);
+
+export const meetingRoomBookings = pgTable(
+  "meeting_room_bookings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    roomId: uuid("room_id")
+      .notNull()
+      .references(() => meetingRooms.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    title: varchar("title", { length: 500 }).notNull(),
+    startAt: timestamp("start_at", { withTimezone: true }).notNull(),
+    endAt: timestamp("end_at", { withTimezone: true }).notNull(),
+    attendees: jsonb("attendees").notNull().default("[]"),
+    status: meetingRoomBookingStatusEnum("status").notNull().default("confirmed"),
+    calendarEventId: uuid("calendar_event_id").references(() => calendarEvents.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("idx_meeting_room_bookings_room_range").on(table.roomId, table.startAt, table.endAt),
+    index("idx_meeting_room_bookings_user").on(table.userId),
+    index("idx_meeting_room_bookings_status").on(table.status),
+    index("idx_meeting_room_bookings_event").on(table.calendarEventId),
+  ]
+);
 
 // ============================================================
 // USER STATUS (PRÉSENCE)
@@ -1754,3 +2262,67 @@ export const userStatusRelations = relations(userStatus, ({ one }) => ({
   user: one(users, { fields: [userStatus.userId], references: [users.id] }),
 }));
 
+export const imageProviders = pgTable(
+  "image_providers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: varchar("name", { length: 100 }).notNull(),
+    displayName: varchar("display_name", { length: 255 }).notNull(),
+    providerType: varchar("provider_type", { length: 50 }).notNull().default("custom"),
+    baseUrl: varchar("base_url", { length: 500 }),
+    apiKeyEnc: varchar("api_key_enc", { length: 1024 }),
+    isEnabled: boolean("is_enabled").notNull().default(false),
+    organizationId: uuid("organization_id").references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("idx_image_providers_org").on(t.organizationId),
+    uniqueIndex("idx_image_providers_org_name").on(t.organizationId, t.name),
+  ]
+);
+
+// ============================================================
+// ONBOARDING — Tuto guidé (Feature 1)
+// ============================================================
+
+export const onboardingProgress = pgTable("onboarding_progress", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  dismissedAt: timestamp("dismissed_at", { withTimezone: true }),
+  currentStep: integer("current_step").notNull().default(0),
+  steps: jsonb("steps").notNull().default({}),
+  bonusSteps: jsonb("bonus_steps").notNull().default({ docAdvanced: {}, goFurther: {} }),
+  badges: jsonb("badges").notNull().default([]),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export * from "./schema-video";
+// Réexport obligatoire : sans lui, `drizzle-kit push` (init-db) ne crée jamais
+// la table voice_notes en production (incident déjà vécu sur schema-chat).
+export * from "./schema-voice-notes";
+
+// Intégration Tally : réexport obligatoire, sinon `drizzle-kit push` ne crée jamais ces tables.
+export * from "./schema-tally";
+
+// Médiathèque : réexport obligatoire, sinon `drizzle-kit push` ne crée jamais ces tables.
+export * from "./schema-media";
+
+// Historique de ligne : réexport obligatoire, sinon `drizzle-kit push` ne crée jamais la table
+// database_row_changes en production (incident chat v1.80.1).
+export * from "./schema-row-activity";
+// Réexport obligatoire : sans lui, drizzle-kit push (init-db) ne crée jamais la table en prod (incident chat v1.80.1).
+export * from "./schema-crm";
+// Même règle pour la table presentations : le réexport est le seul levier qui
+// la fasse exister en production.
+export * from "./schema-presentations";

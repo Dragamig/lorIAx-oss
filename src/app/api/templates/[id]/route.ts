@@ -3,9 +3,29 @@ import { db } from "@/lib/db";
 import { templates } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { getSessionUser } from "@/lib/auth/get-user";
-import { hasGlobalRole } from "@/lib/auth/rbac";
+import { getAccessibleSpaceIds } from "@/lib/auth/check-access";
+import { canManageTemplateCategory } from "@/lib/auth/rbac";
 import { z } from "zod";
 import { getBuiltinTemplateById } from "@/lib/templates/builtin";
+import { deriveTemplateVariables } from "@/lib/automations/template-variables";
+import type { SessionUser } from "@/types";
+
+/**
+ * Cloisonnement multi-tenant des modèles DB : un modèle est accessible dans
+ * l'org courante s'il est global (instance-wide, cf. route liste) ou attaché à
+ * un espace accessible dans cette org. Un modèle greffé sur l'espace d'un autre
+ * tenant ne résout jamais → l'appelant renvoie 404 (fail-closed). Mirroir de
+ * la logique de visibilité de `GET /api/templates`.
+ */
+async function isTemplateAccessible(
+  user: SessionUser,
+  template: { isGlobal: boolean; spaceId: string | null }
+): Promise<boolean> {
+  if (template.isGlobal) return true;
+  if (!template.spaceId) return false;
+  const accessibleIds = await getAccessibleSpaceIds(user);
+  return accessibleIds.includes(template.spaceId);
+}
 
 const updateTemplateSchema = z.object({
   name: z.string().min(1).optional(),
@@ -41,6 +61,10 @@ export async function GET(
     return NextResponse.json({ error: "Template introuvable" }, { status: 404 });
   }
 
+  if (!(await isTemplateAccessible(user, template))) {
+    return NextResponse.json({ error: "Template introuvable" }, { status: 404 });
+  }
+
   return NextResponse.json(template);
 }
 
@@ -51,10 +75,6 @@ export async function PATCH(
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
 
-  if (!hasGlobalRole(user.globalRole, "admin")) {
-    return NextResponse.json({ error: "Réservé aux administrateurs" }, { status: 403 });
-  }
-
   const { id } = await params;
   const body = await request.json();
   const parsed = updateTemplateSchema.safeParse(body);
@@ -62,9 +82,36 @@ export async function PATCH(
     return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
   }
 
+  const [existing] = await db
+    .select()
+    .from(templates)
+    .where(eq(templates.id, id))
+    .limit(1);
+  if (!existing) {
+    return NextResponse.json({ error: "Template introuvable" }, { status: 404 });
+  }
+
+  // Cloisonnement multi-tenant : ne jamais exposer/modifier un modèle d'une
+  // autre org (fail-closed 404 avant même la vérif RBAC catégorie).
+  if (!(await isTemplateAccessible(user, existing))) {
+    return NextResponse.json({ error: "Template introuvable" }, { status: 404 });
+  }
+
+  // Droits sur la catégorie actuelle ET, si elle change, sur la nouvelle catégorie.
+  if (
+    !canManageTemplateCategory(user.globalRole, user.capabilities, existing.category) ||
+    (parsed.data.category !== undefined &&
+      !canManageTemplateCategory(user.globalRole, user.capabilities, parsed.data.category))
+  ) {
+    return NextResponse.json({ error: "Droits insuffisants sur ce modèle" }, { status: 403 });
+  }
+
   const updates: Record<string, unknown> = { updatedAt: new Date() };
   for (const [key, value] of Object.entries(parsed.data)) {
     if (value !== undefined) updates[key] = value;
+  }
+  if (parsed.data.content !== undefined) {
+    updates.variables = deriveTemplateVariables(parsed.data.content);
   }
 
   const [updated] = await db
@@ -87,11 +134,26 @@ export async function DELETE(
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
 
-  if (!hasGlobalRole(user.globalRole, "admin")) {
-    return NextResponse.json({ error: "Réservé aux administrateurs" }, { status: 403 });
+  const { id } = await params;
+
+  const [existing] = await db
+    .select()
+    .from(templates)
+    .where(eq(templates.id, id))
+    .limit(1);
+  if (!existing) {
+    return NextResponse.json({ error: "Template introuvable" }, { status: 404 });
   }
 
-  const { id } = await params;
+  // Cloisonnement multi-tenant (fail-closed 404 avant la vérif RBAC catégorie).
+  if (!(await isTemplateAccessible(user, existing))) {
+    return NextResponse.json({ error: "Template introuvable" }, { status: 404 });
+  }
+
+  if (!canManageTemplateCategory(user.globalRole, user.capabilities, existing.category)) {
+    return NextResponse.json({ error: "Droits insuffisants sur ce modèle" }, { status: 403 });
+  }
+
   const [deleted] = await db
     .delete(templates)
     .where(eq(templates.id, id))

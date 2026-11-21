@@ -3,9 +3,10 @@ import { db } from "@/lib/db";
 import { users, passwordResetTokens } from "@/lib/db/schema";
 import { eq, and, isNull, gt } from "drizzle-orm";
 import bcrypt from "bcryptjs";
-import { checkRateLimit, RATE_LIMITS, getClientIp } from "@/lib/rate-limit";
-import { invalidateUserSessions } from "@/lib/auth/token-revocation";
+import { checkRateLimitAsync, RATE_LIMITS, getClientIpOrNull } from "@/lib/rate-limit";
 import { z } from "zod";
+import { createHash } from "crypto";
+import { revokeUserApiKeys, revokeUserSessions } from "@/lib/auth/revoke-sessions";
 import logger from "@/lib/logger";
 
 const schema = z.object({
@@ -14,13 +15,23 @@ const schema = z.object({
 });
 
 export async function POST(request: Request) {
-  const ip = getClientIp(request);
-  const rateLimitResult = checkRateLimit(`reset-password:${ip}`, RATE_LIMITS.auth);
-  if (!rateLimitResult.success) {
-    return NextResponse.json(
-      { error: "Trop de tentatives. Réessayez plus tard." },
-      { status: 429 }
+  // AZ-26 : compteur PARTAGÉ. AZ-25 : sans adresse déterminable, le palier par
+  // IP est sauté plutôt qu'indexé sur une constante partagée par tous, ce qui
+  // aurait rendu la réinitialisation inaccessible à tout le monde. Le palier par
+  // jeton, appliqué plus bas, couvre le cas et est de toute façon la dimension
+  // pertinente ici : c'est le jeton qu'on bruteforce, pas l'adresse.
+  const ip = getClientIpOrNull(request);
+  if (ip) {
+    const rateLimitResult = await checkRateLimitAsync(
+      `reset-password:${ip}`,
+      RATE_LIMITS.auth
     );
+    if (!rateLimitResult.success) {
+      return NextResponse.json(
+        { error: "Trop de tentatives. Réessayez plus tard." },
+        { status: 429 }
+      );
+    }
   }
 
   try {
@@ -35,6 +46,18 @@ export async function POST(request: Request) {
     }
 
     const { token, password } = parsed.data;
+
+    // Palier par jeton : toujours actif, y compris sans adresse exploitable.
+    const tokenRateLimit = await checkRateLimitAsync(
+      `reset-password:token:${createHash("sha256").update(token).digest("hex").slice(0, 32)}`,
+      RATE_LIMITS.auth
+    );
+    if (!tokenRateLimit.success) {
+      return NextResponse.json(
+        { error: "Trop de tentatives. Réessayez plus tard." },
+        { status: 429 }
+      );
+    }
 
     // Find valid, unused, non-expired token
     const [resetToken] = await db
@@ -61,13 +84,20 @@ export async function POST(request: Request) {
 
     await db
       .update(users)
-      .set({ passwordHash, updatedAt: new Date() })
+      // AZ-05 : `tokenInvalidatedAt` révoque les sessions ouvertes avant le
+      // changement de mot de passe, comme le fait déjà `force-reset-password`.
+      // Sans lui, un cookie volé survivait 24 h à la réinitialisation.
+      .set({
+        passwordHash,
+        mustResetPassword: false,
+        tokenInvalidatedAt: new Date(),
+        updatedAt: new Date(),
+      })
       .where(eq(users.id, resetToken.userId));
-
-    // H10 : Révoquer toutes les sessions ouvertes avec l'ancien mot de passe.
-    // C'est le but même d'une réinitialisation : un compte compromis ne doit pas
-    // rester accessible pendant les 24 h de validité du JWT.
-    await invalidateUserSessions(resetToken.userId);
+    await revokeUserSessions(resetToken.userId);
+    // Un mot de passe réinitialisé suppose un compte potentiellement compromis :
+    // les clés d'API lrx_ ne doivent pas lui survivre.
+    await revokeUserApiKeys(resetToken.userId);
 
     // Mark token as used
     await db

@@ -3,8 +3,11 @@ import { db } from "@/lib/db";
 import { templates } from "@/lib/db/schema";
 import { eq, or } from "drizzle-orm";
 import { getSessionUser } from "@/lib/auth/get-user";
+import { getAccessibleSpaceIds } from "@/lib/auth/check-access";
+import { canManageTemplateCategory } from "@/lib/auth/rbac";
 import { z } from "zod";
 import { BUILTIN_TEMPLATES } from "@/lib/templates/builtin";
+import { deriveTemplateVariables } from "@/lib/automations/template-variables";
 
 export async function GET(request: NextRequest) {
   const user = await getSessionUser();
@@ -12,13 +15,21 @@ export async function GET(request: NextRequest) {
 
   const spaceId = request.nextUrl.searchParams.get("spaceId");
 
+  // Cloisonnement multi-tenant : on n'honore un `spaceId` que si l'espace est
+  // accessible dans l'org courante. Sinon, on ne retourne que les modèles globaux.
+  let scopedSpaceId: string | null = null;
+  if (spaceId) {
+    const accessibleIds = await getAccessibleSpaceIds(user);
+    if (accessibleIds.includes(spaceId)) scopedSpaceId = spaceId;
+  }
+
   const dbTemplates = await db
     .select()
     .from(templates)
     .where(
-      spaceId
-        ? or(eq(templates.isGlobal, true), eq(templates.spaceId, spaceId))
-        : undefined
+      scopedSpaceId
+        ? or(eq(templates.isGlobal, true), eq(templates.spaceId, scopedSpaceId))
+        : eq(templates.isGlobal, true)
     )
     .orderBy(templates.category, templates.name);
 
@@ -55,20 +66,33 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
   }
 
-  // Si isGlobal: true, vérifier que l'utilisateur est admin
+  // Si isGlobal: true, vérifier les droits selon la catégorie du modèle
+  // (admin/super_admin partout, sinon l'éditeur de modèles dédié à la catégorie).
   if (parsed.data.isGlobal) {
-    if (user.globalRole !== "admin" && user.globalRole !== "super_admin") {
+    if (!canManageTemplateCategory(user.globalRole, user.capabilities, parsed.data.category)) {
       return NextResponse.json(
-        { error: "Seuls les administrateurs peuvent créer des templates globaux" },
+        { error: "Droits insuffisants pour créer ce modèle global" },
         { status: 403 }
       );
     }
   }
 
+  // Modèle attaché à un espace : l'espace doit être accessible dans l'org
+  // courante (anti-fuite cross-tenant : pas de modèle greffé sur l'espace d'un autre tenant).
+  if (parsed.data.spaceId) {
+    const accessibleIds = await getAccessibleSpaceIds(user);
+    if (!accessibleIds.includes(parsed.data.spaceId)) {
+      return NextResponse.json({ error: "Espace introuvable" }, { status: 404 });
+    }
+  }
+
+  const variables = deriveTemplateVariables(parsed.data.content);
+
   const [template] = await db
     .insert(templates)
     .values({
       ...parsed.data,
+      variables,
       createdBy: user.id,
     })
     .returning();

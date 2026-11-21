@@ -86,6 +86,7 @@ export async function getEmailConfig(): Promise<EmailConfig> {
     .limit(1);
 
   if (legacyRows.length > 0) {
+    if (typeof legacyRows[0].value !== 'object' || legacyRows[0].value === null) return {};
     const legacy = legacyRows[0].value as Record<string, unknown>;
     return {
       emailEnabled: legacy.smtpEnabled as boolean | undefined,

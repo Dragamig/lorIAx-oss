@@ -1,13 +1,18 @@
 import { db } from "@/lib/db";
-import { meetings, meetingParticipants, documents, spaces, users, calendarEvents, calendarEventAttendees } from "@/lib/db/schema";
+import { meetings, meetingParticipants, documents, spaces, calendarEvents, calendarEventAttendees } from "@/lib/db/schema";
 import { eq, desc, and, or, inArray } from "drizzle-orm";
 import { getSpacePermission } from "@/lib/auth/check-access";
 import { hasGlobalRole } from "@/lib/auth/rbac";
+import type { UserRole } from "@/types";
 import crypto from "crypto";
 
 /**
  * Generate an auto-title for a meeting based on its context.
  * Format: YYYY-MM-DD_space-slug_document-slug
+ *
+ * N'effectue AUCUN contrôle d'accès : le slug du document est repris tel quel
+ * dans le titre. L'appelant DOIT avoir vérifié l'accès en lecture au document
+ * (`checkDocumentViewAccess`) avant de passer `documentId`.
  */
 export async function generateAutoTitle(
   spaceId: string,
@@ -66,11 +71,31 @@ interface CreateMeetingInput {
   attendeeUserIds?: string[];
 }
 
+/**
+ * Crée une réunion, et, en mode planifié, l'événement de calendrier associé.
+ *
+ * N'effectue AUCUN contrôle d'accès : `documentId`, `calendarId` et
+ * `attendeeUserIds` sont repris tels quels et écrits en base. L'appelant DOIT
+ * avoir vérifié, dans l'organisation de la requête :
+ * - la lecture du document (`checkDocumentViewAccess`) ;
+ * - l'écriture dans le calendrier (`checkCalendarAccess(..., "write", orgId)`),
+ *   faute de quoi un événement atterrit dans le calendrier privé d'un tiers ;
+ * - l'appartenance des invités à l'organisation (`getOrgMemberIds`), faute de
+ *   quoi des utilisateurs d'un autre tenant sont convoqués.
+ *
+ * Ces trois contrôles sont posés par `POST /api/meet/rooms`, seul appelant.
+ */
 export async function createMeeting(input: CreateMeetingInput) {
   const roomName = generateRoomName(input.title);
   const now = new Date();
 
   const isImmediate = input.mode === "immediate";
+
+  // Validate scheduledAt date before database insert
+  if (!isImmediate && input.scheduledAt) {
+    const d = new Date(input.scheduledAt);
+    if (isNaN(d.getTime())) throw new Error('Invalid ISO 8601 date');
+  }
 
   const [meeting] = await db
     .insert(meetings)
@@ -138,7 +163,17 @@ export async function createMeeting(input: CreateMeetingInput) {
   return meeting;
 }
 
-export async function getMeeting(id: string) {
+/**
+ * Charge une réunion par identifiant SANS aucun filtre d'organisation.
+ *
+ * RÉSERVÉ aux contextes qui n'ont pas de requête HTTP porteuse de session :
+ * pipeline de fin de réunion, tâches de fond, relectures internes déclenchées
+ * après un contrôle d'accès déjà effectué. Le nom est explicite pour qu'un
+ * appel depuis une route authentifiée saute aux yeux en revue.
+ *
+ * → Toute route authentifiée doit utiliser {@link getMeetingInOrg}.
+ */
+export async function getMeetingUnscoped(id: string) {
   const [meeting] = await db
     .select()
     .from(meetings)
@@ -146,7 +181,32 @@ export async function getMeeting(id: string) {
   return meeting || null;
 }
 
-export async function getMeetingByRoomName(roomName: string) {
+/**
+ * Charge une réunion par identifiant en la confinant à une organisation.
+ *
+ * L'organisation est un paramètre explicite et obligatoire : elle est résolue
+ * par l'appelant (`getRequestOrgId`), jamais devinée ici. Une réunion d'un
+ * autre tenant ne résout pas, l'appelant répond alors 404 muet.
+ *
+ * La jointure interne sur `spaces` est volontaire : une réunion dont l'espace
+ * a été supprimé (`spaceId` nul) n'est rattachable à aucune organisation, elle
+ * est donc invisible depuis un chemin authentifié (fail-closed).
+ */
+export async function getMeetingInOrg(id: string, orgId: string) {
+  const [row] = await db
+    .select({ meeting: meetings })
+    .from(meetings)
+    .innerJoin(spaces, eq(spaces.id, meetings.spaceId))
+    .where(and(eq(meetings.id, id), eq(spaces.organizationId, orgId)))
+    .limit(1);
+  return row?.meeting ?? null;
+}
+
+/**
+ * Charge une réunion par nom de salle SANS filtre d'organisation.
+ * Mêmes règles d'emploi que {@link getMeetingUnscoped}.
+ */
+export async function getMeetingByRoomNameUnscoped(roomName: string) {
   const [meeting] = await db
     .select()
     .from(meetings)
@@ -154,7 +214,38 @@ export async function getMeetingByRoomName(roomName: string) {
   return meeting || null;
 }
 
-export async function listMeetings(userId: string, limit = 20) {
+/**
+ * Charge une réunion par nom de salle en la confinant à une organisation.
+ * Variante de {@link getMeetingInOrg} pour l'émission des jetons LiveKit, où
+ * le client ne connaît que le nom de la salle.
+ */
+export async function getMeetingByRoomNameInOrg(roomName: string, orgId: string) {
+  const [row] = await db
+    .select({ meeting: meetings })
+    .from(meetings)
+    .innerJoin(spaces, eq(spaces.id, meetings.spaceId))
+    .where(and(eq(meetings.roomName, roomName), eq(spaces.organizationId, orgId)))
+    .limit(1);
+  return row?.meeting ?? null;
+}
+
+/**
+ * Liste les réunions visibles par un utilisateur, confinées à une organisation.
+ *
+ * L'organisation est un paramètre explicite et obligatoire, résolu par
+ * l'appelant (`getRequestOrgId`), jamais devinée ici : sans elle, un
+ * utilisateur membre de plusieurs organisations voyait ses réunions toutes
+ * organisations confondues, y compris sur un sous-domaine où elles n'ont rien
+ * à faire (fuite de métadonnées : titre, espace, horaires).
+ *
+ * La jointure interne sur `spaces` est volontaire et strictement alignée sur
+ * {@link getMeetingInOrg} : la table `meetings` ne porte pas d'organisation,
+ * celle-ci est dérivée de l'espace, et `meetings.space_id` est nullable
+ * (`onDelete: set null`). Une réunion dont l'espace a été supprimé n'est
+ * rattachable à aucune organisation, elle est donc invisible depuis un chemin
+ * authentifié (fail-closed), exactement comme au chargement par identifiant.
+ */
+export async function listMeetings(userId: string, orgId: string, limit = 20) {
   // Include meetings the user created OR participated in
   const participatedMeetingIds = db
     .select({ meetingId: meetingParticipants.meetingId })
@@ -181,11 +272,14 @@ export async function listMeetings(userId: string, limit = 20) {
       spaceSlug: spaces.slug,
     })
     .from(meetings)
-    .leftJoin(spaces, eq(meetings.spaceId, spaces.id))
+    .innerJoin(spaces, eq(meetings.spaceId, spaces.id))
     .where(
-      or(
-        eq(meetings.createdBy, userId),
-        inArray(meetings.id, participatedMeetingIds)
+      and(
+        eq(spaces.organizationId, orgId),
+        or(
+          eq(meetings.createdBy, userId),
+          inArray(meetings.id, participatedMeetingIds)
+        )
       )
     )
     .orderBy(desc(meetings.createdAt))
@@ -279,15 +373,27 @@ export async function deleteMeeting(id: string) {
 }
 
 /**
- * Check if a user can access a meeting.
- * Allowed: creator, participant, space admin, or super_admin.
+ * Détermine si un utilisateur peut accéder à une réunion.
+ * Autorisés : l'organisateur, un participant, un administrateur de l'espace,
+ * ou un administrateur global.
+ *
+ * PRÉCONDITION : `meeting` a déjà été confinée à l'organisation de la requête
+ * (chargée via {@link getMeetingInOrg} ou {@link getMeetingByRoomNameInOrg}).
+ * L'organisation d'abord, la dispense de rôle ensuite : la dispense accordée
+ * ici aux rôles `admin` et `super_admin` ne vaut donc QUE dans l'organisation
+ * courante, dont l'utilisateur est nécessairement membre (ou `super_admin`,
+ * seul rôle habilité à franchir la frontière d'organisation).
+ *
+ * Le rôle global est passé par l'appelant depuis la session, il n'est plus
+ * relu en base : une relecture masquait le fait qu'aucune organisation
+ * n'entrait dans la décision.
  */
 export async function canAccessMeeting(
-  userId: string,
+  user: { id: string; globalRole: string },
   meeting: { id: string; createdBy: string | null; spaceId: string | null }
 ): Promise<boolean> {
-  // Creator
-  if (meeting.createdBy === userId) return true;
+  // Organisateur
+  if (meeting.createdBy === user.id) return true;
 
   // Participant
   const [participant] = await db
@@ -296,27 +402,41 @@ export async function canAccessMeeting(
     .where(
       and(
         eq(meetingParticipants.meetingId, meeting.id),
-        eq(meetingParticipants.userId, userId)
+        eq(meetingParticipants.userId, user.id)
       )
     )
     .limit(1);
   if (participant) return true;
 
-  // Super admin
-  const [user] = await db
-    .select({ globalRole: users.globalRole })
-    .from(users)
-    .where(eq(users.id, userId))
-    .limit(1);
-  if (user && hasGlobalRole(user.globalRole, "admin")) return true;
+  // Dispense de rôle, bornée à l'organisation courante
+  if (hasGlobalRole(user.globalRole as UserRole, "admin")) return true;
 
-  // Space admin
+  // Administrateur de l'espace
   if (meeting.spaceId) {
-    const perm = await getSpacePermission(userId, meeting.spaceId);
+    const perm = await getSpacePermission(user.id, meeting.spaceId);
     if (perm === "admin") return true;
   }
 
   return false;
+}
+
+/**
+ * Chemin du fichier de transcript brut d'une réunion, ou null si aucun
+ * transcript n'a été produit (réunions anciennes, transcription désactivée,
+ * pipeline en échec).
+ * Le chemin renvoyé provient de la base : l'appelant doit valider qu'il reste
+ * bien dans le répertoire d'enregistrements avant toute lecture disque.
+ */
+export async function getMeetingTranscriptPath(
+  meetingId: string
+): Promise<string | null> {
+  const [meeting] = await db
+    .select({ transcriptPath: meetings.transcriptPath })
+    .from(meetings)
+    .where(eq(meetings.id, meetingId))
+    .limit(1);
+
+  return meeting?.transcriptPath ?? null;
 }
 
 export async function getMeetingWithNotes(meetingId: string) {

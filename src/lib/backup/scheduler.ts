@@ -1,4 +1,5 @@
 import { Cron } from "croner";
+import { z } from "zod";
 import { db } from "@/lib/db";
 import { systemSettings, backupJobs } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
@@ -9,6 +10,12 @@ interface ScheduleConfig {
   technicalCron: string;
   enabled: boolean;
 }
+
+const ScheduleConfigSchema = z.object({
+  clientCron: z.string(),
+  technicalCron: z.string(),
+  enabled: z.boolean(),
+});
 
 let clientJob: Cron | null = null;
 let technicalJob: Cron | null = null;
@@ -39,7 +46,7 @@ export async function initBackupScheduler() {
 
     if (!row?.value) return;
 
-    const config = row.value as ScheduleConfig;
+    const config = ScheduleConfigSchema.parse(row.value);
     if (!config.enabled) return;
 
     if (config.clientCron) {

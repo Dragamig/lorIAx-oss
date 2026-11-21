@@ -3,10 +3,15 @@ import { db } from "@/lib/db";
 import { whiteboardSnapshots } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { getSessionUser } from "@/lib/auth/get-user";
+import {
+  checkCanvasViewAccess,
+  checkCanvasEditAccess,
+  getRequestedDocumentId,
+} from "@/lib/auth/canvas-access";
 import { z } from "zod";
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ canvasId: string }> }
 ) {
   const user = await getSessionUser();
@@ -20,8 +25,14 @@ export async function GET(
     .where(eq(whiteboardSnapshots.canvasId, canvasId))
     .limit(1);
 
+  // Aucun canevas enregistré : rien à divulguer, on renvoie le vide.
   if (!row) {
     return NextResponse.json({ elements: [] });
+  }
+
+  const access = await checkCanvasViewAccess(user, row.documentId);
+  if (!access.ok) {
+    return NextResponse.json({ error: "Accès refusé" }, { status: access.status });
   }
 
   try {
@@ -51,15 +62,35 @@ export async function POST(
     return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
   }
 
+  const [row] = await db
+    .select({ documentId: whiteboardSnapshots.documentId })
+    .from(whiteboardSnapshots)
+    .where(eq(whiteboardSnapshots.canvasId, canvasId))
+    .limit(1);
+
+  const access = await checkCanvasEditAccess(user, canvasId, {
+    rowExists: !!row,
+    storedDocumentId: row?.documentId ?? null,
+    requestedDocumentId: getRequestedDocumentId(request),
+  });
+  if (!access.ok) {
+    return NextResponse.json(
+      { error: access.status === 400 ? "Document porteur manquant" : "Accès refusé" },
+      { status: access.status }
+    );
+  }
+
   const { elements } = parsed.data;
+  const snapshot = JSON.stringify({ elements });
 
   await db
     .insert(whiteboardSnapshots)
-    .values({ canvasId, snapshot: JSON.stringify({ elements }) })
+    .values({ canvasId, snapshot, documentId: access.documentId })
     .onConflictDoUpdate({
       target: whiteboardSnapshots.canvasId,
       set: {
-        snapshot: JSON.stringify({ elements }),
+        snapshot,
+        documentId: access.documentId,
         updatedAt: new Date(),
       },
     });

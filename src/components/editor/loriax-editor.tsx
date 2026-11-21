@@ -4,8 +4,10 @@ import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import TaskList from "@tiptap/extension-task-list";
-import TaskItem from "@tiptap/extension-task-item";
-import TiptapImage from "@tiptap/extension-image";
+import { TaskItemAssignable } from "./extensions/task-item-assignable";
+import { Checklist, ChecklistItem } from "./extensions/checklist";
+import { useTaskSync } from "@/hooks/use-task-sync";
+import { ImageWithMissingState } from "./extensions/image-with-missing-state";
 import TiptapLink from "@tiptap/extension-link";
 import Underline from "@tiptap/extension-underline";
 import { TextStyle } from "@tiptap/extension-text-style";
@@ -15,46 +17,50 @@ import { TableExtended } from "./extensions/table-block/table-extended";
 import TableRow from "@tiptap/extension-table-row";
 import TableCell from "@tiptap/extension-table-cell";
 import TableHeader from "@tiptap/extension-table-header";
-import type CodeBlockLowlightType from "@tiptap/extension-code-block-lowlight";
+import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
+import { common, createLowlight } from "lowlight";
 import Dropcursor from "@tiptap/extension-dropcursor";
 import Collaboration from "@tiptap/extension-collaboration";
 // lowlight est chargé dynamiquement pour réduire le bundle initial (~180KB)
 import { Markdown } from "tiptap-markdown";
 import { useEffect, useRef, useMemo, useState } from "react";
 import { EditorToolbar } from "./editor-toolbar";
+import { EditorImagePicker } from "./editor-image-picker";
+import { EditorFilePicker } from "./editor-file-picker";
+import { useFollowEnd } from "./use-follow-end";
 import { WikiLink, WikiLinkSuggestion } from "./extensions/wiki-link";
+import { TemplateVariable } from "./extensions/template-variable";
 import { GoogleDocsEmbed } from "./extensions/google-docs-embed";
 import { LinkPreview } from "./extensions/link-preview";
 import { MentionExtension } from "./extensions/mention-extension";
-import { SlashCommands, setCustomAliases } from "./extensions/slash-commands/slash-extension";
+import { SlashCommands, setCustomAliases, setActiveModules } from "./extensions/slash-commands/slash-extension";
 import { ChartBlock } from "./extensions/chart-block-node";
 import { DatabaseBlock } from "./extensions/database-block/node";
 import { WhiteboardBlock } from "./extensions/whiteboard-block-node";
 import { MindmapBlock } from "./extensions/mindmap-block-node";
 import { MapBlock } from "./extensions/map-block-node";
 import { CalendarBlock } from "./extensions/calendar-block-node";
+import { ChronoBlock } from "./extensions/chrono-block-node";
+import { AutomationButtonBlock } from "./extensions/button-block-node";
 import { EventInlineNode } from "./extensions/event-inline-node";
-import { MeetingBlock } from "./extensions/meeting-block-node";
-import { InPersonMeetingBlock } from "./extensions/meeting/in-person-meeting-block-node";
 import { SpreadsheetBlock } from "./extensions/spreadsheet-block-node";
-import { VideoEmbed } from "./extensions/video-embed";
+import { SyncedBlock } from "./extensions/synced-block-node";
+import { OPTIONAL_EDITOR_EXTENSIONS } from "./extensions/optional.generated";
 import { BlockquoteWithAuthor } from "./extensions/blockquote-with-author";
 import { CalloutBlock } from "./extensions/callout-block";
 import { EditorContext } from "./extensions/editor-context";
+import { MetaContext } from "./extensions/meta-context";
+import { PreserveFieldSelection } from "./extensions/preserve-field-selection";
+import { Details, DetailsSummary, DetailsContent } from "./extensions/details-block";
 import { WifiOff } from "lucide-react";
 import type { HocuspocusProvider } from "@hocuspocus/provider";
 import type * as Y from "yjs";
 
-// Chargement dynamique de lowlight + CodeBlockLowlight
-let _codeBlockExt: ReturnType<typeof CodeBlockLowlightType.configure> | null = null;
-const codeBlockExtPromise = Promise.all([
-  import("@tiptap/extension-code-block-lowlight"),
-  import("lowlight"),
-]).then(([{ default: CodeBlockLowlight }, { common, createLowlight }]) => {
-  const lowlight = createLowlight(common);
-  _codeBlockExt = CodeBlockLowlight.configure({ lowlight });
-  return _codeBlockExt;
-});
+// CodeBlockLowlight chargé statiquement. L'import dynamique précédent laissait
+// useEditor (deps stables) créer l'éditeur AVANT la résolution de la promesse :
+// l'extension n'était jamais réinjectée, donc toggleCodeBlock restait absent et
+// « /Code » était un no-op permanent en prod dès le 1er montage (issue #89).
+const codeBlockExt = CodeBlockLowlight.configure({ lowlight: createLowlight(common) });
 
 interface LorIAxEditorProps {
   content: string;
@@ -70,6 +76,8 @@ interface LorIAxEditorProps {
   ydoc?: Y.Doc | null;
   // Pessimistic lock mode: read-only when offline and locked by another user
   lockedOffline?: boolean;
+  // Garde la vue collée au bas du document quand du contenu s'ajoute
+  followEnd?: boolean;
 }
 
 export function LorIAxEditor({
@@ -84,24 +92,16 @@ export function LorIAxEditor({
   provider,
   ydoc,
   lockedOffline = false,
+  followEnd = false,
 }: LorIAxEditorProps) {
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [scrollContainer, setScrollContainer] = useState<HTMLDivElement | null>(null);
+  useFollowEnd(scrollContainer, followEnd);
+  const syncTasks = useTaskSync(documentId);
   const isCollab = collaborationEnabled && ydoc && provider;
   // In collab mode (Yjs CRDT), always allow editing — merging happens automatically.
   // Only restrict editing for pessimistic lock mode when offline.
   const effectiveEditable = lockedOffline ? false : editable;
-
-  // Charger CodeBlockLowlight dynamiquement (ref stable, pas de re-render)
-  const codeBlockExtRef = useRef(_codeBlockExt);
-  const [codeBlockReady, setCodeBlockReady] = useState(!!_codeBlockExt);
-  useEffect(() => {
-    if (!codeBlockExtRef.current) {
-      codeBlockExtPromise.then((ext) => {
-        codeBlockExtRef.current = ext;
-        setCodeBlockReady(true);
-      });
-    }
-  }, []);
 
   // Charger les alias custom des slash commands
   useEffect(() => {
@@ -111,18 +111,27 @@ export function LorIAxEditor({
       .catch(() => {});
   }, []);
 
-  // Exposer le spaceId et documentId pour les blocs éditeur
+  // Charger les capacités des modules actifs : pilote extensions + /commandes.
+  // null tant que non chargé → on ne masque rien (évite un flash de blocs absents).
+  const [activeExt, setActiveExt] = useState<Set<string> | null>(null);
   useEffect(() => {
-    if (spaceId) {
-      window.__loriax_spaceId = spaceId;
-    }
-    if (documentId) {
-      window.__loriax_docId = documentId;
-    }
-  }, [spaceId, documentId]);
+    fetch("/api/modules/active")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((caps) => {
+        if (!caps) return;
+        setActiveExt(new Set<string>(caps.editorExtensions ?? []));
+        setActiveModules(caps.modules ?? []);
+      })
+      .catch(() => {});
+  }, []);
 
   // Build extensions list based on collaboration mode
   const extensions = useMemo(() => {
+    // Charge une extension de module seulement si le module est actif.
+    // activeExt === null (capacités non encore chargées) → on ne masque rien.
+    const gate = <T,>(key: string, ext: T): T[] =>
+      activeExt === null || activeExt.has(key) ? [ext] : [];
+
     const baseExtensions = [
       StarterKit.configure({
         codeBlock: false,
@@ -130,15 +139,19 @@ export function LorIAxEditor({
         blockquote: false,
         link: false,       // Configured explicitly below
         underline: false,  // Configured explicitly below
-        // Disable history when collaboration is enabled (Yjs handles undo/redo)
-        ...(isCollab ? { history: false } : {}),
+        // Disable undo/redo when collaboration is enabled (Yjs handles history).
+        // StarterKit v3 renamed the `history` extension to `undoRedo`; the old
+        // `history` key was silently ignored, leaving UndoRedo active in collab.
+        ...(isCollab ? { undoRedo: false as const } : {}),
       }),
       BlockquoteWithAuthor,
       CalloutBlock,
       Placeholder.configure({ placeholder }),
       TaskList,
-      TaskItem.configure({ nested: true }),
-      TiptapImage.configure({ inline: false, allowBase64: true }),
+      TaskItemAssignable,
+      Checklist,
+      ChecklistItem,
+      ImageWithMissingState.configure({ inline: false, allowBase64: true }),
       TiptapLink.configure({
         openOnClick: false,
         HTMLAttributes: { class: "text-primary underline" },
@@ -151,10 +164,11 @@ export function LorIAxEditor({
       TableRow,
       TableCell,
       TableHeader,
-      ...(codeBlockExtRef.current ? [codeBlockExtRef.current] : []),
+      codeBlockExt,
       Dropcursor.configure({ color: "var(--primary)", width: 2 }),
       WikiLink,
       WikiLinkSuggestion,
+      TemplateVariable,
       MentionExtension,
       SlashCommands,
       GoogleDocsEmbed,
@@ -162,15 +176,25 @@ export function LorIAxEditor({
       ChartBlock,
       DatabaseBlock,
       WhiteboardBlock,
+      ...Object.entries(OPTIONAL_EDITOR_EXTENSIONS).flatMap(([key, ext]) =>
+        // Le nœud Fichier reste enregistré même module désactivé : les blocs existants
+        // restent lisibles (seule la commande d'insertion disparaît).
+        key === "FileBlock" ? [ext] : gate(key, ext),
+      ),
       MindmapBlock,
       MapBlock,
       CalendarBlock,
+      ChronoBlock,
+      AutomationButtonBlock,
       EventInlineNode,
-      MeetingBlock,
-      InPersonMeetingBlock,
       SpreadsheetBlock,
-      VideoEmbed,
+      SyncedBlock,
       EditorContext,
+      MetaContext,
+      PreserveFieldSelection,
+      Details,
+      DetailsSummary,
+      DetailsContent,
       Markdown.configure({
         html: true,
         transformCopiedText: true,
@@ -190,7 +214,7 @@ export function LorIAxEditor({
     }
 
     return baseExtensions;
-  }, [isCollab, ydoc, provider, placeholder, codeBlockReady]);
+  }, [isCollab, ydoc, placeholder, activeExt]);
 
   const editor = useEditor({
     extensions,
@@ -207,7 +231,8 @@ export function LorIAxEditor({
         if ((event.metaKey || event.ctrlKey) && event.key === "s") {
           event.preventDefault();
           if (onSave && editor && !isCollab) {
-            const md = (editor.storage as { markdown?: { getMarkdown: () => string } }).markdown?.getMarkdown() ?? "";
+            const storage = editor.storage as { markdown?: { getMarkdown?: () => string } };
+            const md = typeof storage.markdown?.getMarkdown === 'function' ? storage.markdown.getMarkdown() : "";
             onSave(md);
           }
           return true;
@@ -216,6 +241,9 @@ export function LorIAxEditor({
       },
     },
     onUpdate: ({ editor }) => {
+      // Always sync task assignees regardless of collab mode
+      syncTasks(editor);
+
       if (!isCollab) {
         const md = (editor.storage as { markdown?: { getMarkdown: () => string } }).markdown?.getMarkdown() ?? "";
         onChange?.(md);
@@ -239,6 +267,27 @@ export function LorIAxEditor({
     }
   }, [editor, ydoc, provider]);
 
+  // Exposer spaceId/docId — window pour les blocs legacy, storage pour les composants avec accès editor
+  useEffect(() => {
+    if (spaceId) window.__loriax_spaceId = spaceId;
+    if (documentId) window.__loriax_docId = documentId;
+    type MetaStorage = { metaContext?: { spaceId: string; docId: string } };
+    const meta = (editor?.storage as MetaStorage | undefined)?.metaContext;
+    if (meta) {
+      meta.spaceId = spaceId ?? "";
+      meta.docId = documentId ?? "";
+    }
+  }, [spaceId, documentId, editor]);
+
+  // Sync initial des tâches au chargement (délai pour laisser Yjs charger le contenu en mode collab)
+  useEffect(() => {
+    if (!editor || !documentId) return;
+    const t = setTimeout(() => {
+      syncTasks(editor);
+    }, isCollab ? 4000 : 500);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, documentId]);
 
   // Cleanup
   useEffect(() => {
@@ -280,7 +329,9 @@ export function LorIAxEditor({
         </div>
       )}
       {effectiveEditable && <EditorToolbar editor={editor} />}
-      <div className="flex-1 overflow-y-auto">
+      {effectiveEditable && <EditorImagePicker editor={editor} />}
+      {effectiveEditable && <EditorFilePicker editor={editor} />}
+      <div className="flex-1 overflow-y-auto" ref={setScrollContainer}>
         <EditorContent editor={editor} />
         {/* Espace de respiration en fin de document — clic pour focus l'éditeur */}
         <div

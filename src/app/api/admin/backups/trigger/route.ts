@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth/get-user";
-import { hasGlobalRole } from "@/lib/auth/rbac";
+import { hasGlobalRole, INSTANCE_ADMIN_ONLY_MESSAGE } from "@/lib/auth/rbac";
 import { db } from "@/lib/db";
 import { backupJobs } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
@@ -10,8 +10,14 @@ import { getClientIp } from "@/lib/rate-limit";
 
 export async function POST(request: NextRequest) {
   const user = await getSessionUser();
-  if (!user || !hasGlobalRole(user.globalRole, "admin")) {
-    return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+  // Portée instance : déclencher une sauvegarde produit un dump PostgreSQL de
+  // toutes les organisations et le pousse vers le stockage S3 de l'instance
+  // (audit du 2026-08-19, AZ-07).
+  if (!user || !hasGlobalRole(user.globalRole, "super_admin")) {
+    return NextResponse.json(
+      { error: INSTANCE_ADMIN_ONLY_MESSAGE },
+      { status: 403 }
+    );
   }
 
   const body = await request.json();

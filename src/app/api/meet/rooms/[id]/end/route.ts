@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { unlink } from "fs/promises";
 import { getSessionUser } from "@/lib/auth/get-user";
-import { getMeeting, updateMeetingStatus } from "@/lib/meet/rooms";
+import { getRequestOrgId } from "@/lib/org/get-request-org";
+import { logActivity } from "@/lib/activity";
+import { getMeetingInOrg, getMeetingUnscoped, updateMeetingStatus } from "@/lib/meet/rooms";
 import { stopRecording } from "@/lib/meet/egress";
 import { findRecording } from "@/lib/meet/recording";
 import { transcribeWithEngine, formatTranscript, isTranscriptionEnabled } from "@/lib/meet/transcribe";
 import { summarizeMeeting } from "@/lib/meet/summarize";
-import { createMeetingNotes } from "@/lib/meet/meeting-notes";
+import { orgIdForSpace } from "@/lib/ai/org-scope";
+import { createMeetingNotes, saveTranscriptFile } from "@/lib/meet/meeting-notes";
 import { db } from "@/lib/db";
 import { meetings } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
@@ -24,18 +27,27 @@ export async function POST(
   }
 
   const { id } = await params;
-  const meeting = await getMeeting(id);
+  const orgId = await getRequestOrgId(user);
+  // Fail-closed : org non résolue (non membre, slug inconnu) = réunion inexistante
+  if (!orgId) {
+    return NextResponse.json({ error: "Réunion introuvable" }, { status: 404 });
+  }
+
+  const meeting = await getMeetingInOrg(id, orgId);
 
   if (!meeting) {
     return NextResponse.json({ error: "Réunion introuvable" }, { status: 404 });
   }
 
   if (meeting.createdBy !== user.id) {
+    void logActivity({ userId: user.id, action: "meeting.end_denied", entityType: "meeting", entityId: id, metadata: { } });
     return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
   }
 
   // Mark as ended
   await updateMeetingStatus(id, "ended", { endedAt: new Date() });
+
+  void logActivity({ userId: user.id, action: "meeting.end", entityType: "meeting", entityId: id, metadata: { } });
 
   // Launch the transcription pipeline asynchronously (non-blocking)
   runPipeline(id, meeting.roomName, meeting.title, meeting.spaceId, user.id).catch(
@@ -95,11 +107,11 @@ async function runPipeline(
 
   try {
     // Step 0: Wait for egressId if recording is still initializing (race condition guard)
-    let meeting = await getMeeting(meetingId);
+    let meeting = await getMeetingUnscoped(meetingId);
     if (!meeting?.egressId) {
       for (let i = 0; i < 10 && !meeting?.egressId; i++) {
         await new Promise((r) => setTimeout(r, 500));
-        meeting = await getMeeting(meetingId);
+        meeting = await getMeetingUnscoped(meetingId);
       }
     }
 
@@ -152,8 +164,11 @@ async function runPipeline(
           transcriptText = formatTranscript(transcriptResult);
           log.info({ meetingId, segments: transcriptResult.segments.length, textLength: transcriptText.length, latencyMs: Date.now() - t0 }, "Transcription succeeded");
 
+          // Persist the raw transcript before the audio file is purged
+          await saveTranscriptFile({ meetingId, recordingPath, transcript: transcriptText });
+
           // For in-person meetings: pause at 'mapping' status for speaker association
-          const currentMeeting = await getMeeting(meetingId);
+          const currentMeeting = await getMeetingUnscoped(meetingId);
           if (currentMeeting?.meetingType === "in_person" && transcriptResult.segments.some(s => s.speaker)) {
             const speakerFirstWords: Record<string, string> = {};
             for (const seg of transcriptResult.segments) {
@@ -179,7 +194,7 @@ async function runPipeline(
             return;
           }
         } catch (err) {
-          log.error({ error: String(err), stack: (err as Error).stack?.split("\n").slice(0, 3).join(" | "), meetingId }, "Transcription failed after all retries");
+          log.error({ error: String(err), stack: String(err).split('\n').slice(0, 3).join(' | '), meetingId }, "Transcription failed after all retries");
         }
       }
 
@@ -189,8 +204,12 @@ async function runPipeline(
         // Step 3: Summarize with retry
         try {
           const t0 = Date.now();
+          // Cloisonnement AZ-06 (lot 6) : la réunion porte son espace, et
+          // l'espace porte l'organisation dont le fournisseur d'IA doit traiter
+          // le transcript. Résolue une fois, hors de la boucle de reprise.
+          const orgId = await orgIdForSpace(spaceId);
           summary = await withRetry(
-            () => summarizeMeeting(transcriptText, title),
+            () => summarizeMeeting(transcriptText, title, orgId),
             "Summarization",
             meetingId,
           );
@@ -209,13 +228,18 @@ async function runPipeline(
           title,
           spaceId,
           createdBy,
-          summary: summary || "(Aucun résumé disponible — pas d'enregistrement audio ou transcription échouée)",
-          transcript: transcriptText || "(Aucun transcript — pas d'enregistrement audio capté)",
+          summary: summary || "(Aucun résumé disponible : pas d'enregistrement audio ou transcription échouée)",
+          transcript: transcriptText || "(Aucun transcript : pas d'enregistrement audio capté)",
         });
         log.info({ meetingId }, "Meeting notes document created");
       } catch (err) {
         log.error({ error: String(err), meetingId }, "Failed to create meeting notes document");
       }
+    } else {
+      log.warn(
+        { meetingId, hasTranscript: !!transcriptText, hasSummary: !!summary },
+        "No spaceId on meeting: no notes document created, summary and transcript stay unpublished"
+      );
     }
 
     await updateMeetingStatus(meetingId, "completed");
@@ -232,6 +256,6 @@ async function runPipeline(
     }
   } catch (error) {
     log.error({ error: String(error), stack: (error as Error).stack?.split("\n").slice(0, 5).join(" | "), meetingId, totalLatencyMs: Date.now() - pipelineStart }, "Pipeline error — unrecoverable");
-    await updateMeetingStatus(meetingId, "failed").catch(() => {});
+    await updateMeetingStatus(meetingId, "failed").catch((err) => log.error({ error: String(err), meetingId }, 'Failed to mark meeting as failed'));
   }
 }

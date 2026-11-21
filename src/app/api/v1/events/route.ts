@@ -5,11 +5,7 @@ import { and, gte, lte, or, inArray } from "drizzle-orm";
 import { authenticateApiRequest } from "@/lib/api/auth-api";
 import { apiSuccess, apiError } from "@/lib/api/response";
 import { hasScope } from "@/lib/auth/api-key";
-import { hasGlobalRole } from "@/lib/auth/rbac";
-import {
-  getAccessibleCalendarIds,
-  checkCalendarAccess,
-} from "@/lib/calendar/permissions";
+import { getAccessibleCalendarIds } from "@/lib/calendar/permissions";
 
 export async function GET(request: NextRequest) {
   const auth = await authenticateApiRequest(request);
@@ -37,37 +33,22 @@ export async function GET(request: NextRequest) {
     return apiError("Dates invalides");
   }
 
-  // `?calendarId=` ne peut que restreindre l'ensemble accessible, jamais l'elargir :
-  // pris tel quel, il court-circuitait getAccessibleCalendarIds et exposait les
-  // evenements de n'importe quel calendrier a toute cle API `calendars:read`.
-  //
-  // Le calendrier explicitement demande est valide par checkCalendarAccess, et non par
-  // appartenance a getAccessibleCalendarIds : cette derniere ignore les calendriers
-  // rattaches a un espace (`calendars.space_id`), que checkCalendarAccess honore, y
-  // compris pour le POST ci-dessous. Un consommateur legitime d'un calendrier d'espace
-  // recevrait sinon un 403.
-  let accessibleIds: string[];
-
-  if (calendarId) {
-    // checkCalendarAccess n'a pas de branche admin global, contrairement a
-    // getAccessibleCalendarIds qui retourne tout a un admin. Sans cette premiere
-    // condition, un admin global recevrait les evenements d'un calendrier tiers en
-    // appelant sans parametre, et 403 en le designant : meme population, deux
-    // reponses. Le rattrapage est fait ici plutot que dans checkCalendarAccess, que
-    // le serveur CalDAV partage.
-    const hasAccess =
-      hasGlobalRole(user.globalRole, "admin") ||
-      (await checkCalendarAccess(user.id, calendarId, "read"));
-    if (!hasAccess) return apiError("Accès refusé au calendrier", 403);
-    accessibleIds = [calendarId];
-  } else {
-    accessibleIds = await getAccessibleCalendarIds({
+  // Calendriers accessibles, confinés à l'organisation de la clé API.
+  const orgScopedIds = await getAccessibleCalendarIds(
+    {
       id: user.id,
       email: user.email,
       name: user.name,
       globalRole: user.globalRole,
-    });
-  }
+      capabilities: user.capabilities,
+    },
+    user.orgId
+  );
+
+  // Un calendarId explicite doit appartenir à l'ensemble autorisé (anti-fuite).
+  const accessibleIds = calendarId
+    ? orgScopedIds.filter((id) => id === calendarId)
+    : orgScopedIds;
 
   if (accessibleIds.length === 0) {
     return apiSuccess([]);
@@ -108,7 +89,9 @@ export async function POST(request: NextRequest) {
     return apiError("calendarId, title, startAt, endAt requis");
   }
 
-  const hasAccess = await checkCalendarAccess(user.id, calendarId, "write");
+  const { checkCalendarAccess } = await import("@/lib/calendar/permissions");
+  // Confiné à l'org de la clé API : pas d'écriture dans le calendrier d'un autre tenant.
+  const hasAccess = await checkCalendarAccess(user.id, calendarId, "write", user.orgId);
   if (!hasAccess) return apiError("Accès refusé au calendrier", 403);
 
   const crypto = await import("crypto");

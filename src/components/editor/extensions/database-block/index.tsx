@@ -2,37 +2,46 @@
 
 import { NodeViewWrapper } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/core";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   Database,
   GripHorizontal,
   Trash2,
   Maximize2,
   Minimize2,
+  ExternalLink,
+  Lock,
 } from "lucide-react";
+import Link from "next/link";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import type { DbData, DbListItem, ViewMode } from "./types";
+import type { DbData, DbListItem, ViewMode, SortConfig, FilterGroup } from "./types";
 import { fetchJson, apiPost, apiPatch, apiDelete } from "./api";
 import { DatabaseTable } from "./database-table-view";
+import { useCurrentUser } from "@/hooks/use-session";
+import type { ViewPersistence } from "./use-database-data";
 
 // Re-export types for consumers
-export type { ColumnType, DbColumn, DbRow, DbData, DbListItem, ViewMode, SortConfig, FilterConfig, SyncMapping } from "./types";
+export type { ColumnType, DbColumn, DbRow, DbData, DbListItem, ViewMode, SortConfig, FilterConfig, FilterOperator, FilterConjunction, FilterCondition, FilterGroup, FilterNode, SyncMapping } from "./types";
 
 // ─── Database Creator ────────────────────────────────────────────────────────
 
 function DatabaseCreator({
   spaceId,
+  intent,
   onSelect,
   onCreate,
 }: {
   spaceId: string;
+  intent: "create" | "pick" | null;
   onSelect: (db: DbListItem) => void;
   onCreate: (name: string) => void;
 }) {
   const [databases, setDatabases] = useState<DbListItem[]>([]);
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(true);
+  const showCreate = intent !== "pick";
+  const showExisting = intent !== "create";
 
   useEffect(() => {
     if (!spaceId) {
@@ -54,6 +63,7 @@ function DatabaseCreator({
       </div>
 
       {/* Create new */}
+      {showCreate && (
       <div className="flex gap-2 mb-3">
         <input
           autoFocus
@@ -75,9 +85,10 @@ function DatabaseCreator({
           Cr&eacute;er
         </button>
       </div>
+      )}
 
       {/* Existing databases */}
-      {!loading && databases.length > 0 && (
+      {showExisting && !loading && databases.length > 0 && (
         <div>
           <span className="text-xs text-muted-foreground mb-1.5 block">
             Ou s&eacute;lectionner une base existante
@@ -117,6 +128,12 @@ export function DatabaseBlockView({
 }: Pick<NodeViewProps, "node" | "updateAttributes" | "selected" | "deleteNode" | "editor">) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [fullscreen, setFullscreen] = useState(false);
+  const currentUserId = useCurrentUser()?.id;
+  const [evalNow] = useState(() => new Date());
+  const evalContext = useMemo(
+    () => ({ now: evalNow, userId: currentUserId, tz: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+    [evalNow, currentUserId],
+  );
 
   // Synchroniser le state React avec le fullscreen natif (Échap, etc.)
   useEffect(() => {
@@ -220,16 +237,60 @@ export function DatabaseBlockView({
     }
   }, [databaseId, deleteNode]);
 
+  // ── Mode « base liée » (lecture seule) ──────────────────────────────────────
+  const readOnly = !!attrs.readOnly;
+
+  // Persistance du tri/filtre dans les attributs du nœud TipTap : propre à ce
+  // document, sans modifier la base source ni ses vues serveur.
+  const persistConfig = useCallback(
+    (config: { sorts: SortConfig[]; filters: FilterGroup }) => {
+      updateAttributes({
+        localSorts: JSON.stringify(config.sorts),
+        localFilters: JSON.stringify(config.filters),
+      });
+    },
+    [updateAttributes],
+  );
+
+  const viewPersistence = useMemo<ViewPersistence | undefined>(() => {
+    if (!readOnly) return undefined;
+    const parse = <T,>(raw: unknown): T | undefined => {
+      if (typeof raw !== "string" || !raw) return undefined;
+      try {
+        return JSON.parse(raw) as T;
+      } catch {
+        return undefined;
+      }
+    };
+    return {
+      initialSorts: parse<SortConfig[]>(attrs.localSorts) ?? [],
+      initialFilters: parse<unknown>(attrs.localFilters),
+      onChange: persistConfig,
+    };
+  }, [readOnly, attrs.localSorts, attrs.localFilters, persistConfig]);
+
   return (
     <NodeViewWrapper
       ref={wrapperRef}
       className={`database-block-wrapper ${selected ? "is-selected" : ""}`}
     >
-      <div className="database-block" contentEditable={false}>
+      <div
+        className="database-block"
+        onKeyDown={(e) => {
+          // Stop bubble vers ProseMirror, mais après que les handlers internes
+          // (cellules, menus) aient pu réagir. NE PAS utiliser la phase capture
+          // sinon les onKeyDown internes ne se déclenchent jamais.
+          const t = e.target as HTMLElement;
+          if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) {
+            e.stopPropagation();
+          }
+        }}
+      >
         {/* State: no database selected -> creator */}
         {!databaseId && (
           <DatabaseCreator
             spaceId={spaceId}
+            intent={(attrs.intent as "create" | "pick" | null) ?? null}
             onSelect={handleSelect}
             onCreate={handleCreate}
           />
@@ -270,7 +331,18 @@ export function DatabaseBlockView({
               >
                 <GripHorizontal className="h-4 w-4 text-muted-foreground cursor-grab shrink-0" />
                 <Database className="h-4 w-4 text-emerald-500 shrink-0" />
-                {editingName ? (
+                {readOnly ? (
+                  <>
+                    <span className="text-sm font-medium truncate">{data.name}</span>
+                    <span
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-muted text-muted-foreground shrink-0"
+                      title="Base liée : lecture seule, tri et filtres propres à ce document"
+                    >
+                      <Lock className="h-2.5 w-2.5" />
+                      Liée · lecture seule
+                    </span>
+                  </>
+                ) : editingName ? (
                   <input
                     autoFocus
                     value={nameValue}
@@ -278,6 +350,7 @@ export function DatabaseBlockView({
                     onMouseDown={(e) => { e.stopPropagation(); e.nativeEvent.stopImmediatePropagation(); }}
                     onBlur={() => handleRename(nameValue)}
                     onKeyDown={(e) => {
+                      e.stopPropagation();
                       if (e.key === "Enter") handleRename(nameValue);
                       if (e.key === "Escape") setEditingName(false);
                     }}
@@ -296,6 +369,17 @@ export function DatabaseBlockView({
                 )}
               </div>
               <div className="flex items-center gap-1">
+                {databaseId && (
+                  <Link
+                    href={`/bases/${databaseId}${spaceId ? `?spaceId=${spaceId}` : ""}`}
+                    target="_blank"
+                    rel="noopener"
+                    title="Ouvrir dans l'Espace Bases"
+                    className="inline-flex size-7 items-center justify-center rounded-md hover:bg-muted hover:text-foreground transition-colors text-muted-foreground"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </Link>
+                )}
                 <Button
                   onClick={toggleFullscreen}
                   variant="ghost"
@@ -305,11 +389,11 @@ export function DatabaseBlockView({
                   {fullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
                 </Button>
                 <Button
-                  onClick={handleDeleteDb}
+                  onClick={readOnly ? deleteNode : handleDeleteDb}
                   variant="ghost"
                   size="icon-sm"
                   className="hover:text-destructive hover:bg-destructive/10"
-                  title="Supprimer la base"
+                  title={readOnly ? "Retirer le bloc (la base source est conservée)" : "Supprimer la base"}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>
@@ -323,6 +407,9 @@ export function DatabaseBlockView({
                 onRefresh={loadData}
                 viewMode={(attrs.viewMode as ViewMode) || "table"}
                 onViewModeChange={(mode) => updateAttributes({ viewMode: mode })}
+                readOnly={readOnly}
+                viewPersistence={viewPersistence}
+                evalContext={evalContext}
               />
           </>
         )}

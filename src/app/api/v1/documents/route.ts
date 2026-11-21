@@ -1,17 +1,13 @@
 import { db } from "@/lib/db";
 import { documents, spaces } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { authenticateApiRequest, requireScope } from "@/lib/api/auth-api";
 import { apiSuccess, apiError } from "@/lib/api/response";
-import { checkSpaceEditAccess } from "@/lib/auth/check-access";
+import { checkSpaceWriteAccess } from "@/lib/auth/check-access";
 import { isClassificationAllowed } from "@/lib/auth/classification";
-import { logActivity } from "@/lib/activity";
-import { writeDocument } from "@/lib/storage/filesystem";
-import { commitFile } from "@/lib/git/repository";
-import { z } from "zod";
 import type { ClassificationLevel } from "@/types";
-import slugify from "slugify";
-import { randomUUID } from "crypto";
+import { createDocument, SpaceNotFoundError } from "@/lib/documents/create-document";
+import { z } from "zod";
 
 const createSchema = z.object({
   spaceId: z.string().uuid(),
@@ -41,76 +37,64 @@ export async function POST(request: Request) {
 
   const { spaceId, title, content, parentId, visibility, classification, icon } = parsed.data;
 
-  // Check space exists
+  // L'espace cible doit appartenir à l'organisation de la clé API
+  // (anti-fuite cross-tenant : pas d'injection de document dans l'espace d'un autre tenant).
   const [space] = await db
-    .select({ id: spaces.id, gitRepoPath: spaces.gitRepoPath, classification: spaces.classification })
+    .select({ id: spaces.id, classification: spaces.classification })
     .from(spaces)
-    .where(eq(spaces.id, spaceId))
+    .where(and(eq(spaces.id, spaceId), eq(spaces.organizationId, auth.user.orgId)))
     .limit(1);
+  if (!space) return apiError("Espace introuvable", 404);
 
-  if (!space) {
-    return apiError("Espace introuvable", 404);
-  }
+  // Droit d'objet en écriture (audit du 2026-08-19, constat AZ-14). La route
+  // s'arrêtait au cloisonnement d'organisation : une clé `documents:write`
+  // fabriquée par n'importe quel compte du tenant créait un document dans
+  // n'importe quel espace, y compris un espace dont le porteur ignore tout.
+  // `checkSpaceWriteAccess` refuse le niveau `viewer`, la lecture ne suffit
+  // donc pas à écrire. Même composition qu'en lecture : l'espace est déjà
+  // borné à `auth.user.orgId`, le helper ne peut que restreindre davantage.
+  const canWrite = await checkSpaceWriteAccess(auth.user, spaceId);
+  if (!canWrite) return apiError("Accès refusé", 403);
 
-  // `spaceId` vient du corps de la requete et n'etait controle par personne : toute cle
-  // API `documents:write` pouvait deposer un document dans n'importe quel espace.
-  // Le scope autorise l'appel, la permission d'espace autorise la cible.
-  const canEdit = await checkSpaceEditAccess(auth.user, space.id);
-  if (!canEdit) {
-    return apiError("Accès refusé", 403);
-  }
-
-  // Meme plafond de classification qu'au PATCH : un espace `confidential` n'accepte pas
-  // la creation d'un document `public`.
-  const spaceClassification = (space.classification || "internal") as ClassificationLevel;
-  if (classification && !isClassificationAllowed(classification, spaceClassification)) {
+  // Plafond de classification : un espace `confidential` n'accepte pas un document `public`.
+  const floor = (space.classification || "internal") as ClassificationLevel;
+  if (classification && !isClassificationAllowed(classification, floor)) {
     return apiError(
-      `Classification « ${classification} » non autorisée dans cet espace (niveau minimum : ${spaceClassification})`,
+      `Classification « ${classification} » non autorisée dans cet espace (niveau minimum : ${floor})`,
       400
     );
   }
 
-  const slug = slugify(title, { lower: true, strict: true });
-  const filePath = `${slug}.md`;
-  const id = randomUUID();
-
-  // Write markdown content if provided
-  if (content) {
-    await writeDocument(space.gitRepoPath, filePath, content);
-    await commitFile(
-      space.gitRepoPath,
-      filePath,
-      `Création : ${title}`,
-      auth.user.name,
-      auth.user.email
-    );
+  // Le parent doit vivre dans l'espace visé. Sans ce contrôle, `parentId`
+  // rattachait un document sous un parent d'un AUTRE espace : arborescence
+  // incohérente, et le titre du document greffé apparaît dans un espace où son
+  // auteur n'a rien à faire (même classe que le constat AZ-31 côté session).
+  if (parentId) {
+    const [parent] = await db
+      .select({ id: documents.id })
+      .from(documents)
+      .where(and(eq(documents.id, parentId), eq(documents.spaceId, spaceId)))
+      .limit(1);
+    if (!parent) return apiError("Document parent introuvable", 404);
   }
 
-  const [created] = await db
-    .insert(documents)
-    .values({
-      id,
+  try {
+    const created = await createDocument({
       spaceId,
-      parentId: parentId || null,
       title,
-      slug,
-      filePath,
-      visibility: visibility || "team",
-      classification: (classification || space.classification || "internal") as ClassificationLevel,
-      isFolder: false,
+      content,
+      parentId: parentId ?? null,
+      visibility,
+      classification,
+      icon: icon ?? null,
       createdBy: auth.user.id,
-      icon: icon || null,
-      contentText: content || null,
-    })
-    .returning();
-
-  logActivity({
-    userId: auth.user.id,
-    action: "create",
-    entityType: "document",
-    entityId: id,
-    metadata: { title, source: "api" },
-  });
-
-  return apiSuccess(created, undefined, 201);
+      authorName: auth.user.name,
+      authorEmail: auth.user.email,
+      activitySource: "api",
+    });
+    return apiSuccess(created, undefined, 201);
+  } catch (e) {
+    if (e instanceof SpaceNotFoundError) return apiError("Espace introuvable", 404);
+    throw e;
+  }
 }
