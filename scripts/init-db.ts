@@ -28,7 +28,7 @@ import { backfillSpreadsheetSpace } from "./backfill-spreadsheet-space";
 import { ensureMediaExtensions } from "./migrate-media";
 import { ensureRowHistoryTriggers } from "./migrate-row-history";
 import { ensureRowCommentsAndTasks, ensureTaskKindRowValue } from "./migrate-row-comments";
-import { ensureAttachmentsRetired } from "./retire-attachments";
+import { ensureAttachmentsRetired, importArchivedMedia } from "./retire-attachments";
 import { ensureDefaultOrganization } from "./ensure-default-org";
 
 async function isDatabaseEmpty(): Promise<boolean> {
@@ -337,6 +337,9 @@ async function main() {
   await ensureTaskKindRowValue();
 
   run("node_modules/.bin/drizzle-kit", ["push", "--force", "--config=drizzle.config.ts"]);
+
+  // Pont de mise à jour 1.21.x : media vient d'être créée par le push, copie des anciennes pièces jointes.
+  await importArchivedMedia();
 
   console.log("Enregistrement du journal des migrations");
   run("node_modules/.bin/tsx", ["scripts/mark-migrations-applied.ts"]);

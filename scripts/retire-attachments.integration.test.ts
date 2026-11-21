@@ -4,8 +4,8 @@
  */
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { ensureAttachmentsRetired } from "./retire-attachments";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { ensureAttachmentsRetired, importArchivedMedia } from "./retire-attachments";
 
 const URL_ = process.env.MEDIA_TEST_DATABASE_URL;
 const DB_NAME = URL_ ? new URL(URL_).pathname.replace(/^\//, "") : "";
@@ -15,9 +15,19 @@ if (URL_ && !DB_NAME.includes("test")) {
 
 const DDL = `
   CREATE TABLE spaces (id uuid PRIMARY KEY, organization_id uuid NOT NULL);
-  CREATE TABLE media (id uuid PRIMARY KEY, organization_id uuid NOT NULL, space_id uuid, storage_key text NOT NULL UNIQUE, deleted_at timestamptz);
-  CREATE TABLE attachments (id uuid PRIMARY KEY, space_id uuid, storage_key text NOT NULL);
-  CREATE TABLE studio_images (id uuid PRIMARY KEY, organization_id uuid NOT NULL, s3_key text NOT NULL);
+  CREATE TYPE media_kind AS ENUM ('image','pdf','document','video','audio','archive','other');
+  CREATE TYPE media_origin AS ENUM ('upload','stock','automation','studio');
+  CREATE TABLE media (id uuid PRIMARY KEY, organization_id uuid NOT NULL, space_id uuid, document_id uuid,
+    filename varchar(500) NOT NULL DEFAULT 'f', mime_type varchar(255) NOT NULL DEFAULT 'application/octet-stream',
+    kind media_kind NOT NULL DEFAULT 'other', origin media_origin NOT NULL DEFAULT 'upload', size_bytes bigint NOT NULL DEFAULT 0,
+    storage_key text NOT NULL UNIQUE, uploaded_by uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000',
+    created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(), deleted_at timestamptz);
+  CREATE TABLE attachments (id uuid PRIMARY KEY, document_id uuid, space_id uuid, filename varchar(500) NOT NULL DEFAULT 'f',
+    mime_type varchar(255) NOT NULL DEFAULT 'application/octet-stream', size_bytes bigint NOT NULL DEFAULT 0, storage_key text NOT NULL,
+    uploaded_by uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000', created_at timestamptz NOT NULL DEFAULT now());
+  CREATE TABLE studio_images (id uuid PRIMARY KEY, organization_id uuid NOT NULL, space_id uuid, name varchar(500) NOT NULL DEFAULT 'n',
+    content_type varchar(255) NOT NULL DEFAULT 'image/png', size_bytes bigint, s3_key text NOT NULL,
+    created_by uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000', created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now());
   CREATE FUNCTION media_sync_from_attachments() RETURNS trigger AS $$
   BEGIN
     INSERT INTO media (id, organization_id, space_id, storage_key) VALUES (NEW.id, '00000000-0000-0000-0000-000000000001', NEW.space_id, NEW.storage_key) ON CONFLICT DO NOTHING;
@@ -98,8 +108,10 @@ describe.skipIf(!URL_)("ensureAttachmentsRetired (base de test)", () => {
       attachmentsCopied: 2,
       attachmentsDuplicates: 0,
       attachmentsOtherOrgKey: 0,
+      attachmentsImported: 0,
       studioSeen: 1,
       studioCopied: 1,
+      studioImported: 0,
       studioOrphansIgnored: 0,
       tablesArchived: ["attachments", "studio_images"],
       functionsDropped: ["media_sync_from_attachments", "media_sync_from_studio_images"],
@@ -115,11 +127,11 @@ describe.skipIf(!URL_)("ensureAttachmentsRetired (base de test)", () => {
     expect(await count("media")).toBe(before);
   });
 
-  it("b. attachments orpheline à clé inconnue : erreur nommant le nombre et un exemple, rien déplacé", async () => {
+  it("b. attachments orpheline, espace introuvable donc non copiable : erreur nommant le nombre et un exemple, rien déplacé", async () => {
     await seedCopied();
     const orphan = randomUUID();
     await pool.query("ALTER TABLE attachments DISABLE TRIGGER USER");
-    await pool.query("INSERT INTO attachments (id, space_id, storage_key) VALUES ($1, $2, 'k/orphan')", [orphan, SPACE]);
+    await pool.query("INSERT INTO attachments (id, space_id, storage_key) VALUES ($1, $2, 'k/orphan')", [orphan, randomUUID()]);
     await pool.query("ALTER TABLE attachments ENABLE TRIGGER USER");
     await expect(retire()).rejects.toThrow(new RegExp(`1 .*${orphan}`));
     expect(await exists("attachments")).toBe(true);
@@ -206,16 +218,110 @@ describe.skipIf(!URL_)("ensureAttachmentsRetired (base de test)", () => {
     expect(await archived("attachments")).toBe(true);
   });
 
-  it("i. base sans media mais avec attachments (avant 1.201) : l'erreur nomme le remède, rien déplacé", async () => {
+  it("i. base sans media avec des lignes attachments (1.21.x) : archivées, puis importées dans media avec tous les champs, sans doublon à la relance", async () => {
+    const id = randomUUID();
+    const doc = randomUUID();
+    const user = randomUUID();
+    const created = "2026-03-04T05:06:07.000Z";
+    await pool.query("ALTER TABLE attachments DISABLE TRIGGER USER");
+    await pool.query(
+      "INSERT INTO attachments (id, document_id, space_id, filename, mime_type, size_bytes, storage_key, uploaded_by, created_at) VALUES ($1,$2,$3,'rapport.pdf','application/pdf',1234,$4,$5,$6)",
+      [id, doc, SPACE, `${SPACE}/abc.pdf`, user, created],
+    );
     await pool.query("DROP TABLE media CASCADE");
-    await expect(retire()).rejects.toThrow(/1\.201 à 1\.204/);
-    expect(await exists("attachments")).toBe(true);
-    expect(await archived("attachments")).toBe(false);
+    const report = await retire();
+    expect(report).toMatchObject({ attachmentsSeen: 1, attachmentsImported: 0 });
+    expect(await archived("attachments")).toBe(true);
+    // push de drizzle-kit : media est recréée
+    await pool.query(`CREATE TABLE media (id uuid PRIMARY KEY, organization_id uuid NOT NULL, space_id uuid, document_id uuid,
+      filename varchar(500) NOT NULL, mime_type varchar(255) NOT NULL, kind media_kind NOT NULL, origin media_origin NOT NULL DEFAULT 'upload',
+      size_bytes bigint NOT NULL, storage_key text NOT NULL UNIQUE, uploaded_by uuid NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(), deleted_at timestamptz)`);
+    expect(await importArchivedMedia(connectionString, { archiveSchema: `${schema}_arch` })).toEqual({ attachments: 1, studio: 0 });
+    const m = (await pool.query("SELECT * FROM media WHERE id = $1", [id])).rows[0];
+    expect(m).toMatchObject({
+      organization_id: ORG, space_id: SPACE, document_id: doc, filename: "rapport.pdf", mime_type: "application/pdf",
+      kind: "pdf", origin: "upload", storage_key: `${SPACE}/abc.pdf`, uploaded_by: user,
+    });
+    expect(Number(m.size_bytes)).toBe(1234);
+    expect(m.created_at.toISOString()).toBe(created);
+    // Seconde exécution : rien copié deux fois, même si la ligne media a été supprimée entre-temps.
+    await pool.query("DELETE FROM media WHERE id = $1", [id]);
+    expect(await importArchivedMedia(connectionString, { archiveSchema: `${schema}_arch` })).toBeNull();
+    expect(await count("media")).toBe(0);
+    expect(await retire()).toBeNull();
+  });
+
+  it("i5. import sans media : une ligne sans espace n'est pas copiée, le journal compare vues et copiées et nomme l'identifiant ignoré", async () => {
+    const good = randomUUID();
+    const lost = randomUUID();
+    const user = randomUUID();
+    await pool.query("ALTER TABLE attachments DISABLE TRIGGER USER");
+    for (const [id, space, key] of [[good, SPACE, "k-good.pdf"], [lost, randomUUID(), "k-lost.pdf"]]) {
+      await pool.query(
+        "INSERT INTO attachments (id, document_id, space_id, filename, mime_type, size_bytes, storage_key, uploaded_by) VALUES ($1,$2,$3,'f.pdf','application/pdf',1,$4,$5)",
+        [id, randomUUID(), space, key, user],
+      );
+    }
+    await pool.query("DROP TABLE media CASCADE");
+    await retire();
+    await pool.query(`CREATE TABLE media (id uuid PRIMARY KEY, organization_id uuid NOT NULL, space_id uuid, document_id uuid,
+      filename varchar(500) NOT NULL, mime_type varchar(255) NOT NULL, kind media_kind NOT NULL, origin media_origin NOT NULL DEFAULT 'upload',
+      size_bytes bigint NOT NULL, storage_key text NOT NULL UNIQUE, uploaded_by uuid NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(), deleted_at timestamptz)`);
+    const logs: string[] = [];
+    const log = vi.spyOn(console, "log").mockImplementation((m) => void logs.push(String(m)));
+    const warn = vi.spyOn(console, "warn").mockImplementation((m) => void logs.push(String(m)));
+    try {
+      expect(await importArchivedMedia(connectionString, { archiveSchema: `${schema}_arch` })).toEqual({ attachments: 1, studio: 0 });
+    } finally {
+      log.mockRestore();
+      warn.mockRestore();
+    }
+    expect(logs.join("\n")).toContain("attachments : 2 lignes vues, 1 copiées vers media, 1 sans copie");
+    expect(logs.join("\n")).toMatch(new RegExp(`Écart d'import.*1 ligne\\(s\\) non copiée.*${lost}`));
+  });
+
+  it("i3. base sans media avec attachments et studio_images : les deux sont importés, chacun une seule fois", async () => {
+    const a = randomUUID();
+    const si = randomUUID();
+    await pool.query("ALTER TABLE attachments DISABLE TRIGGER USER");
+    await pool.query("ALTER TABLE studio_images DISABLE TRIGGER USER");
+    await pool.query("INSERT INTO attachments (id, space_id, storage_key) VALUES ($1,$2,'k/i3')", [a, SPACE]);
+    await pool.query("INSERT INTO studio_images (id, organization_id, s3_key, size_bytes) VALUES ($1,$2,'s/i3',NULL)", [si, ORG]);
+    await pool.query("DROP TABLE media CASCADE");
+    await retire();
+    await pool.query(`CREATE TABLE media (id uuid PRIMARY KEY, organization_id uuid NOT NULL, space_id uuid, document_id uuid,
+      filename varchar(500) NOT NULL, mime_type varchar(255) NOT NULL, kind media_kind NOT NULL, origin media_origin NOT NULL DEFAULT 'upload',
+      size_bytes bigint NOT NULL, storage_key text NOT NULL UNIQUE, uploaded_by uuid NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(), deleted_at timestamptz)`);
+    expect(await importArchivedMedia(connectionString, { archiveSchema: `${schema}_arch` })).toEqual({ attachments: 1, studio: 1 });
+    expect((await pool.query("SELECT origin, kind, size_bytes FROM media WHERE id = $1", [si])).rows[0]).toMatchObject({ origin: "studio", kind: "image" });
+    expect(await importArchivedMedia(connectionString, { archiveSchema: `${schema}_arch` })).toBeNull();
+    expect(await count("media")).toBe(2);
+  });
+
+  it("i4. media présente mais ligne attachments non copiée : copiée dans la transaction d'archivage", async () => {
+    const id = randomUUID();
+    await pool.query("ALTER TABLE attachments DISABLE TRIGGER USER");
+    await pool.query("INSERT INTO attachments (id, space_id, storage_key, mime_type) VALUES ($1,$2,'k/i4','image/png')", [id, SPACE]);
+    const report = await retire();
+    expect(report).toMatchObject({ attachmentsSeen: 1, attachmentsCopied: 1, attachmentsImported: 1 });
+    expect((await pool.query("SELECT kind FROM media WHERE id = $1", [id])).rows[0].kind).toBe("image");
+    expect(await archived("attachments")).toBe(true);
+  });
+
+  it("i2. base sans media et sans aucune ligne legacy (1.21.x publique vide) : tables archivées, sans erreur", async () => {
+    await pool.query("DROP TABLE media CASCADE");
+    const report = await retire();
+    expect(report).toMatchObject({ attachmentsSeen: 0, studioSeen: 0 });
+    expect(await exists("attachments")).toBe(false);
+    expect(await archived("attachments")).toBe(true);
   });
 
   it("j. les clés étrangères sortantes sont retirées de l'archive : un utilisateur référencé reste supprimable", async () => {
     await pool.query("CREATE TABLE users (id uuid PRIMARY KEY)");
-    await pool.query("ALTER TABLE attachments ADD COLUMN uploaded_by uuid REFERENCES users(id)");
+    await pool.query("ALTER TABLE attachments ADD CONSTRAINT fk_att_user FOREIGN KEY (uploaded_by) REFERENCES users(id)");
     const u = randomUUID();
     await pool.query("INSERT INTO users VALUES ($1)", [u]);
     await pool.query("ALTER TABLE attachments DISABLE TRIGGER USER");

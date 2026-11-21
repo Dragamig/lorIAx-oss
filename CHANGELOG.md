@@ -12,7 +12,7 @@ lorIAx-oss 2.0.0, basée sur LorIAx 1.210.x. Tous les modules sont actifs, sans 
 
 - Le projet passe de la licence MIT à la licence [FSL-1.1-MIT](LICENSE) (Functional Source License 1.1, licence future MIT) : le code peut être utilisé, modifié et redistribué pour tout usage, sauf pour proposer un produit ou un service concurrent.
 - Chaque version passe sous licence MIT deux ans après sa publication.
-- Les versions 1.21.0 et 1.21.1 ont été publiées sous licence MIT et le restent. Le tag `v1.21.1` donne la dernière version sous licence MIT.
+- La version 1.21.0 a été publiée sous licence MIT et le reste. Le tag `v1.21.0` donne la dernière version sous licence MIT.
 - Les contributions sont soumises au DCO et à une licence accordée au titulaire des droits : voir [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ### Ajouté
@@ -62,17 +62,9 @@ echo "CRON_SECRET=$(openssl rand -hex 32)" >> .env
 docker compose up -d --build
 ```
 
-Le service `app-migrate` détecte la base 1.21.x comme non vide : il applique les différences de schéma, crée les colonnes vectorielles, les déclencheurs et l'organisation par défaut, puis inscrit la migration initiale comme déjà appliquée, sans la rejouer. Son journal se lit avec `docker compose logs app-migrate`.
+Le service `app-migrate` détecte la base 1.21.x comme non vide : il applique les différences de schéma, crée les colonnes vectorielles, les déclencheurs et l'organisation par défaut, puis inscrit la migration initiale comme déjà appliquée, sans la rejouer. Sauvegarder le volume de la base avant la mise à jour : revenir ensuite à l'image 1.21.0 masque les pièces jointes, qui restent dans `legacy_archive`. Les pièces jointes déposées sous 1.21.x sont copiées dans la médiathèque (mêmes fichiers, mêmes liens vers les documents), et les anciennes tables sont conservées dans le schéma `legacy_archive`. Son journal se lit avec `docker compose logs app-migrate`.
 
 Si la mise à jour partait d'un fichier compose de production, client ou registre, relancer les services avec `docker-compose.yml` seul. La procédure complète est dans [README.md](README.md#mise-à-jour).
-
-### Non inclus
-
-- Studio vidéo.
-
-## [1.21.1]
-
-Dernière version sous licence MIT, repérée par le tag `v1.21.1`.
 
 ### Sécurité
 
@@ -88,6 +80,10 @@ Dernière version sous licence MIT, repérée par le tag `v1.21.1`.
 
 - Chemins d'installation et démarrage documenté réparés.
 - Pièces jointes synchronisées conservées, médias non dégradés à la synchronisation.
+
+### Non inclus
+
+- Studio vidéo.
 
 ## [1.21.0] - 2026-05-22
 
