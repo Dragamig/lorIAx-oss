@@ -30,6 +30,7 @@ import { ensureRowHistoryTriggers } from "./migrate-row-history";
 import { ensureRowCommentsAndTasks, ensureTaskKindRowValue } from "./migrate-row-comments";
 import { ensureAttachmentsRetired, importArchivedMedia } from "./retire-attachments";
 import { ensureDefaultOrganizationForEdition } from "./ensure-default-org";
+import { closeRegistrationOnUpgrade } from "./close-registration-on-upgrade";
 import { INCLUDED_MODULE_IDS } from "../src/lib/modules/registry.generated";
 
 async function isDatabaseEmpty(): Promise<boolean> {
@@ -370,6 +371,13 @@ async function main() {
     } catch (e) {
       // Etat anormal (toutes les organisations inactives) : ne pas bloquer le deploiement.
       console.warn("Organisation par défaut non créée :", e instanceof Error ? e.message : e);
+    }
+    // Mise à jour vers 2.0.0 (oss seulement) : l'inscription stockée à true par 1.21.x est refermée une seule fois.
+    try {
+      const reg = await closeRegistrationOnUpgrade(pool, INCLUDED_MODULE_IDS);
+      if (reg.closed) console.log("✓ Inscription libre refermée (mise à jour vers 2.0.0, à rouvrir dans les réglages système)");
+    } catch (e) {
+      console.warn("Inscription non refermée :", e instanceof Error ? e.message : e);
     } finally {
       await pool.end();
     }

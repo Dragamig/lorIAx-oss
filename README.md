@@ -539,7 +539,7 @@ echo "CRON_SECRET=$(openssl rand -hex 32)" >> .env
 
 Sauvegarder le volume de la base avant la mise à jour : revenir ensuite à l'image 1.21.0 ou 1.21.1 masque les pièces jointes, qui restent dans le schéma `legacy_archive`.
 
-L'inscription libre est fermée par défaut, y compris sur une instance venue de 1.21.x : un administrateur l'ouvre dans les réglages système.
+L'inscription libre est fermée par défaut : un administrateur l'ouvre dans les réglages système. Sur une instance venue de 1.21.x, la mise à jour vers 2.0.0 la referme une seule fois (1.21.x la stockait comme ouverte à chaque enregistrement de l'onglet Système) ; un administrateur qui la souhaite ouverte la rouvre ensuite.
 
 Les variantes de fichier compose des versions 1.21.x (production, client, registre) n'existent plus : tout passe par `docker-compose.yml`. Les changements incompatibles sont détaillés dans [CHANGELOG.md](CHANGELOG.md).
 

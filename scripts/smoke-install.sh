@@ -414,6 +414,17 @@ s_old_attachment() {
     return 0
 }
 
+s_old_registration() {
+    # En 1.21.x, tout enregistrement de l'onglet Système stockait auth.allowRegistration = true.
+    # On reproduit cet état sur la base 1.21.x : la mise à jour doit le refermer.
+    local n
+    n="$(dc exec -T postgres psql -U loriax -d loriax -tA -c \
+        "INSERT INTO system_settings (key, value) VALUES ('auth', '{\"allowRegistration\": true}'::jsonb) ON CONFLICT (key) DO UPDATE SET value = jsonb_set(system_settings.value, '{allowRegistration}', 'true'::jsonb) RETURNING value ->> 'allowRegistration'" 2>/dev/null | head -n 1 | tr -d '[:space:]')"
+    [ "$n" = "true" ] || { DETAIL="réglage auth non posé sous 1.21 (reçu : ${n:-vide})"; return 1; }
+    DETAIL="auth.allowRegistration = true stocké, comme après un enregistrement de l'onglet Système 1.21"
+    return 0
+}
+
 s_upgrade() {
     # Arrêt de l'ancienne application, volumes conservés.
     dc down --remove-orphans >/dev/null 2>&1
@@ -456,6 +467,20 @@ s_upgrade_attachment() {
     return 0
 }
 
+s_upgrade_registration_closed() {
+    local v users
+    v="$(dc exec -T postgres psql -U loriax -d loriax -tA -c \
+        "SELECT value ->> 'allowRegistration' FROM system_settings WHERE key = 'auth'" 2>/dev/null | tr -d '[:space:]')"
+    [ "$v" = "false" ] || { DETAIL="auth.allowRegistration vaut '${v:-absent}' après mise à jour, attendu false"; return 1; }
+    api POST /api/auth/register '{"name":"Inscrit Recette","email":"inscrit-recette@example.org","password":"Recette-Inscription-2026!"}'
+    [ "$CODE" = "403" ] || { DETAIL="POST /api/auth/register renvoie $CODE après mise à jour, attendu 403 : $(head -c 200 "$BODY")"; return 1; }
+    users="$(dc exec -T postgres psql -U loriax -d loriax -tA -c \
+        "SELECT count(*) FROM users WHERE email = 'inscrit-recette@example.org'" 2>/dev/null | tr -d '[:space:]')"
+    [ "$users" = "0" ] || { DETAIL="un compte a été créé malgré le refus (lignes : ${users:-?})"; return 1; }
+    DETAIL="réglage refermé, inscription refusée (403), aucun compte créé"
+    return 0
+}
+
 # --- Déroulé ---
 
 {
@@ -488,8 +513,10 @@ if [ "$SKIP_UPGRADE" != true ]; then
     if step "4.1 démarrage de l'ancienne version 1.21.x" s_old_stack; then
         if step "4.2 contenu créé sous 1.21.x" s_old_content; then
             step "4.2b pièce jointe déposée sous 1.21.x" s_old_attachment
+            step "4.2c inscription stockée comme ouverte sous 1.21.x" s_old_registration
             if step "4.3 relance en 2.0.0 sur le même volume" s_upgrade; then
                 step "4.4 document 1.21.x lisible après mise à jour" s_upgrade_read
+                step "4.4b inscription refermée après mise à jour (register refusé)" s_upgrade_registration_closed
                 [ -n "$OLD_ATT_KEY" ] && step "4.5 pièce jointe 1.21.x servie après mise à jour" s_upgrade_attachment
             fi
         fi
