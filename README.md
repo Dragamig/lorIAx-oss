@@ -8,7 +8,7 @@ Plateforme de gestion de connaissances collaborative et auto-hébergée, avec IA
 
 Créé par Studio Dragamig avec l'aide de Claude d'Anthropic
 
-[Lancement rapide](#lancement-rapide) • [Fonctionnalités](#fonctionnalités) • [Architecture](#architecture) • [Configuration](#configuration) • [Déploiement](#déploiement) • [Contribuer](#contribuer) • [Licence](#licence)
+[Lancement rapide](#lancement-rapide) • [Aperçu](#aperçu) • [Fonctionnalités](#fonctionnalités) • [Architecture](#architecture) • [Configuration](#configuration) • [Déploiement](#déploiement) • [Contribuer](#contribuer) • [Licence](#licence)
 
 </div>
 
@@ -178,6 +178,36 @@ Ne m'affiche aucun secret, sauf la clé d'installation de /setup.
 ```
 
 </details>
+
+---
+
+## Aperçu
+
+Captures prises sur une instance de démonstration, avec des données fictives (Association Exemple).
+
+![Éditeur de documents : compte rendu avec liste, tableau et tâches](docs/screenshots/editeur.png)
+
+*Éditeur de documents : titres, listes, tableaux et tâches dans un même document.*
+
+![Base de données : tableau des adhérents](docs/screenshots/bases.png)
+
+*Bases de données : colonnes typées, vues tableau, kanban et galerie.*
+
+![Automatisations : workflow déclenché par un bouton](docs/screenshots/automatisations.png)
+
+*Automatisations : un déclencheur suivi d'actions, testable avant activation.*
+
+![Présentations : éditeur de diaporama](docs/screenshots/presentations.png)
+
+*Présentations : diapositives, thème et mode diaporama.*
+
+![Médiathèque : images de l'organisation](docs/screenshots/mediatheque.png)
+
+*Médiathèque : fichiers de l'organisation, avec filtres par type, tag et espace.*
+
+![Tableau de bord : indicateurs issus d'une base](docs/screenshots/tableau-de-bord.png)
+
+*Tableaux de bord : indicateurs et graphiques calculés depuis une base.*
 
 ---
 
