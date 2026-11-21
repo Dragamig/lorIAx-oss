@@ -320,6 +320,9 @@ OLD_DOC_TITLE="Document issu de 1.21"
 OLD_FILE_CONTENT="Pièce jointe écrite sous 1.21, contrôle de mise à jour."
 OLD_ATT_KEY=""
 s_old_stack() {
+    # Départs pris en charge : v1.21.0 et v1.21.1. Leurs schémas diffèrent d'un seul index
+    # (idx_attachments_storage_key sur attachments, migration 0001 de 1.21.1) : le chemin de mise
+    # à jour est le même. Sans --old-tag, la plus récente des étiquettes v1.21.* est utilisée.
     if [ -z "$OLD_TAG" ]; then
         OLD_TAG="$(git -C "$REPO" tag --list 'v1.21.*' | sort -V | tail -n 1)"
     fi

@@ -18,7 +18,7 @@ LorIAx réunit un éditeur de documents riche, la collaboration en temps réel, 
 
 > **Pour qui ?** Les organismes multi-services qui veulent garder leurs données chez eux : collectivités, associations, PME structurées.
 
-**Version** : lorIAx-oss 2.0.0, basée sur LorIAx 1.210.x, sous licence FSL-1.1-MIT. Tous les modules sont actifs, sans quota ni clé de licence. Seul le studio vidéo n'est pas inclus. La version 1.21.0 reste sous licence MIT : le tag [`v1.21.0`](https://github.com/Flavien-Dragamig/lorIAx-oss/tree/v1.21.0) donne la dernière version MIT.
+**Version** : lorIAx-oss 2.0.0, basée sur LorIAx 1.210.x, sous licence FSL-1.1-MIT. Tous les modules sont actifs, sans quota ni clé de licence. Seul le studio vidéo n'est pas inclus. Les versions 1.21.0 et 1.21.1 restent sous licence MIT : le tag [`v1.21.1`](https://github.com/Flavien-Dragamig/lorIAx-oss/tree/v1.21.1) donne la dernière version MIT.
 
 ## Lancement rapide
 
@@ -531,13 +531,13 @@ docker compose up -d --build
 
 Le service `app-migrate` rapproche la base du nouveau schéma avant chaque démarrage de l'application : il applique les différences de schéma, crée les colonnes vectorielles, les déclencheurs et l'organisation par défaut, puis inscrit la migration initiale comme déjà appliquée. En cas d'échec, l'application ne démarre pas : `docker compose logs app-migrate`.
 
-**Depuis une version 1.21.x** : les volumes Docker portent les mêmes noms et le `.env` existant se conserve (ne pas le régénérer). Lui ajouter avant l'étape 3 le secret des tâches planifiées, exigé par `docker-compose.yml` :
+**Depuis la version 1.21.0 ou 1.21.1** : les volumes Docker portent les mêmes noms et le `.env` existant se conserve (ne pas le régénérer). Lui ajouter avant l'étape 3 le secret des tâches planifiées, exigé par `docker-compose.yml` :
 
 ```bash
 echo "CRON_SECRET=$(openssl rand -hex 32)" >> .env
 ```
 
-Sauvegarder le volume de la base avant la mise à jour : revenir ensuite à l'image 1.21.0 masque les pièces jointes, qui restent dans le schéma `legacy_archive`.
+Sauvegarder le volume de la base avant la mise à jour : revenir ensuite à l'image 1.21.0 ou 1.21.1 masque les pièces jointes, qui restent dans le schéma `legacy_archive`.
 
 Les variantes de fichier compose des versions 1.21.x (production, client, registre) n'existent plus : tout passe par `docker-compose.yml`. Les changements incompatibles sont détaillés dans [CHANGELOG.md](CHANGELOG.md).
 
@@ -654,7 +654,7 @@ Les choix d'architecture, la relecture et la validation du code sont humains ; l
 
 Le code peut être utilisé, modifié et redistribué pour tout usage, sauf pour proposer un produit ou un service concurrent. Chaque version passe sous licence MIT deux ans après sa publication. Le logiciel est fourni sans garantie.
 
-La version 1.21.0 a été publiée sous licence MIT et le reste : voir le tag [`v1.21.0`](https://github.com/Flavien-Dragamig/lorIAx-oss/tree/v1.21.0).
+Les versions 1.21.0 et 1.21.1 ont été publiées sous licence MIT et le restent : voir le tag [`v1.21.1`](https://github.com/Flavien-Dragamig/lorIAx-oss/tree/v1.21.1).
 
 ---
 
