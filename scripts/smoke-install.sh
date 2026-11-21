@@ -334,6 +334,9 @@ s_old_stack() {
     # Mêmes secrets pour l'ancienne et la nouvelle version : la base garde son mot de passe.
     cp "$NEW_DIR/.env" "$OLD_DIR/.env"
     cp "$NEW_DIR/.env" "$OLD_DIR/.env.local"
+    # 1.21.1 impose un jeton d'installation (SETUP_INSTALL_TOKEN, 16 caractères minimum) sur
+    # toutes les routes /api/setup/* ; 1.21.0 l'ignore et garde le jeton d'amorçage.
+    printf '\nSETUP_INSTALL_TOKEN=%s\n' "$(env_value SETUP_BOOTSTRAP_TOKEN "$NEW_DIR/.env")" >> "$OLD_DIR/.env.local"
     # La pile de développement 1.21 publie Postgres sur 5432 : on le passe sur un port libre de
     # la boucle locale, et on ajoute l'étape app-migrate de la pile de production 1.21.
     sed -i 's|- "5432:5432"|- "127.0.0.1::5432"|; s|- "3903:3903"|- "127.0.0.1::3903"|; s|- "3900:3900"|- "127.0.0.1:3900:3900"|; s|- "3000:3000"|- "127.0.0.1:3000:3000"|' "$OLD_DIR/docker-compose.yml"
@@ -375,13 +378,16 @@ s_old_content() {
     dc exec -T postgres psql -U loriax -d loriax -q -c \
         "INSERT INTO organizations (name, slug, plan) VALUES ('LorIAx', 'default', 'community') ON CONFLICT (slug) DO NOTHING;" \
         >/dev/null 2>&1 || { DETAIL="organisation par défaut non créée"; return 1; }
+    # 1.21.0 lit l'en-tête x-setup-token ; 1.21.1 lit le cookie setup_install_token (posé par
+    # /api/setup/access, mais envoyé ici en clair : le cookie est Secure et la recette est en HTTP).
     local h="x-setup-token: $SETUP_TOKEN"
-    api POST /api/setup/identity '{"name":"Smoke Org","description":"recette"}' "$h"
+    local c="Cookie: setup_install_token=$SETUP_TOKEN"
+    api POST /api/setup/identity '{"name":"Smoke Org","description":"recette"}' "$h" "$c"
     [ "$CODE" = "200" ] || { DETAIL="identity (1.21) : $CODE $(head -c 200 "$BODY")"; return 1; }
     api POST /api/setup/users "$(jq -nc --arg e "$ADMIN_EMAIL" --arg p "$ADMIN_PASSWORD" \
-        '{users:[{name:"Admin Smoke",email:$e,role:"super_admin",password:$p}]}')" "$h"
+        '{users:[{name:"Admin Smoke",email:$e,role:"super_admin",password:$p}]}')" "$h" "$c"
     [ "$CODE" = "200" ] || { DETAIL="users (1.21) : $CODE $(head -c 200 "$BODY")"; return 1; }
-    api POST /api/setup/complete '{}' "$h"
+    api POST /api/setup/complete '{}' "$h" "$c"
     [ "$CODE" = "200" ] || { DETAIL="complete (1.21) : $CODE $(head -c 200 "$BODY")"; return 1; }
     login || return 1
     s_space || return 1

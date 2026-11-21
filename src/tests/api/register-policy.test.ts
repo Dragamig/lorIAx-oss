@@ -5,6 +5,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { systemSettings, users } from "@/lib/db/schema";
+import type { ModuleId } from "@/lib/modules/types";
 
 const h = vi.hoisted(() => ({
   settings: [] as Array<{ key: string; value: unknown }>,
@@ -43,44 +44,61 @@ beforeEach(() => {
   h.superAdmins = 0;
 });
 
-describe("getRegistrationRefusal", () => {
-  it("refuse tant que l'assistant n'est pas termine et qu'aucun super admin n'existe", async () => {
-    const r = await getRegistrationRefusal();
-    expect(r?.status).toBe(403);
+const OSS: ModuleId[] = ["ai", "crm"];
+const COMMERCIAL: ModuleId[] = ["ai", "crm", "commercial"];
+
+describe("getRegistrationRefusal, edition oss", () => {
+  it("refuse tant qu'aucun super admin n'existe, assistant non termine", async () => {
+    expect((await getRegistrationRefusal(OSS))?.status).toBe(403);
   });
 
-  it("refuse quand le reglage auth.allowRegistration vaut false", async () => {
-    h.settings = [
-      { key: "setup_completed", value: true },
-      { key: "auth", value: { allowRegistration: false } },
-    ];
-    const r = await getRegistrationRefusal();
-    expect(r?.status).toBe(403);
-    expect(r?.error).toMatch(/inscription/i);
-  });
-
-  it("accepte quand l'assistant est termine et l'inscription ouverte", async () => {
+  it("I-B : refuse sans super admin meme quand setup_completed est vrai et l'inscription ouverte", async () => {
     h.settings = [
       { key: "setup_completed", value: true },
       { key: "auth", value: { allowRegistration: true } },
     ];
-    expect(await getRegistrationRefusal()).toBeNull();
+    const r = await getRegistrationRefusal(OSS);
+    expect(r?.status).toBe(403);
+    expect(r?.error).toMatch(/pas encore configur/);
   });
 
-  it("defaut ferme quand le reglage n'a jamais ete enregistre (installation neuve ou venue de 1.21.x)", async () => {
-    h.settings = [{ key: "setup_completed", value: true }];
-    expect((await getRegistrationRefusal())?.status).toBe(403);
-    h.settings = [
-      { key: "setup_completed", value: true },
-      { key: "auth", value: { defaultRole: "editor" } },
-    ];
-    expect((await getRegistrationRefusal())?.status).toBe(403);
-  });
-
-  it("instance amorcee hors assistant mais pourvue d'un super admin : seul le reglage compte", async () => {
+  it("refuse quand le reglage auth.allowRegistration vaut false", async () => {
     h.superAdmins = 1;
-    expect((await getRegistrationRefusal())?.status).toBe(403);
+    h.settings = [{ key: "auth", value: { allowRegistration: false } }];
+    const r = await getRegistrationRefusal(OSS);
+    expect(r?.status).toBe(403);
+    expect(r?.error).toMatch(/inscription/i);
+  });
+
+  it("defaut ferme quand le reglage n'a jamais ete enregistre", async () => {
+    h.superAdmins = 1;
+    h.settings = [{ key: "setup_completed", value: true }];
+    expect((await getRegistrationRefusal(OSS))?.status).toBe(403);
+    h.settings = [{ key: "auth", value: { defaultRole: "editor" } }];
+    expect((await getRegistrationRefusal(OSS))?.status).toBe(403);
+  });
+
+  it("accepte avec un super admin et l'inscription explicitement ouverte", async () => {
+    h.superAdmins = 1;
     h.settings = [{ key: "auth", value: { allowRegistration: true } }];
-    expect(await getRegistrationRefusal()).toBeNull();
+    expect(await getRegistrationRefusal(OSS)).toBeNull();
+  });
+});
+
+describe("getRegistrationRefusal, edition commerciale", () => {
+  it("parcours d'avant l'edition oss : ouverte sans reglage, sans super admin, assistant non termine", async () => {
+    expect(await getRegistrationRefusal(COMMERCIAL)).toBeNull();
+    h.settings = [{ key: "auth", value: { defaultRole: "editor" } }];
+    expect(await getRegistrationRefusal(COMMERCIAL)).toBeNull();
+  });
+
+  it("un false explicite de l'administrateur ferme la route", async () => {
+    h.settings = [{ key: "auth", value: { allowRegistration: false } }];
+    expect((await getRegistrationRefusal(COMMERCIAL))?.status).toBe(403);
+  });
+
+  it("un true explicite reste ouvert", async () => {
+    h.settings = [{ key: "auth", value: { allowRegistration: true } }];
+    expect(await getRegistrationRefusal(COMMERCIAL)).toBeNull();
   });
 });

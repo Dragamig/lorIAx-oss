@@ -1,6 +1,9 @@
 import { db } from "@/lib/db";
 import { systemSettings, users } from "@/lib/db/schema";
 import { eq, inArray } from "drizzle-orm";
+import { INCLUDED_MODULE_IDS } from "@/lib/modules/registry.generated";
+import type { ModuleId } from "@/lib/modules/types";
+import { resolveAllowRegistration } from "./registration-default";
 
 export interface RegistrationRefusal {
   status: number;
@@ -9,44 +12,53 @@ export interface RegistrationRefusal {
 
 /**
  * Politique de l'inscription libre (`/api/auth/register`), appliquee cote serveur.
+ * Elle depend de l'edition (meme detection que `ensureDefaultOrganizationForEdition` :
+ * presence du module `commercial`).
  *
- * - Instance non amorcee (assistant non termine ET aucun super administrateur) :
- *   refus. Sans cela, un tiers s'inscrit avant la creation du premier
- *   administrateur. Une instance deja pourvue d'un super administrateur (amorcee
- *   hors assistant, ou provisionnee par l'edition commerciale) n'est pas
- *   concernee par ce premier refus.
- * - Reglage « Inscription ouverte » (`system_settings.auth.allowRegistration`) :
- *   seul un `true` explicite ouvre la route. Absent, il vaut `false` (decision
- *   2.0.0 : fermee par defaut, installations neuves comme instances venues de
- *   1.21.x). L'administrateur l'ouvre dans les reglages.
+ * Edition oss :
+ * - aucun super administrateur : refus, quoi que dise `setup_completed`
+ *   (sans cela, un tiers s'inscrit avant la creation du premier administrateur) ;
+ * - reglage `system_settings.auth.allowRegistration` : seul un `true` explicite
+ *   ouvre la route. Absent, il vaut `false` (decision 2.0.0 : fermee par defaut).
+ *
+ * Edition commerciale : parcours d'avant l'edition oss. Sans reglage explicite,
+ * l'inscription reste ouverte (lien « Creer un compte », /register, 409 needsOrg
+ * vers la creation d'organisation). Un `false` explicite de l'administrateur ferme la route.
  */
-export async function getRegistrationRefusal(): Promise<RegistrationRefusal | null> {
+export async function getRegistrationRefusal(
+  includedModuleIds: readonly ModuleId[] = INCLUDED_MODULE_IDS,
+): Promise<RegistrationRefusal | null> {
+  const commercial = includedModuleIds.includes("commercial");
+
   const rows = await db
     .select()
     .from(systemSettings)
     .where(inArray(systemSettings.key, ["auth", "setup_completed"]));
 
-  const completed = rows.find((r) => r.key === "setup_completed")?.value === true;
-
-  if (!completed) {
-    const [admin] = await db
-      .select({ id: users.id })
-      .from(users)
-      .where(eq(users.globalRole, "super_admin"))
-      .limit(1);
-    if (!admin) {
-      return {
-        status: 403,
-        error: "L'instance n'est pas encore configurée. L'inscription est fermée.",
-      };
-    }
-  }
-
   const auth = rows.find((r) => r.key === "auth")?.value as
     | { allowRegistration?: unknown }
     | null
     | undefined;
-  if (auth?.allowRegistration !== true) {
+
+  if (commercial) {
+    if (!resolveAllowRegistration(auth?.allowRegistration, includedModuleIds)) {
+      return { status: 403, error: "L'inscription est fermée sur cette instance." };
+    }
+    return null;
+  }
+
+  const [admin] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.globalRole, "super_admin"))
+    .limit(1);
+  if (!admin) {
+    return {
+      status: 403,
+      error: "L'instance n'est pas encore configurée. L'inscription est fermée.",
+    };
+  }
+  if (!resolveAllowRegistration(auth?.allowRegistration, includedModuleIds)) {
     return { status: 403, error: "L'inscription est fermée sur cette instance." };
   }
   return null;

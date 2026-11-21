@@ -245,8 +245,6 @@ export async function ensureAttachmentsRetired(
       // Garde B123 d'abord, sans aucune copie préalable : quand media existe, une ligne attachments sans copie
       // accessible (média purgé) est une orpheline qui arrête le déploiement, jamais ressuscitée dans media.
       // Le pont 1.21.x ne passe que par importArchivedMedia (media absente à l'archivage).
-      const imported = { attachments: 0, studio: 0 };
-
       const att = present.attachments && mediaPresent ? await measure(client, "attachments") : null;
       const stu = present.studio_images && mediaPresent ? await measure(client, "studio_images") : null;
       if (att && att.orphans > 0) {
@@ -277,12 +275,12 @@ export async function ensureAttachmentsRetired(
       const report: RetireReport = {
         attachmentsSeen: attSeen,
         attachmentsCopied: att ? att.by_id + att.by_key + att.by_key_other_org : 0,
-        attachmentsImported: imported.attachments,
+        attachmentsImported: 0,
         attachmentsDuplicates: att?.by_key ?? 0,
         attachmentsOtherOrgKey: att?.by_key_other_org ?? 0,
         studioSeen: stuSeen,
         studioCopied: stu?.by_id ?? 0,
-        studioImported: imported.studio,
+        studioImported: 0,
         studioOrphansIgnored: stu?.orphans ?? 0,
         tablesArchived: toLock,
         functionsDropped,

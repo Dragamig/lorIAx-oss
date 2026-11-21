@@ -7,6 +7,7 @@ import {
   canCrossOrgBoundary,
   INSTANCE_ADMIN_ONLY_MESSAGE,
 } from "@/lib/auth/rbac";
+import { resolveAllowRegistration } from "@/lib/auth/registration-default";
 import { encrypt } from "@/lib/crypto";
 import { auditLog } from "@/lib/audit/log";
 import { getClientIp } from "@/lib/rate-limit";
@@ -64,6 +65,16 @@ export async function GET() {
     if (INFRASTRUCTURE_KEYS.has(row.key) && !instanceAdmin) continue;
     // AZ-08 : et même pour elle, un secret ne se relit pas.
     settings[row.key] = maskSecrets(row.key, row.value);
+  }
+
+  // Reglage d'inscription absent : l'ecran affiche la valeur effective de
+  // l'edition, pour qu'enregistrer sans toucher l'interrupteur ne change rien.
+  if (instanceAdmin) {
+    const auth = isPlainObject(settings.auth) ? settings.auth : {};
+    settings.auth = {
+      ...auth,
+      allowRegistration: resolveAllowRegistration(auth.allowRegistration),
+    };
   }
 
   return NextResponse.json(settings);
