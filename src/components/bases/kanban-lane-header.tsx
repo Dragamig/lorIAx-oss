@@ -23,8 +23,9 @@ export interface KanbanLaneHeaderProps {
   showWeighted: boolean;
   currency: string;
   locale: string;
-  onAdd(): void;
-  busy: boolean;
+  /** Absent : aucun bouton « + » (voie sans création de carte, par exemple le Pipeline CRM). */
+  onAdd?(): void;
+  busy?: boolean;
   /** Nombre de cartes affichées quand les totaux sont inactifs. */
   count?: number;
 }
@@ -56,17 +57,19 @@ export function KanbanLaneHeader({
             {t("closedBadge")}
           </span>
         )}
-        <Tip label={t("addCard")}>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={onAdd}
-            aria-label={t("addCardIn", { lane: name })}
-            className={`${btn} ml-auto shrink-0`}
-          >
-            <Plus className="h-3.5 w-3.5" aria-hidden />
-          </button>
-        </Tip>
+        {onAdd && (
+          <Tip label={t("addCard")}>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onAdd}
+              aria-label={t("addCardIn", { lane: name })}
+              className={`${btn} ml-auto shrink-0`}
+            >
+              <Plus className="h-3.5 w-3.5" aria-hidden />
+            </button>
+          </Tip>
+        )}
       </div>
       {totals && (
         <div className="h-9" data-testid="kanban-lane-foot">

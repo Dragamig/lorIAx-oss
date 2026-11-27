@@ -27,6 +27,7 @@ vi.mock("@/lib/db", () => {
           rows = table === media ? mediaRows : table === videoProjects ? videoProjectRows : [];
           return b;
         }),
+        innerJoin: vi.fn(() => b),
         where: vi.fn(() => b),
         limit: vi.fn(() => Promise.resolve(rows)),
       };
@@ -246,7 +247,7 @@ describe("GET /api/attachments/signed — contrôle d'accès", () => {
   });
 
   it("émet une URL courte (120 s) pour un média accessible", async () => {
-    mediaRows = [mediaRow(SPACE_A)];
+    mediaRows = [{ ...mediaRow(SPACE_A), storageKey: `${SPACE_A}/video-editor/clip.mp4`, filename: "clip.png" }];
     mockSpaceAccess.mockResolvedValue(true);
 
     const res = await getSigned(`${SPACE_A}/video-editor/clip.mp4`);

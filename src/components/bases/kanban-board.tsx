@@ -384,6 +384,7 @@ export function KanbanBoard({ databaseId, spaceId, viewId, viewConfig, columns, 
         nav={nav}
         onNavigate={navigate}
         onClose={closeRecord}
+        deletion={{ onChanged: onRefresh, readOnly }}
       />
     </div>
   );

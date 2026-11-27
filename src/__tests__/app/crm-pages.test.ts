@@ -29,17 +29,19 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 vi.mock("@/components/crm/connection-screen", () => ({ ConnectionScreen: () => null }));
+vi.mock("@/components/crm/pipeline/pipeline-screen", () => ({ PipelineScreen: () => null }));
 vi.mock("@/components/crm/crm-disabled", () => ({ CrmDisabled: () => null }));
 
 import CrmPage from "@/app/[locale]/(app)/crm/page";
 import RaccordementPage from "@/app/[locale]/(app)/crm/raccordement/page";
+import { PipelineScreen } from "@/components/crm/pipeline/pipeline-screen";
 import { ConnectionScreen } from "@/components/crm/connection-screen";
 import { CrmDisabled } from "@/components/crm/crm-disabled";
 
 describe.each([
-  ["/crm", CrmPage],
-  ["/crm/raccordement", RaccordementPage],
-])("page %s", (_name, Page) => {
+  ["/crm", CrmPage, PipelineScreen],
+  ["/crm/raccordement", RaccordementPage, ConnectionScreen],
+])("page %s", (_name, Page, Enabled) => {
   beforeEach(() => {
     h.orgId = "o1";
     h.active = true;
@@ -65,10 +67,10 @@ describe.each([
     expect(el.props.isAdmin).toBe(true);
   });
 
-  it("activée : ConnectionScreen", async () => {
+  it("activée : écran de la route", async () => {
     h.enabled = true;
     const el = await Page();
-    expect(el.type).toBe(ConnectionScreen);
-    expect(el.props.organisation).toBe("Acme");
+    expect(el.type).toBe(Enabled);
+    if (Enabled === ConnectionScreen) expect(el.props.organisation).toBe("Acme");
   });
 });

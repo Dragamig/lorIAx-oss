@@ -152,6 +152,7 @@ describe("RowActivity", () => {
           mk("import", {}, 3),
           mk("system", {}, 2),
           mk("automation", { actorLabel: "Relance J+3" }, 1),
+          mk("ai", {}, 8),
         ]),
       ),
     );
@@ -164,9 +165,16 @@ describe("RowActivity", () => {
       "Import",
       "Système",
       "Automatisme Relance J+3",
+      "Assistant IA",
     ]) {
       expect(await screen.findByText(new RegExp(`^${label.replace("+", "\\+")}`))).toBeTruthy();
     }
+  });
+
+  it("écriture de l'assistant : acteur humain et source IA", async () => {
+    fetchMock.mockReturnValue(json(page([entry({ source: "ai", actor: { id: "u1", name: "Ana" } })])));
+    mount();
+    expect(await screen.findByText(/Ana via Assistant IA a modifié Ville/)).toBeTruthy();
   });
 
   it("canClear faux : pas de bouton d'effacement", async () => {

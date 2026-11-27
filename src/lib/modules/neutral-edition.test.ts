@@ -54,7 +54,7 @@ describe.skipIf(!withoutCommercial)("edition sans module commercial", () => {
     expect(s.SubscriptionTab).toBeNull();
     expect(s.OrgSwitcher).toBeNull();
     expect(s.adminTabs).toEqual([]);
-    expect(s.cloudSignup).toBe(false);
+    expect(s.CloudSignupLink).toBeNull();
     expect(s.helpBugReport).toBe(false);
     const child = "x";
     expect((s.LicenseProvider as unknown as (p: { children: string }) => string)({ children: child })).toBe(child);

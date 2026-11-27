@@ -15,12 +15,16 @@ export interface ServeMediaArgs {
   revalidate?: boolean;
   /** Portée du cache HTTP : "private" par défaut, "public" pour le partage sans session. */
   cacheScope?: "private" | "public";
+  /** Sert un .svg en image/svg+xml sous CSP sandbox (affichable en <img>) au lieu d'octet-stream. */
+  renderSvg?: boolean;
 }
 
 const BASE_HEADERS = {
   "X-Content-Type-Options": "nosniff",
   "Accept-Ranges": "bytes",
 } as const;
+
+const SVG_CSP = "sandbox; default-src 'none'; style-src 'unsafe-inline'";
 
 /** Range simple uniquement. null = invalide ou multiple, "unsatisfiable" = hors taille. */
 function parseRange(
@@ -45,13 +49,19 @@ function parseRange(
 }
 
 export async function serveMediaObject(args: ServeMediaArgs): Promise<Response> {
-  const { req, key, mime, filename, etagSeed, inline, maxAgeSeconds, revalidate = false, cacheScope = "private" } = args;
+  const { req, key, mime, filename, etagSeed, inline, maxAgeSeconds, revalidate = false, cacheScope = "private", renderSvg = false } = args;
   const etag = `"${etagSeed}"`;
   // H9 : le type servi est recompose cote serveur, jamais repris tel quel du stockage.
-  const served = serveContentType(mime, filename);
+  let served = serveContentType(mime, filename);
+  // SVG : affichable en <img> (logos, blocs image, designs), jamais exécutable.
+  // Le type est imposé par l'extension, la CSP sandbox neutralise tout script
+  // si le fichier est ouvert en navigation, et la disposition reste « attachment ».
+  const isSvg = renderSvg && /\.svg$/i.test(filename);
+  if (isSvg) served = { contentType: "image/svg+xml", disposition: "attachment" };
   const disposition = buildContentDisposition(filename, inline && served.disposition === "inline");
   const common: Record<string, string> = {
     ...BASE_HEADERS,
+    ...(isSvg ? { "Content-Security-Policy": SVG_CSP } : {}),
     ETag: etag,
     "Cache-Control": revalidate ? `${cacheScope}, no-cache` : `${cacheScope}, max-age=${maxAgeSeconds}`,
   };

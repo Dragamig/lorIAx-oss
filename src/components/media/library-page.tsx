@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react"
+import dynamic from "next/dynamic"
 import { useTranslations } from "next-intl"
 import useSWR from "swr"
 import { UploadCloud } from "lucide-react"
@@ -25,6 +26,7 @@ import { TagsDialog } from "./tags-dialog"
 import { EraseDialog, type EraseTarget } from "./erase-dialog"
 import { TrashDialog } from "./trash-dialog"
 import { TrashView } from "./trash-view"
+import { InterruptedUploads } from "./interrupted-uploads"
 import { UploadDialog } from "./upload-dialog"
 import { UploadTray } from "./upload-tray"
 import { useBulkActions } from "./use-bulk-actions"
@@ -36,6 +38,9 @@ import { useUndoStack } from "./use-undo-stack"
 import { useUploadQueue } from "./use-upload-queue"
 
 export { LibraryErrorState }
+
+// Le retoucheur (Fabric) n'est chargé qu'à l'ouverture : jamais dans le paquet initial de la médiathèque.
+const RetouchDialog = dynamic(() => import("./retouch/retouch-dialog").then((m) => m.RetouchDialog), { ssr: false })
 
 export function LibraryPageSkeleton() {
   const t = useTranslations("library.states")
@@ -177,9 +182,9 @@ async function fetchJson<T>(url: string): Promise<T> {
 
 type SpaceRow = { id: string; name: string }
 
-export function LibraryPage({ isAdmin = false, canWrite = true }: { isAdmin?: boolean; canWrite?: boolean }) {
+export function LibraryPage({ isAdmin = false, canWrite = true, userId }: { isAdmin?: boolean; canWrite?: boolean; userId?: string }) {
   const t = useTranslations("library")
-  const { filters, setFilters, reset, hasActiveFilters } = useLibraryFilters()
+  const { filters, setFilters, reset, applyQuery, hasActiveFilters } = useLibraryFilters()
   const list = useMediaList(filters)
   const stats = useSWR<LibraryStats>("/api/media/stats", fetchJson, { revalidateOnFocus: false })
   const folderData = useSWR<{ folders: FolderNode[] }>("/api/media/folders", fetchJson, { revalidateOnFocus: false })
@@ -212,6 +217,8 @@ export function LibraryPage({ isAdmin = false, canWrite = true }: { isAdmin?: bo
   const selection = useSelection(orderedIds)
   const [currentId, setCurrentId] = useState<string | null>(null)
   const onOpen = useCallback((item: MediaListItem) => setCurrentId(item.id), [])
+  const [retouchTarget, setRetouchTarget] = useState<MediaListItem | null>(null)
+  const [retouchReload, setRetouchReload] = useState(0)
 
   const onSort = (sort: MediaSort) => {
     if (sort === filters.sort) setFilters({ dir: filters.dir === "asc" ? "desc" : "asc" })
@@ -224,10 +231,15 @@ export function LibraryPage({ isAdmin = false, canWrite = true }: { isAdmin?: bo
     return [...seen].map(([id, name]) => ({ id, name }))
   }, [list.items])
 
-  const queue = useUploadQueue()
+  const queue = useUploadQueue({ userId })
   const [uploadOpen, setUploadOpen] = useState(false)
   const [dropped, setDropped] = useState<File[] | undefined>(undefined)
   const quotaFull = isQuotaFull(stats.data)
+  const canRetouchSave = canWrite && (spaces.length > 0 || isAdmin)
+  const retouchFolders = useMemo(
+    () => folders.map((f) => ({ id: f.id, name: folderPath(folders, f.id).map((p) => p.name).join(" / ") })),
+    [folders]
+  )
   const folderId = filters.folderId && filters.folderId !== "none" ? filters.folderId : null
   const spaceId = filters.spaceId && filters.spaceId !== "none" ? filters.spaceId : null
   const currentFolder = folderPath(folders, folderId ?? undefined).at(-1)
@@ -369,6 +381,7 @@ export function LibraryPage({ isAdmin = false, canWrite = true }: { isAdmin?: bo
         layout={layout}
         onLayoutChange={changeLayout}
         isAdmin={isAdmin}
+        onApplyQuery={applyQuery}
       />
       <BulkBar
         selectedCount={selection.selected.size}
@@ -381,6 +394,7 @@ export function LibraryPage({ isAdmin = false, canWrite = true }: { isAdmin?: bo
         onRestore={inTrash ? () => void bulk.restore(selectedIds) : undefined}
         onErase={inTrash && isAdmin ? () => openErase(selectedIds) : undefined}
         writeDisabledReason={canWrite ? undefined : t("bulk.readOnly")}
+        zip={{ ids: selectedIds, totalBytes: selectedItems.reduce((n, i) => n + i.sizeBytes, 0) }}
       />
     </div>
   )
@@ -408,7 +422,12 @@ export function LibraryPage({ isAdmin = false, canWrite = true }: { isAdmin?: bo
         slots={{
           tree,
           toolbar,
-          banner: <QuotaBanner stats={stats.data} />,
+          banner: (
+            <>
+              <QuotaBanner stats={stats.data} />
+              <InterruptedUploads queue={queue} userId={userId} />
+            </>
+          ),
           properties: currentId && !inTrash ? (
             <PropertiesPanel
               mediaId={currentId}
@@ -420,6 +439,10 @@ export function LibraryPage({ isAdmin = false, canWrite = true }: { isAdmin?: bo
               onPreview={(id) => {
                 if (list.items.some((x) => x.id === id)) setPreviewId(id)
               }}
+              onRetouch={setRetouchTarget}
+              canWriteSpace={canRetouchSave}
+              onOpenMedia={setCurrentId}
+              reloadKey={retouchReload}
             />
           ) : undefined,
         }}
@@ -460,7 +483,31 @@ export function LibraryPage({ isAdmin = false, canWrite = true }: { isAdmin?: bo
         index={inTrash ? null : previewIndex}
         onIndexChange={(i) => setPreviewId(list.items[i]?.id ?? null)}
         onClose={() => setPreviewId(null)}
+        onRetouch={(item) => {
+          setPreviewId(null)
+          setRetouchTarget(item)
+        }}
+        canWriteSpace={canRetouchSave}
       />
+      {retouchTarget && (
+        <RetouchDialog
+          media={retouchTarget}
+          spaces={spaces}
+          folders={retouchFolders}
+          canWriteSpace={canRetouchSave}
+          allowNoSpace={canWrite}
+          userId={userId}
+          onClose={() => setRetouchTarget(null)}
+          onSaved={() => {
+            refreshAll()
+            setRetouchReload((n) => n + 1)
+          }}
+          onUndone={() => {
+            refreshAll()
+            setRetouchReload((n) => n + 1)
+          }}
+        />
+      )}
       <MoveDialog
         open={moveOpen}
         onOpenChange={setMoveOpen}

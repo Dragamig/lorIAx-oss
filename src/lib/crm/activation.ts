@@ -19,6 +19,7 @@ import { CRM_FIELDS, CRM_ROLES, parseFieldMap, type CrmActivateBodyV2, type CrmF
 import { fallbackColumnName, normalizeName, planMissing } from "./plan";
 import { buildRoleDatabase, crmRelations, missingToTemplateColumns } from "./template";
 import { loadTemplateMessages } from "./template-messages";
+import { insertSampleAutomations } from "./sample-automations-write";
 import { validateField } from "./validate";
 
 const ROLE_COLUMN_OF = {
@@ -38,7 +39,19 @@ export type ActivateFailure =
   | { ok: false; status: 400; code: "column_not_in_database" | "duplicate_database" | "space_quota" };
 
 export type ActivateResult =
-  | { ok: true; reactivated: boolean; created: CrmRole[]; completed: CrmRole[]; unlinkedRelations: string[] }
+  | {
+      ok: true;
+      reactivated: boolean;
+      created: CrmRole[];
+      completed: CrmRole[];
+      unlinkedRelations: string[];
+      /** Clés des automatismes d'exemple créés (désactivés) par ce passage. */
+      automationsCreated: string[];
+      /** Clés non créées faute de prérequis ; réessayées à la prochaine activation. */
+      automationsSkipped: string[];
+      /** Libellés ajoutés à la colonne Statut de Dossiers. */
+      statusOptionsAdded: string[];
+    }
   | ActivateFailure;
 
 export interface ActivateInput {
@@ -334,6 +347,16 @@ export async function activateCrm(
         }
       }
 
+      // Exemples : lus sur le raccordement tel qu'il vient d'être écrit, dans la même transaction.
+      const permissionOfTx = async (u: string, sp: string): Promise<PermissionLevel | null> =>
+        sp === createdSpaceId ? "admin" : deps.permissionOf(u, sp);
+      const samples = await insertSampleAutomations(
+        tx,
+        { orgId, userId, permissionOf: permissionOfTx },
+        orgId,
+        await loadTemplateMessages(input.locale),
+      );
+
       const now = new Date();
       const createdAll = createdIds.length > 0 ? [...new Set([...(existing?.createdDatabaseIds ?? []), ...createdIds])] : null;
       await tx
@@ -344,10 +367,17 @@ export async function activateCrm(
           updatedBy: userId,
           updatedAt: now,
           ...(createdAll ? { createdDatabaseIds: createdAll } : {}),
+          createdAutomationKeys: samples.keys,
         })
         .onConflictDoUpdate({
           target: crmConnections.organizationId,
-          set: { enabled: true, updatedBy: userId, updatedAt: now, ...(createdAll ? { createdDatabaseIds: createdAll } : {}) },
+          set: {
+            enabled: true,
+            updatedBy: userId,
+            updatedAt: now,
+            ...(createdAll ? { createdDatabaseIds: createdAll } : {}),
+            createdAutomationKeys: samples.keys,
+          },
         });
       return {
         ok: true as const,
@@ -355,6 +385,9 @@ export async function activateCrm(
         created,
         completed,
         unlinkedRelations: unlinked,
+        automationsCreated: samples.created,
+        automationsSkipped: samples.skipped,
+        statusOptionsAdded: samples.statusOptionsAdded,
       };
     });
 

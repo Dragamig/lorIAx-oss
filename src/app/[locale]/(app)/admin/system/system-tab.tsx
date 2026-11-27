@@ -15,10 +15,13 @@ import {
   Eye,
   EyeOff,
   Lock,
+  Check,
+  MailPlus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import Link from "next/link";
 import { ModuleActivationNotice } from "@/components/admin/module-activation-notice";
 import { AdminSaveBar } from "@/components/admin/floating-save-button";
 
@@ -157,6 +160,7 @@ export function AdminSystemTab() {
   const [rolePerms, setRolePerms] = useState(defaultRolePermissions);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [emailConfigured, setEmailConfigured] = useState<boolean | null>(null);
   const [testingLdap, setTestingLdap] = useState(false);
   const [appVersion, setAppVersion] = useState<string>("...");
   const [showWizardModal, setShowWizardModal] = useState(false);
@@ -178,6 +182,13 @@ export function AdminSystemTab() {
       .then((r) => r.json())
       .then((data) => setAppVersion(data.version || "dev"))
       .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/admin/email-status")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => setEmailConfigured(typeof data?.configured === "boolean" ? data.configured : null))
+      .catch(() => setEmailConfigured(null));
   }, []);
 
   const loadSettings = useCallback(async () => {
@@ -303,6 +314,10 @@ export function AdminSystemTab() {
 
       if (!res.ok) {
         const data = await res.json();
+        if (data.code === "email_not_configured") {
+          setSettings((prev) => ({ ...prev, allowRegistration: false }));
+          setEmailConfigured(false);
+        }
         throw new Error(data.error || "Erreur lors de la sauvegarde");
       }
 
@@ -378,25 +393,94 @@ export function AdminSystemTab() {
 
         {isInstanceAdmin && (
         <div className="space-y-4">
+          {emailConfigured === false && (
+            <div
+              role="alert"
+              className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100"
+            >
+              <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              <div className="space-y-1.5">
+                <p>
+                  Aucun relais SMTP n&apos;est configuré. L&apos;ouverture de l&apos;inscription exige
+                  l&apos;envoi des liens de vérification.
+                </p>
+                <Link
+                  href="/admin/emails"
+                  aria-label="Configurer le relais SMTP"
+                  title="Configurer le relais SMTP"
+                  className="inline-flex min-h-6 items-center gap-1.5 rounded-md border border-amber-400 px-2 py-1 text-xs font-medium hover:bg-amber-100 dark:hover:bg-amber-900"
+                >
+                  <MailPlus className="h-3.5 w-3.5" aria-hidden="true" />
+                  Configurer le relais SMTP
+                </Link>
+              </div>
+            </div>
+          )}
+
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium">Inscription ouverte</p>
+              <p id="label-allow-registration" className="text-sm font-medium">Inscription ouverte</p>
               <p className="text-xs text-muted-foreground">
-                Permettre aux nouveaux utilisateurs de créer un compte
+                Concerne les pages d&apos;inscription. Les comptes invités ne sont pas concernés.
               </p>
             </div>
-            <button
-              onClick={() => updateSetting("allowRegistration", !settings.allowRegistration)}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                settings.allowRegistration ? "bg-primary" : "bg-gray-300 dark:bg-gray-600"
-              }`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  settings.allowRegistration ? "translate-x-6" : "translate-x-1"
-                }`}
-              />
-            </button>
+            {(() => {
+              const blocked = emailConfigured !== true && !settings.allowRegistration;
+              const tip = blocked
+                ? emailConfigured === null
+                  ? "Vérification de la configuration email en cours"
+                  : "Configurez d'abord l'envoi d'email (relais SMTP ou Resend)"
+                : settings.allowRegistration
+                  ? "Fermer l'inscription"
+                  : "Ouvrir l'inscription";
+              return (
+                <span className="group relative inline-flex">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={settings.allowRegistration}
+                    aria-labelledby="label-allow-registration"
+                    aria-label="Inscription ouverte"
+                    aria-disabled={blocked}
+                    title={tip}
+                    onClick={() => {
+                      if (blocked) return;
+                      updateSetting("allowRegistration", !settings.allowRegistration);
+                    }}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${
+                      blocked ? "cursor-not-allowed opacity-50" : ""
+                    } ${
+                      settings.allowRegistration ? "bg-primary" : "bg-gray-300 dark:bg-gray-600"
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        settings.allowRegistration ? "translate-x-6" : "translate-x-1"
+                      }`}
+                    />
+                  </button>
+                  <span
+                    role="tooltip"
+                    className="pointer-events-none absolute right-0 top-full z-10 mt-1 hidden w-max max-w-xs rounded-md bg-foreground px-2 py-1 text-xs text-background group-hover:block group-focus-within:block"
+                  >
+                    {tip}
+                  </span>
+                </span>
+              );
+            })()}
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">Vérification de l&apos;adresse email</p>
+              <p className="text-xs text-muted-foreground">
+                Lien valable 24 h, obligatoire avant la première connexion.
+              </p>
+            </div>
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
+              <Check className="h-3 w-3" aria-hidden="true" />
+              Active
+            </span>
           </div>
 
           <div className="space-y-2">

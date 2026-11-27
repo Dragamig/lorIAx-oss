@@ -47,6 +47,7 @@ export async function GET() {
       avatarUrl: users.avatarUrl,
       createdAt: users.createdAt,
       updatedAt: users.updatedAt,
+      emailVerifiedAt: users.emailVerifiedAt,
     })
     .from(users)
     .where(inArray(users.id, memberIds))

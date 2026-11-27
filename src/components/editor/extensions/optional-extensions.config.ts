@@ -15,8 +15,6 @@ export interface OptionalExtensionSource {
 
 export const OPTIONAL_EXTENSION_SOURCES: OptionalExtensionSource[] = [
   { key: "DesignBlock", moduleId: "studio", importPath: "./design-block-node", exportName: "DesignBlock" },
-  { key: "VideoEditorBlock", moduleId: "studiovideo", importPath: "./video-editor-block-node", exportName: "VideoEditorBlock" },
-  { key: "VideoEmbed", moduleId: "studiovideo", importPath: "./video-embed", exportName: "VideoEmbed" },
   { key: "MeetingBlock", moduleId: "livekit", importPath: "./meeting-block-node", exportName: "MeetingBlock" },
   { key: "InPersonMeetingBlock", moduleId: "meeting-rooms", importPath: "./meeting/in-person-meeting-block-node", exportName: "InPersonMeetingBlock" },
   { key: "FileBlock", moduleId: "library", importPath: "./file-block-node", exportName: "FileBlock" },

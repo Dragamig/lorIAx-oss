@@ -15,5 +15,5 @@ export default async function MediathequePage() {
   const user = await getSessionUser()
   const isAdmin = user && orgId ? await isOrgAdminOrOwner(user.id, orgId) : false
   const canWrite = user ? hasGlobalRole(user.globalRole, "editor") : false
-  return <LibraryPage isAdmin={isAdmin} canWrite={canWrite} />
+  return <LibraryPage isAdmin={isAdmin} canWrite={canWrite} userId={user?.id} />
 }

@@ -10,6 +10,8 @@ import { Label } from "@/components/ui/label"
 import type { BatchItemResult } from "@/lib/media/batch"
 import type { FolderNode } from "@/lib/media/folders"
 import type { MediaDetail, MediaPatch } from "@/lib/media/metadata"
+import type { MediaListItem } from "@/lib/media/list"
+import { retouchEntryReason } from "./retouch/retouch-actions"
 import { ActionButton } from "./action-button"
 import { folderPath } from "./filter-bar"
 import { formatMediaDate, formatMediaSize } from "./media-format"
@@ -20,6 +22,11 @@ import { SpaceDialog } from "./space-dialog"
 import { TrashDialog } from "./trash-dialog"
 import type { UndoStack } from "./use-undo-stack"
 import { UsageList } from "./usage-list"
+import { IndexingSection } from "./indexing-section"
+import { VersionsTab } from "./versions-tab"
+import { RetouchLinks } from "./retouch-links"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { mediaContentUrl } from "@/lib/media/urls"
 
 type Props = {
   /** Média ouvert ; `null` : rien n'est rendu et la colonne reste repliée. */
@@ -36,6 +43,14 @@ type Props = {
   undo?: UndoStack
   /** Confie à la page l'annonce et l'annulation d'une mise à la corbeille (pile Ctrl+Z). */
   onTrashed?: (ids: string[], results: BatchItemResult[]) => void
+  /** Ouvre le retoucheur (porté par la page, qui le charge à la demande) ; absent : pas de bouton. */
+  onRetouch?: (media: MediaListItem) => void
+  /** L'utilisateur peut écrire dans au moins un espace (copie d'une retouche). */
+  canWriteSpace?: boolean
+  /** Ouvre un autre média (lien vers l'original ou une retouche). */
+  onOpenMedia?: (id: string) => void
+  /** Change après un enregistrement ou une annulation de retouche : recharge la fiche ouverte. */
+  reloadKey?: number
 }
 
 async function request(url: string, init?: RequestInit): Promise<Response> {
@@ -111,7 +126,7 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
-export function PropertiesPanel({ mediaId, onClose, onMutated, usageSlot, onPreview, spaces = [], undo, onTrashed }: Props) {
+export function PropertiesPanel({ mediaId, onClose, onMutated, usageSlot, onPreview, spaces = [], undo, onTrashed, onRetouch, canWriteSpace = true, onOpenMedia, reloadKey = 0 }: Props) {
   const t = useTranslations("library")
   const locale = useLocale()
   const ids = useId()
@@ -146,6 +161,12 @@ export function PropertiesPanel({ mediaId, onClose, onMutated, usageSlot, onPrev
     setFilenameError(undefined)
     void load()
   }, [load])
+
+  // Rechargement silencieux (sans squelette) quand une retouche vient d'être enregistrée ou annulée.
+  useEffect(() => {
+    if (reloadKey > 0) void load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reloadKey])
 
   useEffect(() => {
     if (!mediaId) return
@@ -243,6 +264,8 @@ export function PropertiesPanel({ mediaId, onClose, onMutated, usageSlot, onPrev
   const Icon = KIND_ICONS[detail.kind]
   const absoluteUrl = `${window.location.origin}${detail.url}`
   const dims = detail.width && detail.height ? `${detail.width} × ${detail.height}` : null
+  const entry = retouchEntryReason(detail, { canWriteSpace, canWriteOriginal: detail.canWrite })
+  const retouchReason = entry ? t(`retouch.entry.${entry}`) : undefined
 
   const saveText = (field: "title" | "altText" | "description", label: string, current: string | null) => (next: string) => {
     const value = next.trim() === "" ? null : next
@@ -286,13 +309,23 @@ export function PropertiesPanel({ mediaId, onClose, onMutated, usageSlot, onPrev
       <div className="flex h-44 items-center justify-center overflow-hidden bg-muted">
         {detail.kind === "image" ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={detail.url} alt={detail.altText ?? ""} className="max-h-full max-w-full object-contain" />
+          <img src={mediaContentUrl(detail)} alt={detail.altText ?? ""} className="max-h-full max-w-full object-contain" />
         ) : (
           <Icon className="h-14 w-14 text-muted-foreground" aria-hidden />
         )}
       </div>
 
       <div className="flex items-center gap-1 border-b border-border px-3 py-2">
+        {onRetouch && (
+          <ActionButton
+            id="openRetouch"
+            variant="outline"
+            size="sm"
+            showLabel
+            onAction={() => onRetouch(detail)}
+            disabledReason={retouchReason}
+          />
+        )}
         {onPreview && <ActionButton id="preview" onAction={() => onPreview(detail.id)} />}
         <ActionButton id="download" onAction={download} />
         <ActionButton id="copyLink" onAction={() => void copyLink()} />
@@ -309,6 +342,12 @@ export function PropertiesPanel({ mediaId, onClose, onMutated, usageSlot, onPrev
         )}
       </div>
 
+      <Tabs defaultValue="info">
+        <TabsList aria-label={t("versions.tabsLabel")}>
+          <TabsTrigger value="info">{t("versions.tabInfo")}</TabsTrigger>
+          <TabsTrigger value="versions">{t("versions.tabVersions")}</TabsTrigger>
+        </TabsList>
+        <TabsContent value="info">
       <section aria-label={t("props.sectionInfo")} className="space-y-3 p-3">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t("props.sectionInfo")}</h3>
         <TextField
@@ -394,10 +433,29 @@ export function PropertiesPanel({ mediaId, onClose, onMutated, usageSlot, onPrev
         </dl>
       </section>
 
+      <RetouchLinks detail={detail} onOpen={onOpenMedia} />
+
+      <IndexingSection mediaId={detail.id} canWrite={detail.canWrite} name={detail.title || detail.filename} />
+
       <section aria-label={t("usage.title")} className="space-y-2 border-t border-border p-3">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t("usage.title")}</h3>
         <UsageList mediaId={detail.id} />
       </section>
+        </TabsContent>
+        <TabsContent value="versions">
+          <VersionsTab
+            mediaId={detail.id}
+            currentVersion={detail.currentVersion}
+            canWrite={detail.canWrite}
+            inTrash={detail.deletedAt !== null}
+            usageCount={detail.usageCount}
+            onChanged={() => {
+              void load()
+              onMutated()
+            }}
+          />
+        </TabsContent>
+      </Tabs>
       {usageSlot}
       {detail.canChangeSpace && (
         <SpaceDialog

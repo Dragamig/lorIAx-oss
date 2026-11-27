@@ -7,6 +7,7 @@ import { getMediaByStorageKey, getMediaFull } from "@/lib/media/access";
 import { serveMediaObject } from "@/lib/media/serve";
 import { buildContentDisposition } from "@/lib/media/content-disposition";
 import { serveContentType } from "@/lib/storage/serve-content-type";
+import { contentEtagSeed } from "@/lib/media/etag";
 
 export async function GET(
   req: NextRequest,
@@ -30,15 +31,17 @@ export async function GET(
   // lecture en flux (Range, ETag). Inline seulement pour la liste blanche.
   const access = await getMediaByStorageKey(key);
   const row = access ? await getMediaFull(access.id) : null;
-  if (row) {
+  // Clé d'ancienne version : droits du parent, objet servi tel quel (S3 brut).
+  if (row && row.storageKey === key) {
     return serveMediaObject({
       req,
       key: row.storageKey,
       mime: row.mimeType,
       filename: row.filename,
-      etagSeed: `${row.id}-${row.updatedAt.getTime()}`,
+      etagSeed: contentEtagSeed(row),
       inline: true,
-      maxAgeSeconds: 300,
+      maxAgeSeconds: 0,
+      revalidate: true,
     });
   }
 

@@ -93,4 +93,24 @@ describe("createSpreadsheetDocument", () => {
     await createSpreadsheetDocument({ ...base, title: 'A "B" <c>' });
     expect(createDocument.mock.calls[0][0].content).toContain('title="A &quot;B&quot; &lt;c&gt;"');
   });
+
+  it("sans data, garde le classeur de demande", async () => {
+    await createSpreadsheetDocument(base);
+    const wb = JSON.parse(inserted[0].data as string);
+    expect(wb.name).toBe("Demande");
+    expect(createDocument.mock.calls[0][0].content).toContain('colcount="16"');
+  });
+
+  it("avec data, écrit le classeur générique, rattaché à l'espace", async () => {
+    await createSpreadsheetDocument({
+      ...base,
+      data: { columns: [{ name: "A" }, { name: "B" }], rows: [["1", "2"], ["3", "4"]] },
+    });
+    expect(inserted[0].spaceId).toBe(base.spaceId);
+    const wb = JSON.parse(inserted[0].data as string);
+    expect(wb.sheetOrder).toHaveLength(1);
+    const content = createDocument.mock.calls[0][0].content as string;
+    expect(content).toContain('rowcount="3"');
+    expect(content).toContain('colcount="2"');
+  });
 });

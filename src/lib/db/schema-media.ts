@@ -41,6 +41,7 @@ export const mediaUsageTargetEnum = pgEnum("media_usage_target", [
   "video_project",
   "brand_kit",
   "presentation",
+  "whiteboard",
 ]);
 
 export const mediaUsageSourceEnum = pgEnum("media_usage_source", [
@@ -102,6 +103,10 @@ export const media = pgTable(
     pageCount: integer("page_count"),
     thumbnailKey: varchar("thumbnail_key", { length: 1024 }),
     currentVersion: integer("current_version").notNull().default(1),
+    /** Média dont celui-ci est dérivé (retouche) ; nul si l'original est supprimé. */
+    sourceMediaId: uuid("source_media_id").references((): AnyPgColumn => media.id, {
+      onDelete: "set null",
+    }),
     uploadedBy: uuid("uploaded_by")
       .notNull()
       .references(() => users.id),
@@ -118,6 +123,9 @@ export const media = pgTable(
     index("idx_media_kind").on(t.kind),
     index("idx_media_checksum").on(t.checksumSha256),
     index("idx_media_uploaded_by").on(t.uploadedBy),
+    index("idx_media_source")
+      .on(t.sourceMediaId)
+      .where(sql`${t.sourceMediaId} is not null`),
     index("idx_media_no_space")
       .on(t.organizationId)
       .where(sql`${t.spaceId} is null`),
@@ -185,7 +193,39 @@ export const mediaUsages = pgTable(
   ],
 );
 
+/** Versions d'un média (la version courante y figure aussi, copie dénormalisée dans `media`). */
+export const mediaVersions = pgTable(
+  "media_versions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    mediaId: uuid("media_id")
+      .notNull()
+      .references(() => media.id, { onDelete: "cascade" }),
+    version: integer("version").notNull(),
+    storageKey: varchar("storage_key", { length: 1024 }).notNull(),
+    thumbnailKey: varchar("thumbnail_key", { length: 1024 }),
+    filename: varchar("filename", { length: 500 }).notNull(),
+    mimeType: varchar("mime_type", { length: 255 }).notNull(),
+    sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
+    checksumSha256: char("checksum_sha256", { length: 64 }),
+    width: integer("width"),
+    height: integer("height"),
+    pageCount: integer("page_count"),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    comment: text("comment"),
+    restoredFrom: integer("restored_from"),
+  },
+  (t) => [
+    uniqueIndex("uq_media_versions_media_version").on(t.mediaId, t.version),
+    uniqueIndex("uq_media_versions_storage_key").on(t.storageKey),
+    index("idx_media_versions_media").on(t.mediaId),
+  ],
+);
+
 export type Media = typeof media.$inferSelect;
+export type MediaVersion = typeof mediaVersions.$inferSelect;
+export type NewMediaVersion = typeof mediaVersions.$inferInsert;
 export type NewMedia = typeof media.$inferInsert;
 export type MediaKind = (typeof mediaKindEnum.enumValues)[number];
 export type MediaUsageTarget = (typeof mediaUsageTargetEnum.enumValues)[number];

@@ -200,13 +200,46 @@ describe("PATCH /api/tasks/[id]", () => {
     expect(h.notify).not.toHaveBeenCalled();
   });
 
-  it("tâche document_item : écriture directe inchangée, sans événement ni éligibilité", async () => {
+  it("tâche document_item : assignation en écriture directe, sans événement ni éligibilité", async () => {
     h.selects = [[docTask]];
-    const res = await call({ status: "done", assigneeId: OTHER });
+    const res = await call({ assigneeId: OTHER });
     expect(res.status).toBe(200);
     expect(h.updateWithEvents).not.toHaveBeenCalled();
     expect(h.directUpdates).toHaveLength(1);
-    expect(h.directUpdates[0]).toMatchObject({ status: "done", assigneeId: OTHER });
+    expect(h.directUpdates[0]).toMatchObject({ assigneeId: OTHER });
     expect(h.notify).toHaveBeenCalledWith(ID, OTHER, "u1");
+  });
+
+  it("tâche document_item : changement de statut refusé (409), rien n'est écrit", async () => {
+    h.selects = [[docTask]];
+    const res = await call({ status: "done" });
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.code).toBe("DOCUMENT_TASK_STATUS_IN_DOCUMENT");
+    expect(body.error).toMatch(/document/);
+    expect(h.directUpdates).toEqual([]);
+    expect(h.updateWithEvents).not.toHaveBeenCalled();
+    expect(h.onboarding).not.toHaveBeenCalled();
+  });
+
+  it("tâche document_item : statut combiné à une assignation, refus sans écriture partielle", async () => {
+    h.selects = [[docTask]];
+    const res = await call({ status: "cancelled", assigneeId: OTHER });
+    expect(res.status).toBe(409);
+    expect(h.directUpdates).toEqual([]);
+    expect(h.notify).not.toHaveBeenCalled();
+  });
+
+  it("tâche document_item : statut identique à l'actuel, accepté (aucun changement)", async () => {
+    h.selects = [[docTask]];
+    const res = await call({ status: "open" });
+    expect(res.status).toBe(200);
+    expect(h.onboarding).not.toHaveBeenCalled();
+  });
+
+  it("tâche document_item d'un tiers : 403 avant le refus de statut (pas de fuite)", async () => {
+    h.selects = [[{ ...docTask, assigneeId: OTHER, createdBy: OTHER }]];
+    expect((await call({ status: "done" })).status).toBe(403);
+    expect(h.directUpdates).toEqual([]);
   });
 });

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { CRM_MIGRATION_PATH, setupCrmFixture } from "./crm-fixture";
+import { CRM_AUTOMATION_KEYS_MIGRATION_PATH, CRM_MIGRATION_PATH, setupCrmFixture } from "./crm-fixture";
 
 const URL = process.env.RELATIONS_TEST_DATABASE_URL;
 
@@ -54,5 +54,34 @@ describe.skipIf(!URL)("migration 0060 crm_connections (Postgres)", () => {
       [orgId],
     );
     expect(rows).toHaveLength(0);
+  });
+});
+
+describe.skipIf(!URL)("migration 0069 created_automation_keys (Postgres)", () => {
+  let fx: Awaited<ReturnType<typeof setupCrmFixture>>;
+
+  beforeAll(async () => {
+    fx = await setupCrmFixture(URL!, "rh_l8_migration");
+  });
+  afterAll(async () => {
+    await fx?.teardown();
+  });
+
+  it("0069 appliquée deux fois : idempotente", async () => {
+    await expect(fx.pool.query(readFileSync(CRM_AUTOMATION_KEYS_MIGRATION_PATH, "utf8"))).resolves.toBeDefined();
+  });
+
+  it("une ligne existante reçoit le défaut [] et la colonne se lit et s'écrit", async () => {
+    const orgId = randomUUID();
+    await fx.pool.query("INSERT INTO organizations (id) VALUES ($1)", [orgId]);
+    await fx.pool.query("INSERT INTO crm_connections (organization_id) VALUES ($1)", [orgId]);
+    const read = () =>
+      fx.pool.query("SELECT created_automation_keys AS k FROM crm_connections WHERE organization_id = $1", [orgId]);
+    expect((await read()).rows[0].k).toEqual([]);
+    await fx.pool.query("UPDATE crm_connections SET created_automation_keys = $2 WHERE organization_id = $1", [
+      orgId,
+      JSON.stringify(["a", "b"]),
+    ]);
+    expect((await read()).rows[0].k).toEqual(["a", "b"]);
   });
 });

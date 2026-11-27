@@ -18,11 +18,11 @@ LorIAx réunit un éditeur de documents riche, la collaboration en temps réel, 
 
 > **Pour qui ?** Les organismes multi-services qui veulent garder leurs données chez eux : collectivités, associations, PME structurées.
 
-**Version** : lorIAx-oss 2.0.0, basée sur LorIAx 1.210.x, sous licence FSL-1.1-MIT. Tous les modules sont actifs, sans quota ni clé de licence. Seul le studio vidéo n'est pas inclus. Les versions 1.21.0 et 1.21.1 restent sous licence MIT : le tag [`v1.21.1`](https://github.com/Dragamig/lorIAx-oss/tree/v1.21.1) donne la dernière version MIT.
+**Version** : lorIAx-oss 2.1.0, basée sur LorIAx 1.227.x, sous licence FSL-1.1-MIT. Tous les modules sont actifs, sans quota ni clé de licence. Seul le studio vidéo n'est pas inclus. Les versions 1.21.0 et 1.21.1 restent sous licence MIT : le tag [`v1.21.1`](https://github.com/Dragamig/lorIAx-oss/tree/v1.21.1) donne la dernière version MIT.
 
 ## Lancement rapide
 
-Installation sur un serveur Linux avec Docker, à la main ou pilotée par un assistant en ligne de commande. Les exemples prennent un VPS Hostinger ; tout serveur Ubuntu avec Docker convient.
+Installation sur un serveur Linux avec Docker, à la main ou pilotée par un assistant en ligne de commande. Tout serveur Ubuntu avec Docker convient.
 
 **Dimensionnement** : 8 Go de RAM pour construire l'application (`next build` est gourmand en mémoire). Une fois construits, les services de `docker-compose.yml` sont plafonnés à environ 4 Go au total (application 2 Go, PostgreSQL 1 Go, Garage 512 Mo, sauvegarde 256 Mo). L'IA locale Ollama, facultative, peut prendre jusqu'à 8 Go de plus.
 
@@ -31,7 +31,7 @@ Installation sur un serveur Linux avec Docker, à la main ou pilotée par un ass
 <details>
 <summary><strong>Avec les commandes</strong></summary>
 
-1. Créer le serveur (chez Hostinger : modèle Ubuntu avec Docker dans hPanel), ajouter sa clé SSH publique, puis s'y connecter : `ssh root@<ip-du-serveur>`.
+1. Créer le serveur (Ubuntu avec Docker), ajouter sa clé SSH publique, puis s'y connecter : `ssh root@<ip-du-serveur>`.
 2. Vérifier Docker : `docker --version` et `docker compose version`. `openssl`, `curl` et `git` sont aussi nécessaires.
 3. Récupérer le code et lancer l'installeur.
 
@@ -60,7 +60,7 @@ Installation sur un serveur Linux avec Docker, à la main ou pilotée par un ass
    }
    ```
 
-6. Faire pointer le domaine vers l'IP du serveur (enregistrement A, chez le registrar ou dans hPanel).
+6. Faire pointer le domaine vers l'IP du serveur (enregistrement A, chez le registrar).
 7. Ouvrir `https://wiki.exemple.fr/setup` pour créer le premier super administrateur. La clé demandée est celle affichée par `install.sh` ; elle se relit avec `grep '^SETUP_BOOTSTRAP_TOKEN=' .env` et cesse d'être acceptée une fois la configuration terminée.
 
 Ne jamais versionner le `.env` : il contient les secrets de l'instance. Les régénérer rend la base et le stockage existants inaccessibles.
@@ -68,112 +68,15 @@ Ne jamais versionner le `.env` : il contient les secrets de l'instance. Les rég
 </details>
 
 <details>
-<summary><strong>Avec Claude Code</strong></summary>
+<summary><strong>Avec un assistant en ligne de commande</strong></summary>
 
-Le plugin `hostinger` (marketplace officielle `claude-plugins-official`) déclare le serveur MCP distant Hostinger (`https://mcp.hostinger.com`) : VPS, pare-feu, snapshots, domaines, DNS. Ses skills de déploiement ciblent l'hébergement mutualisé, pas un VPS Docker : pour LorIAx, le plugin crée le VPS et gère le DNS, le reste passe par SSH et Docker Compose.
-
-```text
-/plugin marketplace add anthropics/claude-plugins-official
-/plugin install hostinger@claude-plugins-official
-```
-
-La première commande est inutile si la marketplace officielle est déjà présente. L'authentification se fait par OAuth dans le navigateur à la première utilisation, ou par un jeton d'API créé dans hPanel (`HOSTINGER_API_TOKEN`).
-
-Invite à donner à Claude Code :
+Tout assistant capable d'ouvrir une session SSH (Claude Code, Gemini CLI, Codex CLI) peut piloter l'installation sur un serveur existant. Invite à lui donner :
 
 ```text
-Déploie LorIAx sur un VPS Hostinger avec le plugin Hostinger. Crée un VPS Ubuntu avec Docker (8 Go de RAM),
-connecte-toi en SSH, clone le dépôt (git clone https://github.com/Dragamig/lorIAx-oss.git),
+Déploie LorIAx sur mon serveur Ubuntu avec Docker (8 Go de RAM) : connecte-toi en SSH,
+clone le dépôt (git clone https://github.com/Dragamig/lorIAx-oss.git),
 lance LORIAX_URL=https://<domaine> bash install.sh depuis la racine du dépôt, installe un reverse proxy HTTPS
-pour mon domaine <domaine> devant http://127.0.0.1:3000, crée l'enregistrement DNS et vérifie /api/health.
-Ne m'affiche aucun secret, sauf la clé d'installation de /setup.
-```
-
-</details>
-
-<details>
-<summary><strong>Avec Gemini CLI (Google)</strong></summary>
-
-Brancher le serveur MCP distant Hostinger (`https://mcp.hostinger.com`) dans Gemini CLI.
-
-Par OAuth :
-
-```bash
-gemini mcp add --scope user --transport http hostinger https://mcp.hostinger.com
-```
-
-Puis, dans Gemini CLI, `/mcp auth hostinger` ouvre le navigateur pour autoriser l'accès (un navigateur local est requis : sans lui, utiliser le jeton).
-
-Par jeton d'API (créé dans hPanel, rubrique API) : ajouter l'en-tête à la commande, ou le déclarer dans `~/.gemini/settings.json`.
-
-```bash
-gemini mcp add --scope user --transport http --header "Authorization: Bearer <jeton>" hostinger https://mcp.hostinger.com
-```
-
-```json
-{
-  "mcpServers": {
-    "hostinger": {
-      "httpUrl": "https://mcp.hostinger.com",
-      "headers": { "Authorization": "Bearer <jeton>" }
-    }
-  }
-}
-```
-
-Le jeton se trouve alors en clair dans ce fichier : le protéger (droits `600`) et ne jamais le versionner. Le format exact de l'en-tête attendu par Hostinger n'est pas documenté, l'OAuth reste la voie recommandée.
-
-Invite à donner à Gemini CLI :
-
-```text
-Déploie LorIAx sur un VPS Hostinger avec le serveur MCP Hostinger. Crée un VPS Ubuntu avec Docker (8 Go de RAM),
-connecte-toi en SSH, clone le dépôt (git clone https://github.com/Dragamig/lorIAx-oss.git),
-lance LORIAX_URL=https://<domaine> bash install.sh depuis la racine du dépôt, installe un reverse proxy HTTPS
-pour mon domaine <domaine> devant http://127.0.0.1:3000, crée l'enregistrement DNS et vérifie /api/health.
-Ne m'affiche aucun secret, sauf la clé d'installation de /setup.
-```
-
-</details>
-
-<details>
-<summary><strong>Avec Codex CLI (OpenAI)</strong></summary>
-
-Brancher le serveur MCP distant Hostinger (`https://mcp.hostinger.com`) dans Codex CLI.
-
-Par OAuth, déclarer le serveur dans `~/.codex/config.toml` puis s'authentifier :
-
-```toml
-[mcp_servers.hostinger]
-url = "https://mcp.hostinger.com"
-```
-
-```bash
-codex mcp login hostinger
-```
-
-Sans navigateur local : `codex mcp login hostinger --no-browser`, ouvrir l'adresse affichée, puis coller l'URL de redirection complète dans le terminal.
-
-Par jeton d'API (créé dans hPanel, rubrique API) : le placer dans une variable d'environnement, jamais dans le fichier.
-
-```toml
-[mcp_servers.hostinger]
-url = "https://mcp.hostinger.com"
-bearer_token_env_var = "HOSTINGER_API_TOKEN"
-```
-
-```bash
-export HOSTINGER_API_TOKEN=<jeton>
-```
-
-Codex envoie la valeur dans l'en-tête `Authorization: Bearer`. Que Hostinger accepte ce format n'est pas documenté, l'OAuth reste la voie recommandée.
-
-Invite à donner à Codex :
-
-```text
-Déploie LorIAx sur un VPS Hostinger avec le serveur MCP Hostinger. Crée un VPS Ubuntu avec Docker (8 Go de RAM),
-connecte-toi en SSH, clone le dépôt (git clone https://github.com/Dragamig/lorIAx-oss.git),
-lance LORIAX_URL=https://<domaine> bash install.sh depuis la racine du dépôt, installe un reverse proxy HTTPS
-pour mon domaine <domaine> devant http://127.0.0.1:3000, crée l'enregistrement DNS et vérifie /api/health.
+pour mon domaine <domaine> devant http://127.0.0.1:3000 et vérifie /api/health.
 Ne m'affiche aucun secret, sauf la clé d'installation de /setup.
 ```
 

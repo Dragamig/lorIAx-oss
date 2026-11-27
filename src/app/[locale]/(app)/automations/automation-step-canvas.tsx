@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 import {
   Zap,
@@ -59,13 +60,16 @@ import { TallyImportPanel } from "./tally-import-panel";
 import { WebhookTriggerFields } from "./webhook-trigger-fields";
 import { StatusPill, StepInspector, TipButton, SELECTED_CLS, FOCUS_CLS, Tooltip, type TestMode, type TraceStepView } from "./debug-shared";
 import { TestToolbar, useTestSample } from "./debug-toolbar";
+import { MANAGE_AUTOMATIONS_REQUIRED } from "./automation-access";
+import { MediaTriggerFields } from "./media-trigger-fields";
+import { mediaTriggerSubtitleKey } from "./media-trigger-scope";
 
 /** Identifiant de l'entrée de trace du déclencheur (cf. TRIGGER_STEP_ID côté serveur). */
 const TRIGGER_TRACE_ID = "__trigger__";
 
 /** Déclencheurs proposés au changement de type, selon la portée (base vs autonome). */
 const BASE_TRIGGER_TYPES = ["row_created", "row_updated", "row_deleted", "cron", "date_reached", "value_changed", "webhook_inbound"];
-const AUTONOMOUS_TRIGGER_TYPES = ["manual", "webhook_inbound"];
+const AUTONOMOUS_TRIGGER_TYPES = ["manual", "webhook_inbound", "media_uploaded"];
 
 // ── Palette d'actions (présentation) ────────────────────────────────────────
 type PaletteEntry = { type: string; label: string; icon: typeof Mail; requiresDatabase?: boolean };
@@ -127,8 +131,15 @@ export function AutomationStepCanvas({
   onRealModeChange,
   onRealRun,
   onOpenHistory,
+  readOnly = false,
 }: {
   automation: EditorAutomation;
+  /**
+   * Consultation seule (pas le rôle de gestion des automatisations) : ni ajout,
+   * ni suppression, ni réordonnancement d'étape, ni test, ni enregistrement ;
+   * les réglages s'affichent désactivés.
+   */
+  readOnly?: boolean;
   /** Ouvre l'historique des exécutions (lien du récapitulatif d'import Tally). */
   onOpenHistory?: () => void;
   onSaved: () => void;
@@ -147,6 +158,7 @@ export function AutomationStepCanvas({
   const [nodes, setNodes] = useState<GraphNode[]>(initial.nodes);
   const [edges, setEdges] = useState<GraphEdge[]>(initial.edges);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const tMedia = useTranslations("mediaTrigger");
   const [triggerSelected, setTriggerSelected] = useState(false);
   const [triggerConfig, setTriggerConfig] = useState<Record<string, unknown>>(
     automation.triggerConfig ?? {}
@@ -437,6 +449,7 @@ export function AutomationStepCanvas({
   }
 
   async function save() {
+    if (readOnly) return;
     setSaveError(null);
     const graph: AutomationGraph = { nodes, edges };
     const check = validateGraph(graph);
@@ -576,7 +589,7 @@ export function AutomationStepCanvas({
     return {
       step: traceByNode.get(id),
       onOpenResult: () => openResult(id),
-      onTest: () => void runTest(id),
+      onTest: readOnly ? undefined : () => void runTest(id),
       testingThis: runningTarget === id,
       testDisabledReason: runningTarget
         ? "Un test est déjà en cours"
@@ -593,6 +606,7 @@ export function AutomationStepCanvas({
       return <JoinMarker name={name} onSelect={() => selectNode(startId)} />;
     }
     if (!startId) {
+      if (readOnly) return null;
       return <AddStepButton onAdd={(k) => addStep(k, parentId ?? null, branch)} dbAvailable={!!automation.databaseId} />;
     }
     if (seen.has(startId)) return null;
@@ -610,7 +624,7 @@ export function AutomationStepCanvas({
           <StepCard
             selected={selectedId === startId}
             onSelect={() => selectNode(startId)}
-            onDelete={() => deleteNode(startId)}
+            onDelete={readOnly ? undefined : () => deleteNode(startId)}
             {...stepDebugProps(startId)}
             icon={<GitBranch className="h-4 w-4" />}
             tone="amber"
@@ -648,14 +662,14 @@ export function AutomationStepCanvas({
     const canMoveDown = !!next && byId.get(next)?.kind === "action";
     // Étapes de la chaîne principale : glisser-déposer via dnd-kit. Étapes des
     // branches (Si vrai / Si faux) : rendues telles quelles, sans poignée.
-    const draggable = mainChainIds.includes(startId);
+    const draggable = !readOnly && mainChainIds.includes(startId);
     const stepCard = (
       <StepCard
         selected={selectedId === startId}
         onSelect={() => selectNode(startId)}
-        onDelete={() => deleteNode(startId)}
-        onMoveUp={canMoveUp ? () => moveStep(startId, "up") : undefined}
-        onMoveDown={canMoveDown ? () => moveStep(startId, "down") : undefined}
+        onDelete={readOnly ? undefined : () => deleteNode(startId)}
+        onMoveUp={!readOnly && canMoveUp ? () => moveStep(startId, "up") : undefined}
+        onMoveDown={!readOnly && canMoveDown ? () => moveStep(startId, "down") : undefined}
         {...stepDebugProps(startId)}
         icon={<Icon className="h-4 w-4" />}
         tone="sky"
@@ -670,7 +684,7 @@ export function AutomationStepCanvas({
     return (
       <>
         {draggable ? <SortableStepCard id={startId}>{stepCard}</SortableStepCard> : stepCard}
-        {next ? (
+        {next && !readOnly ? (
           <AddStepButton
             onAdd={(k) => insertBetween(startId, next, k)}
             dbAvailable={!!automation.databaseId}
@@ -685,14 +699,23 @@ export function AutomationStepCanvas({
 
   return (
     <>
-    <TestToolbar
-      sample={sampleState}
-      running={runningTarget === "all"}
-      disabledReason={runningTarget ? "Un test est déjà en cours" : testBlockReason}
-      realMode={realMode}
-      onRealModeChange={(v) => onRealModeChange?.(v)}
-      onRun={() => void runTest()}
-    />
+    {readOnly ? (
+      <p
+        role="note"
+        className="border-b border-neutral-200 bg-neutral-50 px-4 py-2 text-xs text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900/40 dark:text-neutral-300"
+      >
+        Consultation seule. {MANAGE_AUTOMATIONS_REQUIRED}
+      </p>
+    ) : (
+      <TestToolbar
+        sample={sampleState}
+        running={runningTarget === "all"}
+        disabledReason={runningTarget ? "Un test est déjà en cours" : testBlockReason}
+        realMode={realMode}
+        onRealModeChange={(v) => onRealModeChange?.(v)}
+        onRun={() => void runTest()}
+      />
+    )}
     <div className="grid grid-cols-[minmax(0,1fr)_340px] items-start gap-4">
       {/* Canevas vertical. Pas d'`overflow-y-auto` ici : ce conteneur n'a pas de
           hauteur propre, la classe le transformait en boîte de défilement calée
@@ -709,7 +732,13 @@ export function AutomationStepCanvas({
             icon={<Zap className="h-4 w-4" />}
             tone="violet"
             title={TRIGGER_LABELS[triggerType] ?? automation.triggerLabel}
-            subtitle={automation.databaseId ? undefined : "Clic sur un bouton"}
+            subtitle={
+              automation.databaseId
+                ? undefined
+                : triggerType === "media_uploaded"
+                  ? tMedia(mediaTriggerSubtitleKey(triggerConfig))
+                  : "Clic sur un bouton"
+            }
             step={triggerStep}
             onOpenResult={() => {
               setSelectedId(null);
@@ -724,6 +753,9 @@ export function AutomationStepCanvas({
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={mainChainIds} strategy={verticalListSortingStrategy}>
               {renderChain(entryId)}
+              {readOnly && !entryId && (
+                <p className="text-center text-xs italic text-neutral-400">Aucune action.</p>
+              )}
             </SortableContext>
           </DndContext>
         </div>
@@ -749,6 +781,7 @@ export function AutomationStepCanvas({
             ))}
           </div>
         )}
+        <fieldset disabled={readOnly} className="m-0 min-w-0 border-0 p-0">
         {showResult && selectedStep && !triggerSelected ? (
           <StepInspector
             title={
@@ -862,6 +895,12 @@ export function AutomationStepCanvas({
                   Le workflow se déclenche quand la valeur de cette colonne change.
                 </p>
               </>
+            ) : triggerType === "media_uploaded" ? (
+              <MediaTriggerFields config={triggerConfig} onChange={setTriggerCfg} readOnly={readOnly} />
+            ) : triggerType === "webhook_inbound" && readOnly ? (
+              <p className="text-[11px] italic text-neutral-400">
+                Webhook entrant : l&apos;URL, le secret et le branchement Tally ne sont visibles que des gestionnaires d&apos;automatisations.
+              </p>
             ) : triggerType === "webhook_inbound" ? (
               <WebhookTriggerFields
                 token={typeof triggerConfig.token === "string" ? triggerConfig.token : undefined}
@@ -1076,10 +1115,14 @@ export function AutomationStepCanvas({
           )
         ) : (
           <p className="text-xs italic text-neutral-400">
-            Sélectionnez une étape pour la configurer, ou ajoutez-en une avec « + ».
+            {readOnly
+              ? "Sélectionnez une étape pour consulter ses réglages."
+              : "Sélectionnez une étape pour la configurer, ou ajoutez-en une avec « + »."}
           </p>
         )}
+        </fieldset>
 
+        {!readOnly && (
         <div className="mt-4 border-t border-neutral-200 pt-3 dark:border-neutral-800">
           {saveError && (
             <p className="mb-2 rounded bg-red-50 px-2 py-1 text-xs text-red-700 dark:bg-red-950 dark:text-red-300">{saveError}</p>
@@ -1093,6 +1136,7 @@ export function AutomationStepCanvas({
             {saving ? "Enregistrement…" : "Enregistrer le flux"}
           </button>
         </div>
+        )}
       </div>
       <Dialog open={regenOpen} onOpenChange={setRegenOpen}>
         <DialogContent>

@@ -1,6 +1,7 @@
 // TODO i18n : textes en français codés en dur (à migrer vers next-intl plus tard)
 "use client";
 
+import { MarkdownContent } from "@/components/ai/markdown-content";
 import { useState, useRef, useEffect } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
@@ -193,6 +194,9 @@ export function HelpAssistant() {
 
               {messages.map((message) => {
                 const parts = message.parts ?? [];
+                const text = parts
+                  .map((p) => (p.type === "text" && "text" in p ? p.text : ""))
+                  .join("");
                 return (
                   <div key={message.id} className="space-y-2">
                     {/* Bulles de texte */}
@@ -214,15 +218,11 @@ export function HelpAssistant() {
                               : "bg-muted"
                           }`}
                         >
-                          <div className="whitespace-pre-wrap">
-                            {parts
-                              .filter((p) => p.type === "text")
-                              .map((p, i) => (
-                                <span key={i}>
-                                  {"text" in p ? p.text : ""}
-                                </span>
-                              ))}
-                          </div>
+                          {message.role === "user" ? (
+                            <div className="whitespace-pre-wrap">{text}</div>
+                          ) : (
+                            <MarkdownContent text={text} />
+                          )}
                         </div>
                         {message.role === "user" && (
                           <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center flex-shrink-0">

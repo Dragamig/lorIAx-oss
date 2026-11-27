@@ -34,6 +34,8 @@ export const aiUsageTypeEnum = pgEnum("ai_usage_type", [
   "voice_note_summary",
   "voice_note_cleanup",
   "rerank",
+  "chat_database_actions",
+  "creation",
 ]);
 
 export const aiLogStatusEnum = pgEnum("ai_log_status", [

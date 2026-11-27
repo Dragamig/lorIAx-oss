@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { signIn } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 import { useRouter } from "@/i18n/routing";
@@ -14,7 +14,10 @@ import {
   CardContent,
   CardFooter,
 } from "@/components/ui/card";
-import { Loader2 } from "lucide-react";
+import { Loader2, MailWarning, Send } from "lucide-react";
+import { toast } from "sonner";
+import { Hint } from "@/components/ui/hint";
+import { useRegistrationOpen } from "@/hooks/use-registration-open";
 import { useTranslations } from "next-intl";
 import { LOCALES } from "@/i18n/config";
 
@@ -28,6 +31,7 @@ function stripLocalePrefix(path: string): string {
 
 function LoginForm() {
   const t = useTranslations("auth.login");
+  const tv = useTranslations("auth.verifyEmail");
   const router = useRouter();
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get("callbackUrl") || "/";
@@ -35,24 +39,45 @@ function LoginForm() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [registrationOpen, setRegistrationOpen] = useState(false);
+  const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null);
+  const [cooldown, setCooldown] = useState(0);
+  const [resending, setResending] = useState(false);
+  const { open: registrationOpen } = useRegistrationOpen();
 
   useEffect(() => {
-    let cancelled = false;
-    fetch("/api/auth/registration-status", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : { open: false }))
-      .then((d) => {
-        if (!cancelled) setRegistrationOpen(d?.open === true);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    if (cooldown <= 0) return;
+    const id = setTimeout(() => setCooldown((c) => c - 1), 1000);
+    return () => clearTimeout(id);
+  }, [cooldown]);
+
+  async function handleResend() {
+    if (!unverifiedEmail || cooldown > 0 || resending) return;
+    setResending(true);
+    try {
+      const res = await fetch("/api/auth/resend-verification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: unverifiedEmail }),
+      });
+      if (res.ok) {
+        toast.success(t("resendSent"));
+        setCooldown(60);
+      } else if (res.status === 429) {
+        toast.error(tv("tooManyRequests"));
+      } else {
+        toast.error(tv("networkError"));
+      }
+    } catch {
+      toast.error(tv("networkError"));
+    } finally {
+      setResending(false);
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    setUnverifiedEmail(null);
     setLoading(true);
 
     const result = await signIn("credentials", {
@@ -64,6 +89,10 @@ function LoginForm() {
     setLoading(false);
 
     if (result?.error) {
+      if (result.code === "email_not_verified") {
+        setUnverifiedEmail(email.trim());
+        return;
+      }
       setError(t("errors.invalidCredentials"));
       return;
     }
@@ -116,6 +145,42 @@ function LoginForm() {
               </div>
             )}
 
+            {unverifiedEmail && (
+              <div
+                role="alert"
+                className="bg-destructive/10 text-destructive text-sm rounded-lg p-3 space-y-2"
+              >
+                <div className="flex items-start gap-2">
+                  <MailWarning className="h-4 w-4 mt-0.5 shrink-0" aria-hidden="true" />
+                  <div>
+                    <p className="font-medium">{t("errors.emailNotVerified")}</p>
+                    <p>{t("emailNotVerifiedHint", { email: unverifiedEmail })}</p>
+                  </div>
+                </div>
+                <Hint
+                  label={cooldown > 0 ? t("resendCooldown", { seconds: cooldown }) : t("resendLink")}
+                  disabled={cooldown > 0}
+                >
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleResend}
+                    aria-disabled={cooldown > 0 || resending}
+                    aria-label={cooldown > 0 ? t("resendCooldown", { seconds: cooldown }) : t("resendLink")}
+                    className={cooldown > 0 || resending ? "opacity-50 cursor-not-allowed" : ""}
+                  >
+                    {resending ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <Send className="mr-2 h-4 w-4" aria-hidden="true" />
+                    )}
+                    {cooldown > 0 ? t("resendCooldown", { seconds: cooldown }) : t("resendLink")}
+                  </Button>
+                </Hint>
+              </div>
+            )}
+
             <div className="space-y-2">
               <Label htmlFor="email">{t("emailLabel")}</Label>
               <Input
@@ -156,8 +221,8 @@ function LoginForm() {
           </form>
         </CardContent>
 
-        {registrationOpen && (
-          <CardFooter className="justify-center">
+        <CardFooter className="justify-center">
+          {registrationOpen === true && (
             <p className="text-sm text-muted-foreground">
               {t("noAccount")}{" "}
               <Link
@@ -167,8 +232,11 @@ function LoginForm() {
                 {t("createAccount")}
               </Link>
             </p>
-          </CardFooter>
-        )}
+          )}
+          {registrationOpen === false && (
+            <p className="text-sm text-muted-foreground">{t("inviteOnly")}</p>
+          )}
+        </CardFooter>
       </Card>
 
       {isDev && (

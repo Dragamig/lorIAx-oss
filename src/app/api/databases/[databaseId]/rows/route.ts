@@ -9,6 +9,7 @@ import { deleteDatabaseRows } from "@/lib/databases/row-batch";
 import { rowBatchErrorResponse } from "@/lib/databases/row-batch-http";
 import { rowContextFromRequest } from "@/lib/databases/row-request-context";
 import { validateAttachmentCells } from "@/lib/databases/attachment-cell-guard";
+import { validateRelationWrites } from "@/lib/databases/relation-write-guard";
 import { z } from "zod";
 
 const createRowSchema = z.object({
@@ -40,6 +41,8 @@ export async function POST(
   const cells: Record<string, unknown> = { ...(parsed.data.cells ?? {}) };
   const guard = await validateAttachmentCells(databaseId, cells, scope.user, scope.orgId);
   if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
+  const relGuard = await validateRelationWrites(databaseId, [{ cells }]);
+  if (!relGuard.ok) return NextResponse.json({ error: relGuard.error }, { status: relGuard.status });
 
   const row = await createDatabaseRow(
     databaseId,
@@ -108,6 +111,12 @@ export async function PATCH(
     const guard = await validateAttachmentCells(databaseId, row.cells, scope.user, scope.orgId, storedById.get(row.id));
     if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
   }
+
+  const relGuard = await validateRelationWrites(
+    databaseId,
+    parsed.data.rows.map((r) => ({ cells: r.cells, stored: storedById.get(r.id) }))
+  );
+  if (!relGuard.ok) return NextResponse.json({ error: relGuard.error }, { status: relGuard.status });
 
   const ctx = rowContextFromRequest(request, scope.user);
   const results = [];

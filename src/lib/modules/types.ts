@@ -107,6 +107,11 @@ export interface ModuleManifest {
    *  supprimé que si AUCUN module inclus ne le déclare (ref-count). Formes
    *  acceptées : `dir/**`, `dir/fichier.ts`, `prefixe-*`. */
   ownedPaths?: string[];
+  /**
+   * Clés de messages (notation pointée, ex. "section.sousSection") propres au module : retirées des
+   * fichiers messages/<locale>.json par l'élagage de l'édition publique quand le module est exclu.
+   */
+  ownedMessageKeys?: string[];
   /** Module interne : jamais affiché dans l'écran d'administration ni dans le catalogue vendable. */
   internal?: boolean;
   /** Chemins d'import des fichiers d'enregistrement des hooks du module, par nature.

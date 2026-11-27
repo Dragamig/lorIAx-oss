@@ -1,7 +1,8 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   media,
+  mediaVersions,
   mediaUsages,
   publicShares,
   documents,
@@ -112,7 +113,15 @@ export async function getMediaByStorageKey(key: string): Promise<MediaAccessRow 
     .from(media)
     .where(eq(media.storageKey, key))
     .limit(1);
-  return row ?? null;
+  if (row) return row;
+  // Ancienne version (objet ou miniature) : mêmes droits que le média parent.
+  const [viaVersion] = await db
+    .select(ACCESS_COLUMNS)
+    .from(mediaVersions)
+    .innerJoin(media, eq(media.id, mediaVersions.mediaId))
+    .where(or(eq(mediaVersions.storageKey, key), eq(mediaVersions.thumbnailKey, key)))
+    .limit(1);
+  return viaVersion ?? null;
 }
 
 /**

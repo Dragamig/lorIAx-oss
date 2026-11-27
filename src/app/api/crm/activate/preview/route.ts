@@ -4,7 +4,7 @@ import { hasConnectionRow, listCandidates, type Candidate } from "@/lib/crm/conn
 import { CRM_ROLES, type CrmRole } from "@/lib/crm/fields";
 import { requestLocale } from "@/lib/crm/locale";
 import { listCrmAdminOrgs } from "@/lib/crm/orgs";
-import { findCollisions, listEditableSpaces, suggestSpaceId, type ActivationPreview } from "@/lib/crm/preview";
+import { findCollisions, listEditableSpaces, previewSampleAutomations, suggestSpaceId, type ActivationPreview } from "@/lib/crm/preview";
 import { loadTemplateMessages } from "@/lib/crm/template-messages";
 
 function sortCandidates(list: Candidate[]): Candidate[] {
@@ -39,6 +39,7 @@ export async function GET(req: NextRequest) {
   const collisions = await findCollisions(suggestedSpaceId, messages.databases);
   const existing = await hasConnectionRow(access.orgId);
   const orgs = await listCrmAdminOrgs(access.user);
-  const body: ActivationPreview = { roles, existing, spaces, suggestedSpaceId, collisions, orgs };
+  const sampleAutomations = await previewSampleAutomations(access.orgId, access.user.id, messages);
+  const body: ActivationPreview = { roles, existing, spaces, suggestedSpaceId, collisions, orgs, sampleAutomations };
   return NextResponse.json(body);
 }

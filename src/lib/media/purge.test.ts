@@ -86,7 +86,9 @@ const row = (id: string, over: Record<string, unknown> = {}) => ({
 const usages = (n: number) => [{ n }];
 const none: unknown[] = [];
 /** Séquence transactionnelle d'une ligne à une clé : verrou, usages, média partagé. */
-const tx1 = (r: unknown, n = 0, shared: unknown[] = none) => [[r], usages(n), shared];
+const tx1 = (r: unknown, n = 0, versions: unknown[] = none) => [[r], usages(n), versions, none, none];
+/** Sélections d'une clé non partagée : ni `media` ni `media_versions`. */
+const free = [none, none];
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -107,7 +109,7 @@ describe("purgeExpiredTrash", () => {
     h.selects = [[row("a")]];
     h.txSelects = tx1(row("a"));
     const r = await purgeExpiredTrash();
-    expect(r).toEqual({ purged: 1, skipped: 0, failed: [] });
+    expect(r).toEqual({ purged: 1, versions: 0, skipped: 0, failed: [] });
     expect(h.txDeletes).toEqual([media]);
     expect(h.events).toEqual(["commit", "s3:k/a.png"]);
   });
@@ -123,7 +125,7 @@ describe("purgeExpiredTrash", () => {
     h.selects = [[row("a")]];
     h.txSelects = [[row("a", { deletedAt: null })]]; // la ligne verrouillée n'est plus en corbeille
     const r = await purgeExpiredTrash();
-    expect(r).toEqual({ purged: 0, skipped: 1, failed: [] });
+    expect(r).toEqual({ purged: 0, versions: 0, skipped: 1, failed: [] });
     expect(h.txDeletes).toEqual([]);
     expect(h.deleteFile).not.toHaveBeenCalled();
     expect(h.audit).not.toHaveBeenCalled();
@@ -133,7 +135,7 @@ describe("purgeExpiredTrash", () => {
     h.selects = [[row("a")]];
     h.txSelects = [[]];
     const r = await purgeExpiredTrash();
-    expect(r).toEqual({ purged: 0, skipped: 1, failed: [] });
+    expect(r).toEqual({ purged: 0, versions: 0, skipped: 1, failed: [] });
     expect(h.txDeletes).toEqual([]);
     expect(h.deleteFile).not.toHaveBeenCalled();
   });
@@ -148,7 +150,7 @@ describe("purgeExpiredTrash", () => {
 
   it("clé partagée par une autre ligne : objet conservé, ligne supprimée", async () => {
     h.selects = [[row("a")]];
-    h.txSelects = [[row("a")], usages(0), [{ id: "b" }]];
+    h.txSelects = [[row("a")], usages(0), none, [{ id: "b" }]];
     const r = await purgeExpiredTrash();
     expect(r.purged).toBe(1);
     expect(h.deleteFile).not.toHaveBeenCalled();
@@ -157,7 +159,7 @@ describe("purgeExpiredTrash", () => {
 
   it("clé de miniature partagée par une autre ligne (même à la corbeille) : objet conservé", async () => {
     h.selects = [[row("a", { thumbnailKey: "k/t.webp" })]];
-    h.txSelects = [[row("a", { thumbnailKey: "k/t.webp" })], usages(0), none, [{ id: "b" }]];
+    h.txSelects = [[row("a", { thumbnailKey: "k/t.webp" })], usages(0), none, ...free, [{ id: "b" }]];
     await purgeExpiredTrash();
     expect(h.deleteFile).toHaveBeenCalledTimes(1);
     expect(h.deleteFile).toHaveBeenCalledWith("k/a.png");
@@ -173,7 +175,7 @@ describe("purgeExpiredTrash", () => {
     h.txSelects = tx1(row("a"));
     h.deleteFile.mockRejectedValue(new Error("s3 down"));
     const r = await purgeExpiredTrash();
-    expect(r).toEqual({ purged: 1, skipped: 0, failed: [] });
+    expect(r).toEqual({ purged: 1, versions: 0, skipped: 0, failed: [] });
     expect(h.warn).toHaveBeenCalled();
   });
 
@@ -194,6 +196,7 @@ describe("purgeExpiredTrash", () => {
       filename: "a.png",
       sizeBytes: 10,
       usages: 3,
+      versions: 0,
     });
   });
 
@@ -264,5 +267,52 @@ describe("eraseMediaForever", () => {
     h.deleteFile.mockRejectedValue(new Error("s3 down"));
     await expect(eraseMediaForever(admin, "org1", "a")).resolves.toBeUndefined();
     expect(h.warn).toHaveBeenCalled();
+  });
+});
+
+describe("versions", () => {
+  const vs = [
+    { storageKey: "k/a.png", thumbnailKey: null },
+    { storageKey: "k/a2.png", thumbnailKey: "k/a2.png.thumb.webp" },
+    { storageKey: "k/a3.png", thumbnailKey: null },
+  ];
+
+  it("purge d'un média de 3 versions : tous les objets (et vignettes) supprimés après commit", async () => {
+    h.selects = [[row("a")]];
+    h.txSelects = [[row("a")], usages(0), vs, ...free, ...free, ...free, ...free];
+    const r = await purgeExpiredTrash();
+    expect(r).toEqual({ purged: 1, versions: 3, skipped: 0, failed: [] });
+    expect(h.deleteFile.mock.calls.map((c) => c[0]).sort()).toEqual(
+      ["k/a.png", "k/a2.png", "k/a2.png.thumb.webp", "k/a3.png"].sort()
+    );
+    expect(h.events[0]).toBe("commit");
+    expect(h.audit).toHaveBeenCalledWith("media.purge", null, expect.objectContaining({ versions: 3 }));
+  });
+
+  it("effacement définitif : mêmes objets", async () => {
+    h.full.mockResolvedValue(row("a"));
+    h.txSelects = [[row("a")], usages(0), vs, ...free, ...free, ...free, ...free];
+    await eraseMediaForever({ id: "u1" } as never, "org1", "a");
+    expect(h.deleteFile).toHaveBeenCalledTimes(4);
+    expect(h.audit).toHaveBeenCalledWith("media.erase", "u1", expect.objectContaining({ versions: 3 }));
+  });
+
+  it("clé de version partagée par la version d'un autre média : objet conservé", async () => {
+    h.selects = [[row("a")]];
+    // k/a.png libre ; k/a2.png libre côté media mais portée par une version d'un autre média
+    h.txSelects = [[row("a")], usages(0), vs.slice(0, 2), ...free, none, [{ id: "vx" }], ...free];
+    await purgeExpiredTrash();
+    const deleted = h.deleteFile.mock.calls.map((c) => c[0]);
+    expect(deleted).not.toContain("k/a2.png");
+    expect(deleted).toContain("k/a.png");
+    expect(deleted).toContain("k/a2.png.thumb.webp");
+  });
+
+  it("la restauration avant J+30 garde toutes les versions : aucune suppression", async () => {
+    h.selects = [[row("a")]];
+    h.txSelects = [[row("a", { deletedAt: null })]];
+    await purgeExpiredTrash();
+    expect(h.txDeletes).toEqual([]);
+    expect(h.deleteFile).not.toHaveBeenCalled();
   });
 });

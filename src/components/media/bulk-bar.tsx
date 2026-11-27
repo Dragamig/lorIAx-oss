@@ -2,6 +2,7 @@
 
 import { useTranslations } from "next-intl"
 import { ActionButton } from "./action-button"
+import { ZipDownloadButton } from "./zip-download-button"
 
 type Props = {
   selectedCount: number
@@ -17,6 +18,8 @@ type Props = {
   onErase?: () => void
   /** Désactive les actions d'écriture, avec la raison en info-bulle. */
   writeDisabledReason?: string
+  /** Identifiants et taille cumulée de la sélection : active « Télécharger en archive ». */
+  zip?: { ids: string[]; totalBytes: number }
 }
 
 /** Barre d'actions de la sélection : visible dès qu'un média est coché. */
@@ -31,6 +34,7 @@ export function BulkBar({
   onRestore,
   onErase,
   writeDisabledReason,
+  zip,
 }: Props) {
   const t = useTranslations("library.bulk")
   if (selectedCount === 0) return null
@@ -57,6 +61,9 @@ export function BulkBar({
           <ActionButton id="trash" showLabel size="sm" variant="ghost" disabledReason={writeDisabledReason} onAction={onTrash} />
         </>
       )}
+      {zip && !onRestore ? (
+        <ZipDownloadButton source={{ ids: zip.ids }} fileCount={zip.ids.length} totalBytes={zip.totalBytes} />
+      ) : null}
       <span className="ml-auto inline-flex gap-1">
         {allSelected ? null : <ActionButton id="selectAll" showLabel size="sm" variant="ghost" onAction={onSelectAll} />}
         <ActionButton id="clearSelection" showLabel size="sm" variant="ghost" onAction={onClear} />

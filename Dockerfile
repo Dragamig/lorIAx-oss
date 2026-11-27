@@ -68,6 +68,8 @@ ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL} \
 
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
+# Tas Node relevé : la vérification des types de next build dépasse 2 Go depuis le lot 7 CRM
+ENV NODE_OPTIONS=--max-old-space-size=6144
 
 # Build Next.js (standalone output)
 # Cache .next/cache : Turbopack/SWC réutilisent la compilation entre builds

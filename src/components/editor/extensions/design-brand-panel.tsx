@@ -8,7 +8,7 @@ import type { BrandKitData } from "@/lib/studio/brand-kit-schema";
 
 async function insertLogo(url: string, canvas: FabricCanvas) {
   const { FabricImage } = await import("fabric");
-  // Logos are served from /api/studio/images/... (same origin) — no proxy needed.
+  // Logos are served from /api/media/... (same origin) — no proxy needed.
   // Use resolveImageUrl-compatible logic: pass through same-origin URLs as-is.
   const safeUrl = url.startsWith("/") ? url : url;
   const img = await FabricImage.fromURL(safeUrl, { crossOrigin: "anonymous" });

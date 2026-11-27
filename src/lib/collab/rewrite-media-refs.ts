@@ -2,6 +2,7 @@ import * as Y from "yjs";
 import {
   ATTACHMENT_RE,
   UUID_RE,
+  rewriteStudioRefs,
   safeDecode,
   type LookupResult,
 } from "@/lib/media/rewrite-document-refs";
@@ -120,13 +121,51 @@ export function applyKeyMap(ydoc: Y.Doc, map: Map<string, string>): YDocRewriteR
   return { rewritten, skipped };
 }
 
+/** Nombre de références `/api/studio/images/<uuid>` (attributs de nœuds et href de liens) de l'état. */
+export function countStudioRefs(ydoc: Y.Doc): number {
+  let n = 0;
+  const count = (value: string) => {
+    if (value.includes("/api/studio/images/") && rewriteStudioRefs(value) !== value) n += 1;
+  };
+  walk(ydoc.getXmlFragment(FRAGMENT_NAME), { attribute: (_e, _n, v) => count(v), link: (_t, _i, _l, _k, href) => count(href) });
+  return n;
+}
+
+/**
+ * Remplace `/api/studio/images/<uuid>` par `/api/media/<uuid>` (même identifiant, aucune résolution)
+ * dans les attributs de nœuds et les href de liens.
+ */
+export function applyStudioRefs(ydoc: Y.Doc): number {
+  let rewritten = 0;
+  ydoc.transact(() => {
+    walk(ydoc.getXmlFragment(FRAGMENT_NAME), {
+      attribute: (el, name, value) => {
+        const next = rewriteStudioRefs(value);
+        if (next !== value) {
+          el.setAttribute(name, next);
+          rewritten += 1;
+        }
+      },
+      link: (text, index, length, link, href) => {
+        const next = rewriteStudioRefs(href);
+        if (next !== href) {
+          text.format(index, length, { link: { ...link, href: next } });
+          rewritten += 1;
+        }
+      },
+    });
+  });
+  return rewritten;
+}
+
 /** Collecte les clés, les résout dans l'organisation du document, puis réécrit. */
 export async function rewriteYDocMediaRefs(
   ydoc: Y.Doc,
   resolve: (keys: string[]) => Promise<Map<string, LookupResult>>,
 ): Promise<YDocRewriteResult> {
+  const studio = applyStudioRefs(ydoc);
   const keys = collectLegacyKeys(ydoc);
-  if (keys.length === 0) return { rewritten: 0, skipped: 0 };
+  if (keys.length === 0) return { rewritten: studio, skipped: 0 };
   let found: Map<string, LookupResult> | null = null;
   try {
     found = await resolve(keys);
@@ -138,5 +177,6 @@ export async function rewriteYDocMediaRefs(
     const r = found?.get(key);
     if (r && r.status === "found" && UUID_RE.test(r.id)) map.set(key, r.id.toLowerCase());
   }
-  return applyKeyMap(ydoc, map);
+  const res = applyKeyMap(ydoc, map);
+  return { rewritten: res.rewritten + studio, skipped: res.skipped };
 }

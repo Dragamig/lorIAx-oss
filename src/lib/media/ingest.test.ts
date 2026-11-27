@@ -5,12 +5,14 @@ import { join } from "node:path";
 const h = vi.hoisted(() => ({
   uploadFile: vi.fn(),
   checkSpaceWriteAccess: vi.fn(),
-  isOrgAdminOrOwner: vi.fn(),
+  isOrgMember: vi.fn(),
+  canWriteLibrary: vi.fn(),
   validateUpload: vi.fn(),
   processImage: vi.fn(),
   limit: { bytes: 1000 as number | null },
   used: { bytes: 0 },
   inserted: [] as Record<string, unknown>[],
+  versionInserted: [] as Record<string, unknown>[],
   deleted: [] as unknown[],
   order: [] as string[],
   chain: { p: Promise.resolve() as Promise<unknown> },
@@ -18,13 +20,24 @@ const h = vi.hoisted(() => ({
   folderRows: [] as unknown[],
   tagLinks: [] as unknown[],
   ensureTags: vi.fn(),
+  emitMediaUploaded: vi.fn(),
+  enqueue: vi.fn(),
+  getMediaForAccess: vi.fn(),
+  resolveMediaAccess: vi.fn(),
 }));
+vi.mock("./access", () => ({
+  getMediaForAccess: (...a: unknown[]) => h.getMediaForAccess(...a),
+  resolveMediaAccess: (...a: unknown[]) => h.resolveMediaAccess(...a),
+}));
+vi.mock("./events", () => ({ emitMediaUploaded: h.emitMediaUploaded }));
+vi.mock("./ai/enqueue", () => ({ enqueueMediaIndex: (...a: unknown[]) => h.enqueue(...a) }));
 vi.mock("./tags", () => ({ ensureTags: h.ensureTags }));
 vi.mock("@/lib/logger", () => ({ default: { warn: vi.fn() } }));
 
 vi.mock("@/lib/storage/s3", () => ({ uploadFile: h.uploadFile }));
 vi.mock("@/lib/auth/check-access", () => ({ checkSpaceWriteAccess: h.checkSpaceWriteAccess }));
-vi.mock("./access", () => ({ isOrgAdminOrOwner: h.isOrgAdminOrOwner }));
+vi.mock("@/lib/org/resolve-request-org", () => ({ isOrgMember: h.isOrgMember }));
+vi.mock("./folders", () => ({ canWriteLibrary: (...a: unknown[]) => h.canWriteLibrary(...a) }));
 vi.mock("./validate-upload", () => ({ validateUpload: h.validateUpload }));
 vi.mock("./image-processing", () => ({
   processImage: h.processImage,
@@ -32,25 +45,35 @@ vi.mock("./image-processing", () => ({
 }));
 vi.mock("@/lib/activity", () => ({ logActivity: h.logActivity }));
 
-vi.mock("@/lib/db", () => {
+vi.mock("@/lib/db", async () => {
+  const { media: mediaTable, mediaVersions: versionsTable, mediaMultipartUploads: multipartTable } = await vi.importActual<typeof import("@/lib/db/schema")>("@/lib/db/schema");
   const makeTx = () => ({
     execute: () => {
       h.order.push("lock");
       return Promise.resolve({ rows: [] });
     },
     select: () => ({
-      from: () => ({ where: () => Promise.resolve([{ total: String(h.used.bytes) }]) }),
-    }),
-    insert: () => ({
-      values: (v: Record<string, unknown>) => ({
-        returning: () => {
-          h.order.push("insert");
-          h.used.bytes += Number(v.sizeBytes);
-          const row = { id: "media-1", ...v };
-          h.inserted.push(row);
-          return Promise.resolve([row]);
-        },
+      from: (t: unknown) => ({
+        where: () => Promise.resolve([{ total: t === multipartTable ? "0" : String(h.used.bytes) }]),
+        innerJoin: () => ({ where: () => Promise.resolve([{ total: "0" }]) }),
       }),
+    }),
+    insert: (t: unknown) => ({
+      values: (v: Record<string, unknown>) => {
+        if (t === versionsTable) {
+          h.versionInserted.push(v);
+          return Promise.resolve();
+        }
+        return {
+          returning: () => {
+            h.order.push("insert");
+            h.used.bytes += Number(v.sizeBytes);
+            const row = { id: "media-1", currentVersion: 1, ...v };
+            h.inserted.push(row);
+            return Promise.resolve([row]);
+          },
+        };
+      },
     }),
   });
   return {
@@ -68,7 +91,19 @@ vi.mock("@/lib/db", () => {
         },
       }),
       update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
-      select: () => ({ from: () => ({ where: () => Promise.resolve(h.folderRows) }) }),
+      select: () => ({
+        from: (t: unknown) => ({
+          innerJoin: () => ({ where: () => Promise.resolve([{ total: "0" }]) }),
+          where: () =>
+            Promise.resolve(
+              t === mediaTable
+                ? [{ total: String(h.used.bytes) }]
+                : t === multipartTable
+                  ? [{ total: "0" }]
+                  : h.folderRows,
+            ),
+        }),
+      }),
       insert: () => ({
         values: (v: unknown) => ({
           onConflictDoNothing: () => {
@@ -106,7 +141,10 @@ function input(over: Partial<IngestInput> = {}, size = 100): IngestInput {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  h.emitMediaUploaded.mockResolvedValue(undefined);
+  h.enqueue.mockReset().mockResolvedValue(undefined);
   h.inserted.length = 0;
+  h.versionInserted.length = 0;
   h.deleted.length = 0;
   h.order.length = 0;
   h.used.bytes = 0;
@@ -116,7 +154,8 @@ beforeEach(() => {
   h.tagLinks.length = 0;
   h.ensureTags.mockResolvedValue([]);
   h.checkSpaceWriteAccess.mockResolvedValue(true);
-  h.isOrgAdminOrOwner.mockResolvedValue(false);
+  h.isOrgMember.mockResolvedValue(false);
+  h.canWriteLibrary.mockResolvedValue(true);
   h.uploadFile.mockResolvedValue("k");
   h.validateUpload.mockImplementation(async (f: { name: string; type: string }) => ({
     ok: true,
@@ -173,6 +212,60 @@ describe("ingestMedia : dossier et tags", () => {
   });
 });
 
+describe("ingestMedia : lien d'origine", () => {
+  const SRC = "22222222-2222-4222-8222-222222222222";
+  const srcRow = { id: SRC, organizationId: ORG, spaceId: "space-1", uploadedBy: "u2", deletedAt: null, origin: "upload", mimeType: "image/png" };
+
+  it("sourceMediaId lisible de la même organisation : la ligne porte le lien", async () => {
+    h.getMediaForAccess.mockResolvedValue(srcRow);
+    h.resolveMediaAccess.mockResolvedValue({ allowed: true });
+    const r = await ingestMedia(input({ sourceMediaId: SRC }));
+    expect(r.ok).toBe(true);
+    expect(h.resolveMediaAccess).toHaveBeenCalledWith(user, srcRow, "read", { orgId: ORG });
+    expect(h.inserted[0].sourceMediaId).toBe(SRC);
+  });
+
+  it("sans sourceMediaId : lien nul, aucune lecture de source", async () => {
+    await ingestMedia(input());
+    expect(h.getMediaForAccess).not.toHaveBeenCalled();
+    expect(h.inserted[0].sourceMediaId).toBeNull();
+  });
+
+  it("source d'une autre organisation : 400, rien créé", async () => {
+    h.getMediaForAccess.mockResolvedValue({ ...srcRow, organizationId: "org-2" });
+    h.resolveMediaAccess.mockResolvedValue({ allowed: true });
+    const r = await ingestMedia(input({ sourceMediaId: SRC }));
+    expect(r).toMatchObject({ ok: false, status: 400 });
+    expect(h.inserted).toHaveLength(0);
+    expect(h.uploadFile).not.toHaveBeenCalled();
+  });
+
+  it("source illisible par l'appelant : 400 identique à une source absente", async () => {
+    h.getMediaForAccess.mockResolvedValue(srcRow);
+    h.resolveMediaAccess.mockResolvedValue({ allowed: false, reason: "space" });
+    const denied = await ingestMedia(input({ sourceMediaId: SRC }));
+    h.getMediaForAccess.mockResolvedValue(null);
+    const missing = await ingestMedia(input({ sourceMediaId: SRC }));
+    expect(denied).toMatchObject({ ok: false, status: 400 });
+    expect(denied).toEqual(missing);
+    expect(h.inserted).toHaveLength(0);
+  });
+
+  it("source en corbeille : 400 même si l'appelant peut l'écrire", async () => {
+    h.getMediaForAccess.mockResolvedValue({ ...srcRow, deletedAt: new Date() });
+    h.resolveMediaAccess.mockResolvedValue({ allowed: true });
+    const r = await ingestMedia(input({ sourceMediaId: SRC }));
+    expect(r).toMatchObject({ ok: false, status: 400 });
+    expect(h.inserted).toHaveLength(0);
+  });
+
+  it("sourceMediaId mal formé : 400 sans lecture", async () => {
+    const r = await ingestMedia(input({ sourceMediaId: "pas-un-uuid" }));
+    expect(r).toMatchObject({ ok: false, status: 400 });
+    expect(h.getMediaForAccess).not.toHaveBeenCalled();
+  });
+});
+
 describe("ingestMedia", () => {
   it("image valide : ligne insérée, original puis miniature envoyés", async () => {
     const r = await ingestMedia(input());
@@ -189,6 +282,45 @@ describe("ingestMedia", () => {
     expect(h.logActivity).toHaveBeenCalledWith(
       expect.objectContaining({ entityType: "media", action: "upload" }),
     );
+  });
+
+  it("émet « média ajouté » après le succès, sans bloquer si l'émission échoue", async () => {
+    h.emitMediaUploaded.mockRejectedValueOnce(new Error("boom"));
+    const r = await ingestMedia(input());
+    expect(r.ok).toBe(true);
+    expect(h.emitMediaUploaded).toHaveBeenCalledTimes(1);
+  });
+
+  it("met le média en file d'indexation IA après le succès, et un échec de la file n'annule pas l'ingestion", async () => {
+    const r = await ingestMedia(input());
+    expect(r.ok).toBe(true);
+    expect(h.enqueue).toHaveBeenCalledWith(h.inserted[0].id ?? expect.anything(), "ingest");
+    h.enqueue.mockRejectedValueOnce(new Error("db"));
+    expect((await ingestMedia(input())).ok).toBe(true);
+  });
+
+  it("ne met rien en file quand l'envoi S3 échoue", async () => {
+    h.uploadFile.mockRejectedValueOnce(new Error("s3"));
+    await ingestMedia(input());
+    expect(h.enqueue).not.toHaveBeenCalled();
+  });
+
+  it("n'émet rien quand l'envoi S3 échoue", async () => {
+    h.uploadFile.mockRejectedValueOnce(new Error("s3"));
+    const r = await ingestMedia(input());
+    expect(r.ok).toBe(false);
+    expect(h.emitMediaUploaded).not.toHaveBeenCalled();
+  });
+
+  it("crée la ligne media_versions v1 avec la même clé et la même taille", async () => {
+    await ingestMedia(input({}, 100));
+    expect(h.versionInserted).toHaveLength(1);
+    expect(h.versionInserted[0]).toMatchObject({
+      mediaId: "media-1",
+      version: 1,
+      storageKey: h.inserted[0].storageKey,
+      sizeBytes: 100,
+    });
   });
 
   it("PDF : un seul envoi S3, pas de miniature", async () => {
@@ -221,24 +353,37 @@ describe("ingestMedia", () => {
     expect(h.inserted).toHaveLength(0);
   });
 
-  it("spaceId null par un non-admin : 403, rien d'envoyé", async () => {
-    const r = await ingestMedia(input({ spaceId: null }));
-    expect(r).toMatchObject({ ok: false, status: 403 });
-    expect(h.uploadFile).not.toHaveBeenCalled();
-    expect(h.inserted).toHaveLength(0);
-  });
-
-  it("spaceId null par un admin d'organisation : accepté, clé org-<id>", async () => {
-    h.isOrgAdminOrOwner.mockResolvedValue(true);
+  it("ingestMedia hors espace par un membre simple réussit, clé org-<id>", async () => {
+    h.isOrgMember.mockResolvedValue(true);
     const r = await ingestMedia(input({ spaceId: null }));
     expect(r.ok).toBe(true);
     expect(h.inserted[0].storageKey).toMatch(/^org-org-1\//);
     expect(h.inserted[0].spaceId).toBeNull();
   });
 
-  it("allowOrgLevel : un membre dépose sans espace, clé et nom imposés, origin studio", async () => {
+  it("ingestMedia hors espace sans droit d'écriture (viewer membre) : 403, rien d'envoyé ni émis", async () => {
+    h.isOrgMember.mockResolvedValue(true);
+    h.canWriteLibrary.mockResolvedValue(false);
+    const r = await ingestMedia(input({ spaceId: null }));
+    expect(r).toMatchObject({ ok: false, status: 403 });
+    expect(h.uploadFile).not.toHaveBeenCalled();
+    expect(h.inserted).toHaveLength(0);
+    expect(h.emitMediaUploaded).not.toHaveBeenCalled();
+  });
+
+  it("ingestMedia hors espace par un non-membre échoue en 403, rien d'envoyé", async () => {
+    h.isOrgMember.mockResolvedValue(false);
+    h.canWriteLibrary.mockResolvedValue(false);
+    const r = await ingestMedia(input({ spaceId: null }));
+    expect(r).toMatchObject({ ok: false, status: 403 });
+    expect(h.uploadFile).not.toHaveBeenCalled();
+    expect(h.inserted).toHaveLength(0);
+  });
+
+  it("clé et nom imposés, origin studio, sans espace", async () => {
+    h.isOrgMember.mockResolvedValue(true);
     const r = await ingestMedia(
-      input({ spaceId: null, allowOrgLevel: true, origin: "studio", storageKey: "studio/org-1/org/x.png", displayName: "Mon logo" })
+      input({ spaceId: null, origin: "studio", storageKey: "studio/org-1/org/x.png", displayName: "Mon logo" })
     );
     expect(r.ok).toBe(true);
     expect(h.inserted[0]).toMatchObject({ storageKey: "studio/org-1/org/x.png", filename: "Mon logo", origin: "studio" });
@@ -256,6 +401,22 @@ describe("ingestMedia", () => {
     const r = await ingestMedia(input());
     expect(r).toMatchObject({ ok: false, status: 403 });
     expect(h.uploadFile).not.toHaveBeenCalled();
+  });
+
+  it("refus de droit : aucune préparation (validation, miniature) n'est lancée", async () => {
+    h.checkSpaceWriteAccess.mockResolvedValue(false);
+    const r = await ingestMedia(input());
+    expect(r).toMatchObject({ ok: false, status: 403 });
+    expect(h.validateUpload).not.toHaveBeenCalled();
+    expect(h.processImage).not.toHaveBeenCalled();
+  });
+
+  it("quota dépassé : aucune préparation n'est lancée", async () => {
+    h.used.bytes = 950;
+    const r = await ingestMedia(input());
+    expect(r).toMatchObject({ ok: false, status: 507 });
+    expect(h.validateUpload).not.toHaveBeenCalled();
+    expect(h.processImage).not.toHaveBeenCalled();
   });
 
   it("quota dépassé : 507, aucun envoi, aucune ligne", async () => {
@@ -290,7 +451,8 @@ describe("ingestMedia", () => {
     // 990 + 5 + 5 = 1000 passe ; un troisième refuse
     const c = await ingestMedia(input({}, 5));
     expect(c).toMatchObject({ ok: false, status: 507 });
-    expect(h.order.filter((o) => o === "lock")).toHaveLength(3);
+    // le troisième est refusé par le pré-contrôle, sans entrer dans la section critique
+    expect(h.order.filter((o) => o === "lock")).toHaveLength(2);
     expect(h.order.slice(0, 4)).toEqual(["lock", "insert", "lock", "insert"]);
   });
 

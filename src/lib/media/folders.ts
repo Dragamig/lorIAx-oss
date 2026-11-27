@@ -5,7 +5,7 @@ import { logActivity } from "@/lib/activity";
 import { isOrgAdminOrOwner } from "@/lib/media/access";
 import { canCrossOrgBoundary } from "@/lib/auth/rbac";
 import { isOrgMember } from "@/lib/org/resolve-request-org";
-import { visibleMediaCondition } from "@/lib/media/list";
+import { listableMediaCondition } from "@/lib/media/list";
 import type { SessionUser } from "@/types";
 
 export type FolderNode = {
@@ -107,7 +107,7 @@ function assertValidParent(all: FolderRow[], id: string, parentId: string | null
 export async function listFolders(user: SessionUser, orgId: string): Promise<FolderNode[]> {
   const [folders, visible] = await Promise.all([
     loadFolders(orgId),
-    visibleMediaCondition(user, orgId, "live"),
+    listableMediaCondition(user, orgId, "live"),
   ]);
   const counts = await db
     .select({ folderId: media.folderId, n: sql<number>`count(*)::int` })

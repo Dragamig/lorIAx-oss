@@ -31,12 +31,18 @@ vi.mock("@/components/bases/row-tasks", () => ({
 }));
 
 let openCount = 0;
+let mailContextStatus = 404;
+let mailConversations: unknown[] = [];
 
 function stubFetch() {
   vi.stubGlobal(
     "fetch",
-    vi.fn(() =>
-      Promise.resolve(
+    vi.fn((url: string) =>
+      url.startsWith("/api/mail/messages")
+        ? Promise.resolve(new Response(JSON.stringify({ conversations: mailConversations }), { status: 200 }))
+        : url.startsWith("/api/mail/context")
+        ? Promise.resolve(new Response(JSON.stringify(mailContextStatus === 200 ? { role: "contacts", contact: {}, mailbox: { configured: true }, alert: {}, quota: {} } : { error: "Introuvable" }), { status: mailContextStatus }))
+        : Promise.resolve(
         new Response(JSON.stringify({
           tasks: Array.from({ length: openCount }, (_, i) => ({
             id: `t${i}`, title: `T${i}`, status: "open", dueAt: null, assignee: null, createdBy: "u1", createdAt: "2026-11-14T10:00:00.000Z",
@@ -59,6 +65,8 @@ beforeEach(() => {
   h.revisions = [];
   h.onChange = null;
   openCount = 0;
+  mailContextStatus = 404;
+  mailConversations = [];
   stubFetch();
 });
 afterEach(() => {
@@ -66,7 +74,41 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+vi.mock("@/components/mailing/mails-tab", () => ({
+  MailsPanel: () => <div data-testid="mails-tab" />,
+}));
+
 describe("RowAside", () => {
+  it("Mails tab is hidden when the context route returns 404", async () => {
+    renderAside();
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith(expect.stringContaining("/api/mail/context?databaseId=d1&rowId=r1"), expect.anything()));
+    expect(screen.queryByRole("tab", { name: "Mails" })).toBeNull();
+  });
+
+  it("Mails tab shows the conversation count", async () => {
+    mailContextStatus = 200;
+    mailConversations = [{}, {}];
+    renderAside();
+    expect(await screen.findByRole("tab", { name: "Mails, 2 conversations" })).toBeTruthy();
+  });
+
+  it("falls back to Activity when the active Mails tab row has no mail context", async () => {
+    mailContextStatus = 200;
+    const { rerender } = renderAside();
+    fireEvent.click(await screen.findByRole("tab", { name: "Mails" }));
+    mailContextStatus = 404;
+    rerender(<RowAside databaseId="d1" rowId="r2" revision="{}" columns={[]} />);
+    await waitFor(() => expect(screen.queryByRole("tab", { name: "Mails" })).toBeNull());
+    expect(screen.getAllByRole("tab")[0].getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("Mails tab appears for a CRM contacts row", async () => {
+    mailContextStatus = 200;
+    renderAside();
+    expect(await screen.findByRole("tab", { name: "Mails" })).toBeTruthy();
+    expect(screen.getByTestId("mails-tab")).toBeTruthy();
+  });
+
   it("deux onglets, Activité sélectionné par défaut", () => {
     renderAside();
     const tabs = screen.getAllByRole("tab");

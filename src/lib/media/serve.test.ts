@@ -118,6 +118,27 @@ describe("serveMediaObject", () => {
       /^attachment/
     );
   });
+  it("un SVG est servi avec Content-Disposition attachment et nosniff", async () => {
+    const r = await call({ mime: "image/svg+xml", filename: "logo.svg", inline: true });
+    expect(r.headers.get("Content-Disposition")).toMatch(/^attachment/);
+    expect(r.headers.get("X-Content-Type-Options")).toBe("nosniff");
+  });
+  it("un SVG est servi image/svg+xml (affichable en <img>) sous CSP sandbox, en pièce jointe", async () => {
+    for (const method of ["GET", "HEAD"]) {
+      const r = await call({ renderSvg: true, req: new Request("http://x/m", { method }), mime: "application/octet-stream", filename: "Logo.SVG" });
+      expect(r.headers.get("Content-Type")).toBe("image/svg+xml");
+      expect(r.headers.get("Content-Security-Policy")).toBe("sandbox; default-src 'none'; style-src 'unsafe-inline'");
+      expect(r.headers.get("X-Content-Type-Options")).toBe("nosniff");
+      expect(r.headers.get("Content-Disposition")).toMatch(/^attachment/);
+    }
+  });
+  it("svgz et HTML restent neutralisés, sans type image/svg+xml", async () => {
+    expect((await call({ renderSvg: true, mime: "image/svg+xml", filename: "a.svgz" })).headers.get("Content-Type")).toBe("application/octet-stream");
+    expect((await call({ mime: "text/html", filename: "a.html" })).headers.get("Content-Security-Policy")).toBeNull();
+  });
+  it("sans renderSvg, un SVG reste octet-stream", async () => {
+    expect((await call({ mime: "image/svg+xml", filename: "a.svg" })).headers.get("Content-Type")).toBe("application/octet-stream");
+  });
   it("nosniff sur toutes les réponses", async () => {
     for (const hdr of [{}, { Range: "bytes=0-1" }, { Range: "x" }] as Record<string, string>[]) {
       expect((await call({}, hdr)).headers.get("X-Content-Type-Options")).toBe("nosniff");

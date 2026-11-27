@@ -3,6 +3,7 @@ import { getSessionUser } from "@/lib/auth/get-user";
 import { hasGlobalRole } from "@/lib/auth/rbac";
 import {
   getReindexStatus,
+  getCurrentEmbeddingIndex,
   runEmbeddingReindex,
 } from "@/lib/ai/embedding-reindex";
 
@@ -19,8 +20,11 @@ export async function GET() {
   if (!(await requireAdmin())) {
     return NextResponse.json({ error: "Non autorisé" }, { status: 403 });
   }
-  const status = await getReindexStatus();
-  return NextResponse.json(status);
+  const [status, current] = await Promise.all([
+    getReindexStatus(),
+    getCurrentEmbeddingIndex(),
+  ]);
+  return NextResponse.json({ ...status, current });
 }
 
 /**

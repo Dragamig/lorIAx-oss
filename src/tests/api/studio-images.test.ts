@@ -77,17 +77,3 @@ describe("GET /api/studio/images", () => {
     expect(Array.isArray(body)).toBe(true);
   });
 });
-
-describe("PATCH /api/studio/images/[id]", () => {
-  it("retourne 400 si name vide", async () => {
-    const { PATCH } = await import("@/app/api/studio/images/[id]/route");
-    const req = new Request("http://localhost/api/studio/images/img-1", {
-      method: "PATCH",
-      body: JSON.stringify({ name: "" }),
-      headers: { "Content-Type": "application/json" },
-    });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const res = await PATCH(req as any, { params: Promise.resolve({ id: "img-1" }) });
-    expect(res.status).toBe(400);
-  });
-});

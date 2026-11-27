@@ -13,6 +13,16 @@ export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 // Blocs de code clôturés (``` ou ~~~, jusqu'à la clôture ou la fin) puis code en ligne.
 const CODE_RE = /^[ \t]{0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:\n[ \t]{0,3}\1[`~]*[ \t]*(?=\n|$)|(?![\s\S]))|(`+)[^`\n][^\n]*?\2(?!`)/gm;
 
+const STUDIO_RE = new RegExp(
+  `${NOT_AFTER}/api/studio/images/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?![0-9A-Za-z-])`,
+  "g",
+);
+
+/** Remplace `/api/studio/images/<uuid>` par `/api/media/<uuid>` (même identifiant). Autre domaine inchangé. */
+export function rewriteStudioRefs(text: string): string {
+  return text.replace(STUDIO_RE, (_whole, id: string) => `/api/media/${id.toLowerCase()}`);
+}
+
 export function safeDecode(value: string): string {
   try {
     return decodeURIComponent(value);

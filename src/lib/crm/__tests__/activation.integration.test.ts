@@ -5,6 +5,10 @@ import { enableTemplateTables, setupActivationFixture } from "./crm-fixture";
 import { loadTemplateMessages } from "../template-messages";
 import { activateCrm, deactivateCrm } from "../activation";
 import type { CrmDeps } from "../connection";
+import { automations } from "@/lib/db/schema";
+import { crmConnections } from "@/lib/db/schema-crm";
+import { TemplateFailure } from "@/lib/databases/templates/types";
+import { SAMPLE_AUTOMATION_KEYS } from "../sample-automations";
 
 const spaceHooks = vi.hoisted(() => ({
   exceeded: false,
@@ -230,7 +234,7 @@ describe.skipIf(!URL)("activation CRM (Postgres)", () => {
     it("création des trois rôles : 3 bases, relations jumelées, field_map sur les ids créés, created_database_ids = les 3 ids", async () => {
       const spaces0 = await count("spaces");
       const r = await activateCrm(ORG_A, ADMIN, { v2: { space: { mode: "create" }, roles: { contacts: { mode: "create" }, dossiers: { mode: "create" }, interactions: { mode: "create" } } }, ...L }, deps);
-      expect(r).toEqual({ ok: true, reactivated: false, created: ["contacts", "dossiers", "interactions"], completed: [], unlinkedRelations: [] });
+      expect(r).toMatchObject({ ok: true, reactivated: false, created: ["contacts", "dossiers", "interactions"], completed: [], unlinkedRelations: [] });
       expect(await count("spaces")).toBe(spaces0 + 1);
       expect(spaceHooks.after).toHaveBeenCalledTimes(1);
       const [row] = await connRows();
@@ -421,10 +425,205 @@ describe.skipIf(!URL)("activation CRM (Postgres)", () => {
       await deactivateCrm(ORG_A, ADMIN, deps);
       const before = (await connRows())[0];
       const r = await activateCrm(ORG_A, ADMIN, { v2: { space: { mode: "create" }, roles: {} }, ...L }, deps);
-      expect(r).toEqual({ ok: true, reactivated: true, created: [], completed: [], unlinkedRelations: [] });
+      expect(r).toMatchObject({ ok: true, reactivated: true, created: [], completed: [], unlinkedRelations: [] });
       const after = (await connRows())[0];
       expect({ ...after, enabled: false, updated_at: null }).toEqual({ ...before, updated_at: null });
       expect(after.enabled).toBe(true);
+    });
+  });
+  describe("automatismes d'exemple de Dossiers", () => {
+    const L = { locale: "fr" };
+    let m: Awaited<ReturnType<typeof loadTemplateMessages>>;
+    const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
+    beforeAll(async () => {
+      m = await loadTemplateMessages("fr");
+    });
+    beforeEach(async () => {
+      await fx.pool.query("DELETE FROM automations");
+    });
+    const space = (label: string) => fx.seedSpace(ORG_A, { name: label, ownerUserId: ADMIN });
+    const all = (sp: string) => ({
+      v2: {
+        space: { mode: "existing" as const, spaceId: sp },
+        roles: { contacts: { mode: "create" as const }, dossiers: { mode: "create" as const }, interactions: { mode: "create" as const } },
+      },
+      ...L,
+    });
+    const autoRows = async () => (await fx.pool.query("SELECT * FROM automations ORDER BY name")).rows;
+    const ok = <T extends { ok: boolean }>(r: T) => {
+      expect(r.ok).toBe(true);
+      return r as Extract<T, { ok: true }>;
+    };
+    const keysOf = async () => (await connRows())[0].created_automation_keys as string[];
+
+    it("(1) organisation vide : 6 exemples désactivés sur Dossiers, créés par l'acteur, ids de l'organisation, Tally sans formulaire", async () => {
+      const r = ok(await activateCrm(ORG_A, ADMIN, all(await space("Ex1")), deps));
+      expect([...r.automationsCreated].sort()).toEqual([...SAMPLE_AUTOMATION_KEYS].sort());
+      expect(r.automationsSkipped).toEqual([]);
+      expect(r.statusOptionsAdded).toEqual([]);
+      const [conn] = await connRows();
+      const rows = await autoRows();
+      expect(rows).toHaveLength(6);
+      expect(rows.every((a) => a.enabled === false && a.created_by === ADMIN && a.database_id === conn.deals_database_id && a.space_id === null)).toBe(true);
+      const mine = new Set<string>(
+        (await fx.pool.query(
+          "SELECT id FROM user_databases WHERE id = ANY($1) UNION SELECT id FROM user_database_columns WHERE database_id = ANY($1)",
+          [[conn.contacts_database_id, conn.deals_database_id, conn.interactions_database_id]],
+        )).rows.map((x) => x.id as string),
+      );
+      for (const a of rows) {
+        const ids = JSON.stringify([a.trigger_config, a.action_config, a.graph]).match(UUID_RE) ?? [];
+        expect(ids.every((id) => mine.has(id)), a.name).toBe(true);
+      }
+      const tally = rows.find((a) => a.trigger_type === "webhook_inbound")!;
+      expect(tally.trigger_config.tallyFormId).toBeNull();
+      expect(tally.trigger_config.token).toMatch(/^[0-9a-f]{48}$/);
+      expect(tally.trigger_config.secret).toMatch(/^[0-9a-f]{48}$/);
+      expect([...(await keysOf())].sort()).toEqual([...SAMPLE_AUTOMATION_KEYS].sort());
+    });
+
+    it("(2) réactivation sans changement : aucune insertion", async () => {
+      ok(await activateCrm(ORG_A, ADMIN, all(await space("Ex2")), deps));
+      const before = (await autoRows()).map((a) => a.id);
+      const r = ok(await activateCrm(ORG_A, ADMIN, { ...L }, deps));
+      expect(r).toMatchObject({ reactivated: true, automationsCreated: [], automationsSkipped: [], statusOptionsAdded: [] });
+      expect((await autoRows()).map((a) => a.id)).toEqual(before);
+    });
+
+    it("(3) désactiver puis réactiver : aucune insertion", async () => {
+      ok(await activateCrm(ORG_A, ADMIN, all(await space("Ex3")), deps));
+      const before = (await autoRows()).map((a) => a.id);
+      await deactivateCrm(ORG_A, ADMIN, deps);
+      const r = ok(await activateCrm(ORG_A, ADMIN, { ...L }, deps));
+      expect(r.automationsCreated).toEqual([]);
+      expect((await autoRows()).map((a) => a.id)).toEqual(before);
+    });
+
+    it("(4) automatisme supprimé par l'utilisateur : non recréé à la réactivation", async () => {
+      ok(await activateCrm(ORG_A, ADMIN, all(await space("Ex4")), deps));
+      const [gone] = await autoRows();
+      await fx.pool.query("DELETE FROM automations WHERE id = $1", [gone.id]);
+      await deactivateCrm(ORG_A, ADMIN, deps);
+      const r = ok(await activateCrm(ORG_A, ADMIN, { ...L }, deps));
+      expect(r.automationsCreated).toEqual([]);
+      expect(await autoRows()).toHaveLength(5);
+      expect(await keysOf()).toHaveLength(6);
+    });
+
+    it("(5) Interactions non raccordé : les exemples qui créent des interactions sont sautés et listés, les autres créés", async () => {
+      const sp = await space("Ex5");
+      const r = ok(await activateCrm(ORG_A, ADMIN, {
+        v2: { space: { mode: "existing", spaceId: sp }, roles: { contacts: { mode: "create" }, dossiers: { mode: "create" } } },
+        ...L,
+      }, deps));
+      expect(r.automationsSkipped.sort()).toEqual(["quoteFollowUp", "wonClose"]);
+      expect(r.automationsCreated).not.toContain("quoteFollowUp");
+      expect(r.automationsCreated).not.toContain("wonClose");
+      expect(await autoRows()).toHaveLength(r.automationsCreated.length);
+      expect(r.automationsCreated.length).toBeGreaterThan(0);
+      expect(await keysOf()).not.toContain("wonClose");
+    });
+
+    const failingDeps = (): CrmDeps => {
+    const wrap = (tx: Record<string | symbol, unknown>) => {
+      let armed = false;
+      return new Proxy(tx, {
+        get(t, k) {
+          if (k === "insert") {
+            return (table: unknown) => {
+              if (table === automations) armed = true;
+              else if (armed && table === crmConnections) throw new TemplateFailure({ code: "relation_conflict" });
+              return (t.insert as (x: unknown) => unknown)(table);
+            };
+          }
+          const v = t[k];
+          return typeof v === "function" ? (v as (...a: unknown[]) => unknown).bind(t) : v;
+        },
+      });
+    };
+    return {
+      executor: { transaction: (cb: (tx: never) => Promise<unknown>) => fx.db.transaction((tx) => cb(wrap(tx as never) as never)) } as never,
+      permissionOf,
+    };
+    };
+
+    it("(6) échec après l'insertion (relation_conflict) : zéro automatisme, zéro option, rien d'écrit", async () => {
+      const sp = await space("Ex6");
+      const failing = failingDeps();
+      const dbs0 = await rowsOf("user_databases");
+      await expect(activateCrm(ORG_A, ADMIN, all(sp), failing)).rejects.toBeInstanceOf(TemplateFailure);
+      expect(await rowsOf("automations")).toBe(0);
+      expect(await rowsOf("user_databases")).toBe(dbs0);
+      expect(await connRows()).toHaveLength(0);
+    });
+
+    it("(9) option de Statut manquante : ajoutée une seule fois, existantes intactes, listée", async () => {
+      const sp = await space("Ex9");
+      const existing = [m.statusOptions[0], m.statusOptions[7], "Mon statut"];
+      const db = await fx.seedDatabase(sp, "Mes dossiers", [
+        { name: "Titre", type: "text" },
+        { name: "Statut", type: "select", config: { options: existing } },
+      ]);
+      const body = { v2: { space: { mode: "existing" as const, spaceId: sp }, roles: { dossiers: { mode: "complete" as const, databaseId: db } } }, ...L };
+      const r = ok(await activateCrm(ORG_A, ADMIN, body, deps));
+      expect(r.automationsCreated.sort()).toEqual(["lostClose", "waitingFollowUp"]);
+      expect(r.statusOptionsAdded).toEqual([m.statusOptions[3], m.statusOptions[8]]);
+      const optionsOf = async () =>
+        (await fx.pool.query("SELECT config->'options' AS o FROM user_database_columns WHERE database_id=$1 AND name='Statut'", [db])).rows[0].o;
+      expect(await optionsOf()).toEqual([...existing, m.statusOptions[3], m.statusOptions[8]]);
+      await deactivateCrm(ORG_A, ADMIN, deps);
+      const again = ok(await activateCrm(ORG_A, ADMIN, { ...L }, deps));
+      expect(again).toMatchObject({ automationsCreated: [], statusOptionsAdded: [] });
+      expect(await optionsOf()).toEqual([...existing, m.statusOptions[3], m.statusOptions[8]]);
+    });
+
+    it("(11) clé déjà connue : ses options de Statut ne sont pas ajoutées, celles de l'exemple à créer le sont", async () => {
+      const sp = await space("Ex11");
+      const existing = [m.statusOptions[0], m.statusOptions[7], "Mon statut"];
+      const db = await fx.seedDatabase(sp, "Dossiers connus", [
+        { name: "Titre", type: "text" },
+        { name: "Statut", type: "select", config: { options: existing } },
+      ]);
+      await fx.pool.query("INSERT INTO crm_connections (organization_id, enabled, created_automation_keys) VALUES ($1,false,$2)", [ORG_A, JSON.stringify(["waitingFollowUp"])]);
+      const body = { v2: { space: { mode: "existing" as const, spaceId: sp }, roles: { dossiers: { mode: "complete" as const, databaseId: db } } }, ...L };
+      const r = ok(await activateCrm(ORG_A, ADMIN, body, deps));
+      expect(r.automationsCreated).toEqual(["lostClose"]);
+      expect(r.statusOptionsAdded).toEqual([m.statusOptions[8]]);
+      const o = (await fx.pool.query("SELECT config->'options' AS o FROM user_database_columns WHERE database_id=$1 AND name='Statut'", [db])).rows[0].o;
+      expect(o).toEqual([...existing, m.statusOptions[8]]);
+      expect(o).not.toContain(m.statusOptions[3]);
+    });
+
+    it("(12) échec forcé en mode complete avec option manquante : config.options inchangé", async () => {
+      const sp = await space("Ex12");
+      const existing = [m.statusOptions[0], m.statusOptions[7], "Mon statut"];
+      const db = await fx.seedDatabase(sp, "Dossiers rollback", [
+        { name: "Titre", type: "text" },
+        { name: "Statut", type: "select", config: { options: existing } },
+      ]);
+      const read = async () => (await fx.pool.query("SELECT config::text AS c FROM user_database_columns WHERE database_id=$1 ORDER BY name", [db])).rows;
+      const before = await read();
+      const body = { v2: { space: { mode: "existing" as const, spaceId: sp }, roles: { dossiers: { mode: "complete" as const, databaseId: db } } }, ...L };
+      await expect(activateCrm(ORG_A, ADMIN, body, failingDeps())).rejects.toBeInstanceOf(TemplateFailure);
+      expect(await read()).toEqual(before);
+      expect(await rowsOf("automations")).toBe(0);
+    });
+
+    it("(10) rôle Contacts ou Dossiers absent : Réception Tally sauté et listé", async () => {
+      const sp = await space("Ex10");
+      const only = (role: "contacts" | "dossiers") => ({
+        v2: { space: { mode: "existing" as const, spaceId: sp }, roles: { [role]: { mode: "create" as const } } },
+        ...L,
+      });
+      const noDossiers = ok(await activateCrm(ORG_A, ADMIN, only("contacts"), deps));
+      expect(noDossiers.automationsSkipped).toContain("receptionTally");
+      expect(noDossiers.automationsCreated).toEqual([]);
+      await fx.pool.query("DELETE FROM crm_connections");
+      const sp2 = await space("Ex10b");
+      const noContacts = ok(await activateCrm(ORG_A, ADMIN, { ...only("dossiers"), v2: { ...only("dossiers").v2, space: { mode: "existing", spaceId: sp2 } } }, deps));
+      expect(noContacts.automationsSkipped).toContain("receptionTally");
+      expect(noContacts.automationsCreated).not.toContain("receptionTally");
+      expect(await autoRows()).toHaveLength(noContacts.automationsCreated.length);
     });
   });
 });

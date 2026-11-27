@@ -8,7 +8,7 @@ import { getLiveKitUrlForCsp } from "@/lib/meet/livekit-config";
 import { isMediaReadPath } from "@/lib/media/frame-policy";
 import { getHttpHooks } from "@/lib/modules/hooks.http";
 
-const publicPaths = ["/login", "/register", "/forgot-password", "/reset-password", "/public", "/offline"];
+const publicPaths = ["/login", "/register", "/check-email", "/verify-email", "/forgot-password", "/reset-password", "/public", "/offline"];
 
 // Alternation générée depuis LOCALES — ne jamais hardcoder la liste ici
 // (une locale ajoutée dans config.ts serait sinon silencieusement ignorée).
@@ -27,6 +27,11 @@ function stripLocale(pathname: string): { locale: Locale; pathname: string } {
 }
 
 export { isMediaReadPath };
+
+/** Page accessible sans session (chemin SANS préfixe locale). */
+export function isPublicPagePath(pathnameWithoutLocale: string): boolean {
+  return [...publicPaths, ...getHttpHooks().publicPaths].some((p) => pathnameWithoutLocale === p || pathnameWithoutLocale.startsWith(p + "/"));
+}
 
 const AUTOMATION_HOOK_RE = /^\/api\/automations\/hook\/[^/]+$/;
 
@@ -78,7 +83,7 @@ const THEME_SCRIPT_HASH = "'sha256-0bl3qfy2TVEcSqWbnPTaSfbqpT2811uzf4Q5tEMNsk0='
 const s3PublicUrl = process.env.S3_PUBLIC_URL || "http://localhost:3900";
 const wsUrl = process.env.WS_URL || "";
 
-function buildCsp(nonce: string, livekitUrl: string): string {
+export function buildCsp(nonce: string, livekitUrl: string): string {
   // Extract LiveKit host for CSP connect-src (ws://host → wss://host)
   let livekitCsp = "";
   if (livekitUrl) {
@@ -266,7 +271,7 @@ async function handlePage(
   }
 
   // Routes publiques
-  if ([...publicPaths, ...getHttpHooks().publicPaths].some((p) => pathnameWithoutLocale === p || pathnameWithoutLocale.startsWith(p + "/"))) {
+  if (isPublicPagePath(pathnameWithoutLocale)) {
     return await getHttpHooks().syncOrgCookie(req, await addCspHeaders(req, intlResponse));
   }
 

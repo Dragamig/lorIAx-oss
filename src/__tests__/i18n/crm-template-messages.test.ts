@@ -56,6 +56,18 @@ describe("messages crm.template.*", () => {
     }
   });
 
+  it("loadTemplateMessages rend 6 automatismes d'exemple complets dans chaque locale", async () => {
+    const keys = ["quoteFollowUp", "waitingFollowUp", "wonClose", "lostClose", "dailyReminders", "receptionTally"] as const;
+    for (const locale of LOCALES) {
+      const { automations } = await loadTemplateMessages(locale);
+      expect(Object.keys(automations).sort(), locale).toEqual([...keys].sort());
+      for (const k of keys) expect(automations[k].name.length, `${locale}.${k}`).toBeGreaterThan(0);
+      for (const k of ["quoteFollowUp", "waitingFollowUp", "lostClose"] as const) expect(automations[k].taskTitle?.length, `${locale}.${k}.taskTitle`).toBeGreaterThan(0);
+      for (const k of ["quoteFollowUp", "wonClose"] as const) expect(automations[k].interactionSubject?.length, `${locale}.${k}.interactionSubject`).toBeGreaterThan(0);
+      expect(automations.dailyReminders.reminderText?.length, locale).toBeGreaterThan(0);
+    }
+  });
+
   it("locale inconnue : repli fr", async () => {
     const fr = await loadTemplateMessages("fr");
     expect(await loadTemplateMessages("xx")).toEqual(fr);

@@ -1,13 +1,10 @@
-import { Link } from "@/i18n/routing";
-import { ArrowRight, Power, PowerOff } from "lucide-react";
+import { Power, PowerOff } from "lucide-react";
 
 /**
  * Bandeau de lecture seule sur les pages de configuration historiques.
  *
  * L'activation d'un module ne s'écrit plus que depuis `/admin/modules` :
- * ces pages n'affichent donc que l'état courant, avec un renvoi vers la page
- * unique. Sans cela, l'administrateur ne comprendrait pas pourquoi la
- * configuration qu'il règle ici ne s'applique pas encore.
+ * ces pages n'affichent donc que l'état courant, sans lien de renvoi.
  */
 export function ModuleActivationNotice({
   enabled,
@@ -35,13 +32,6 @@ export function ModuleActivationNotice({
           )}
         </p>
       </div>
-      <Link
-        href="/admin/modules"
-        className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
-      >
-        L&apos;activation se règle depuis Modules et services
-        <ArrowRight className="h-3.5 w-3.5" />
-      </Link>
     </div>
   );
 }

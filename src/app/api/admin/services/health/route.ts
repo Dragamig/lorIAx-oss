@@ -4,6 +4,7 @@ import { hasGlobalRole } from "@/lib/auth/rbac";
 import { db } from "@/lib/db";
 import { systemSettings } from "@/lib/db/schema";
 import { inArray } from "drizzle-orm";
+import { livekitProbeUrl } from "@/lib/admin/livekit-probe-url";
 import { safeExternalFetch } from "@/lib/security/outbound-fetch";
 
 export const revalidate = 10;
@@ -98,7 +99,7 @@ export async function GET() {
       return { status: "unconfigured" };
     }
     try {
-      const httpUrl = url.replace(/^wss?:\/\//, "http://");
+      const httpUrl = livekitProbeUrl(url);
       const { res, latency } = await timedFetch(httpUrl);
       return { status: res.ok ? "up" : "down", latency };
     } catch {

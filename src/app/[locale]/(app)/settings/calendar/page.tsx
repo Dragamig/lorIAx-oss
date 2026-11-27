@@ -11,6 +11,7 @@ import {
   Info,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Link } from "@/i18n/routing";
 import { useCurrentUser } from "@/hooks/use-session";
 
 export default function CalendarSettingsPage() {
@@ -128,10 +129,10 @@ export default function CalendarSettingsPage() {
             <p className="font-medium">Authentification</p>
             <p>
               Utilisez votre adresse email et mot de passe LorIAx, ou générez
-              une clé API dans{" "}
-              <a href="/settings" className="text-primary underline">
+              une clé API avec la permission « Calendrier » dans{" "}
+              <Link href="/settings?tab=api-keys" className="text-primary underline">
                 Paramètres → Clés API
-              </a>{" "}
+              </Link>{" "}
               comme token Bearer.
             </p>
           </div>

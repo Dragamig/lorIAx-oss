@@ -4,6 +4,8 @@ import {
   collectLegacyKeys,
   applyKeyMap,
   rewriteYDocMediaRefs,
+  countStudioRefs,
+  applyStudioRefs,
 } from "./rewrite-media-refs";
 import type { LookupResult } from "@/lib/media/rewrite-document-refs";
 
@@ -217,5 +219,37 @@ describe("miniature de bloc design en clé nue", () => {
     }
     const other = build((f) => f.insert(0, [el("custom", { thumbnailUrl: "org/t.png" })]));
     expect(collectLegacyKeys(other)).toEqual([]);
+  });
+});
+
+describe("anciennes URL /api/studio/images", () => {
+  const studio = (id: string) => `/api/studio/images/${id}`;
+  const make = () =>
+    build((f) => {
+      const p = el("paragraph");
+      const t = new Y.XmlText();
+      p.insert(0, [t]);
+      t.insert(0, "lien", { link: { href: studio(ID2), title: null } });
+      f.insert(0, [el("image", { src: studio(ID1) }), el("image", { src: "https://x.test/api/studio/images/" + ID1 }), p]);
+    });
+
+  it("compte les références (attributs et liens), pas les URL absolues", () => {
+    expect(countStudioRefs(make())).toBe(2);
+  });
+
+  it("réécrit vers /api/media avec le même identifiant, idempotent", () => {
+    const doc = make();
+    expect(applyStudioRefs(doc)).toBe(2);
+    expect(attr(doc, [0], "src")).toBe(`/api/media/${ID1}`);
+    expect(attr(doc, [1], "src")).toBe("https://x.test/api/studio/images/" + ID1);
+    expect(applyStudioRefs(doc)).toBe(0);
+    expect(countStudioRefs(doc)).toBe(0);
+  });
+
+  it("rewriteYDocMediaRefs les réécrit sans résolution", async () => {
+    const doc = make();
+    const res = await rewriteYDocMediaRefs(doc, async () => new Map());
+    expect(res).toEqual({ rewritten: 2, skipped: 0 });
+    expect(attr(doc, [0], "src")).toBe(`/api/media/${ID1}`);
   });
 });

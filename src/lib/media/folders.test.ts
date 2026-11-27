@@ -42,7 +42,7 @@ vi.mock("@/lib/db", () => ({
 vi.mock("@/lib/activity", () => ({ logActivity: vi.fn() }));
 vi.mock("@/lib/media/access", () => ({ isOrgAdminOrOwner: () => Promise.resolve(h.admin) }));
 vi.mock("@/lib/org/resolve-request-org", () => ({ isOrgMember: () => Promise.resolve(h.member) }));
-vi.mock("@/lib/media/list", () => ({ visibleMediaCondition: () => Promise.resolve({}) }));
+vi.mock("@/lib/media/list", () => ({ listableMediaCondition: () => Promise.resolve({}) }));
 
 import {
   FolderError,

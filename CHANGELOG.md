@@ -4,6 +4,27 @@ Toutes les modifications notables sont consignées dans ce fichier.
 
 Le format est inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), et le projet suit [Semantic Versioning](https://semver.org/lang/fr/).
 
+## [2.1.0] - 2026-11-27
+
+lorIAx-oss 2.1.0, basée sur LorIAx 1.227.x.
+
+### Ajouté
+
+- **Assistant unifié Cinder** : un seul assistant pour le chat, l'aide d'usage et les actions, avec le même moteur partout dans l'application.
+- **Création par le chat** : l'assistant crée des documents, des bases et des fichiers à partir d'une demande en langage naturel.
+- **Médiathèque** : retoucheur d'image intégré (recadrage, rotation, réglages), enregistrement en nouvelle version ou en copie.
+- **CRM** : fil d'activité par contact et par dossier regroupant les interactions.
+- **Mailing** : nouvel essai des envois en échec.
+- **Tableaux de bord** : composition de tableaux de bord à partir des bases.
+
+### Mise à jour depuis 2.0.0
+
+- **Vérification d'email à l'inscription** : un nouveau compte local doit désormais confirmer son adresse par un lien envoyé par email avant de pouvoir se connecter. Il n'existe ni variable d'environnement ni option pour la désactiver. Si aucun envoi d'email n'est configuré, les nouveaux inscrits restent bloqués : configurez SMTP ou Resend dans l'administration (réglages email, envoi activé) avant d'ouvrir les inscriptions. Les comptes déjà existants restent considérés comme vérifiés.
+
+### Corrigé
+
+- Corrections diverses de stabilité et d'accessibilité.
+
 ## [2.0.0] - 2026-11-21
 
 lorIAx-oss 2.0.0, basée sur LorIAx 1.210.x. Tous les modules sont actifs, sans quota ni clé de licence. Seul le studio vidéo n'est pas inclus.

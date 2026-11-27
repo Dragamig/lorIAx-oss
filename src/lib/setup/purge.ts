@@ -82,9 +82,12 @@ export async function purgeAllData() {
 
     // 12. system_settings (sauf setup_completed et le jeton d'amorçage : le
     // supprimer en cours de parcours en ferait engendrer un neuf, et chaque
-    // étape suivante de l'assistant répondrait 401)
+    // étape suivante de l'assistant répondrait 401). Le marqueur de fermeture
+    // de l'inscription (oss_registration_closed_v2, voir
+    // scripts/close-registration-on-upgrade.ts) reste aussi : l'effacer ferait
+    // refermer au prochain démarrage une inscription rouverte par l'admin.
     await tx.execute(
-      sql`DELETE FROM system_settings WHERE key NOT IN ('setup_completed', ${SETUP_TOKEN_KEY})`
+      sql`DELETE FROM system_settings WHERE key NOT IN ('setup_completed', 'oss_registration_closed_v2', ${SETUP_TOKEN_KEY})`
     );
   });
 }

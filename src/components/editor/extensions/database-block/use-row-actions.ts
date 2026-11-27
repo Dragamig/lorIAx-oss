@@ -5,6 +5,7 @@ import type React from "react";
 import { toast } from "sonner";
 import type { CellValue, DbRow } from "./types";
 import { apiDelete, apiPatch, apiPost } from "./api";
+import { deleteRowsRequest, restoreRowsRequest, type ServerRow } from "@/lib/bases/delete-rows";
 import {
   applyReorder,
   invertReorder,
@@ -18,7 +19,6 @@ import {
   stepReorder,
 } from "@/lib/bases/row-selection";
 
-type ServerRow = { id: string; cells: Record<string, CellValue>; position: number };
 type DuplicatedRow = ServerRow & { sourceId: string };
 type PositionRow = { id: string; position: number };
 
@@ -115,7 +115,7 @@ export function useRowActions({
       const removedRows = original.filter((r) => removed.has(r.id));
       mutateRows((rs) => rs.filter((r) => !removed.has(r.id)));
       clearSelection();
-      const request = apiDelete<{ deleted: ServerRow[] }>(`/api/databases/${databaseId}/rows`, { rowIds });
+      const request = deleteRowsRequest(databaseId, rowIds);
       const message = lines(rowIds.length, "ligne supprimée", "lignes supprimées");
       let undone = false;
       const toastId = toast(message, {
@@ -128,10 +128,7 @@ export function useRowActions({
             try {
               const { deleted } = await request;
               // `deleted` est renvoyé tel que reçu du DELETE (champ `tracking` inclus).
-              const res = await apiPost<{ alreadyRestored?: boolean } | undefined>(
-                `/api/databases/${databaseId}/rows/restore`,
-                { rows: deleted },
-              );
+              const res = await restoreRowsRequest(databaseId, deleted);
               void res; // alreadyRestored: true vaut succès
               toast.success(lines(deleted.length, "ligne restaurée", "lignes restaurées"));
             } catch {

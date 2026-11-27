@@ -60,7 +60,9 @@ const VALID_VECTOR = [0.1, 0.2, 0.3, 0.4];
 let kbDir: string;
 
 /** Rend le SELECT des chunks existants pour piloter le « déjà indexé ». */
-function withExistingChunks(existing: Array<{ chunk_index: number; content_hash: string }>) {
+function withExistingChunks(
+  existing: Array<{ chunk_index: number; content_hash: string; has_embedding?: boolean }>
+) {
   executeMock.mockImplementation(async (query: unknown) => {
     const text = sqlText(query);
     if (text.includes("SELECT chunk_index, content_hash")) {
@@ -118,7 +120,9 @@ describe("indexKbFromDisk — comptage des échecs", () => {
 
   it("compte zéro échec et zéro indexation quand rien n'a changé", async () => {
     const body = "Premier paragraphe.\n\nDeuxième paragraphe.";
-    withExistingChunks([{ chunk_index: 0, content_hash: hashChunk(body) }]);
+    withExistingChunks([
+      { chunk_index: 0, content_hash: hashChunk(body), has_embedding: true },
+    ]);
 
     const summary = await indexKbFromDisk(kbDir);
 
@@ -127,6 +131,32 @@ describe("indexKbFromDisk — comptage des échecs", () => {
     expect(summary.chunksFailed).toBe(0);
     expect(generateEmbeddingMock).not.toHaveBeenCalled();
     expect(kbIndexVerdict(summary).ok).toBe(true);
+  });
+
+  it("réindexe un chunk au hash identique dont l'embedding est NULL", async () => {
+    const body = "Premier paragraphe.\n\nDeuxième paragraphe.";
+    withExistingChunks([
+      { chunk_index: 0, content_hash: hashChunk(body), has_embedding: false },
+    ]);
+
+    const summary = await indexKbFromDisk(kbDir);
+
+    expect(summary.chunksSkipped).toBe(0);
+    expect(summary.chunksIndexed).toBe(1);
+    expect(generateEmbeddingMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("avec force, recalcule tout même si hash et embedding sont présents", async () => {
+    const body = "Premier paragraphe.\n\nDeuxième paragraphe.";
+    withExistingChunks([
+      { chunk_index: 0, content_hash: hashChunk(body), has_embedding: true },
+    ]);
+
+    const summary = await indexKbFromDisk(kbDir, { force: true });
+
+    expect(summary.chunksSkipped).toBe(0);
+    expect(summary.chunksIndexed).toBe(1);
+    expect(generateEmbeddingMock).toHaveBeenCalledTimes(1);
   });
 
   it("compte un échec quand l'écriture du vecteur échoue, et retire la ligne orpheline", async () => {

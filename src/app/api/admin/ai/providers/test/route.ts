@@ -4,7 +4,13 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createMistral } from "@ai-sdk/mistral";
 import { createOpenAI } from "@ai-sdk/openai";
 import { getSessionUser } from "@/lib/auth/get-user";
+import { z } from "zod";
+import { eq } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { aiProviders } from "@/lib/db/schema";
+import { decrypt } from "@/lib/crypto";
 import { hasGlobalRole, INSTANCE_ADMIN_ONLY_MESSAGE } from "@/lib/auth/rbac";
+import { resolveProviderScope } from "../scope";
 
 /**
  * Constat INJ-24 (audit du 2026-08-19) : cette route relaie `apiBaseUrl`
@@ -89,6 +95,22 @@ function genericOutboundErrorMessage(err: unknown): string {
   return "Échec de connexion au fournisseur";
 }
 
+/**
+ * Deux formes de corps : un fournisseur déjà enregistré (`providerId`, la clé
+ * est déchiffrée côté serveur et ne transite jamais par le client), ou les
+ * paramètres bruts saisis dans le formulaire.
+ */
+const byIdSchema = z.object({
+  providerId: z.string().min(1),
+  model: z.string().min(1),
+});
+const rawSchema = z.object({
+  connectorType: z.string().optional(),
+  apiBaseUrl: z.string().nullish(),
+  apiKey: z.string().nullish(),
+  model: z.string().min(1),
+});
+
 export async function POST(request: NextRequest) {
   const user = await getSessionUser();
   if (!user || !hasGlobalRole(user.globalRole, "super_admin")) {
@@ -98,13 +120,59 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { connectorType, apiBaseUrl, apiKey, model } = await request.json();
+  let raw: unknown;
+  try {
+    raw = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Corps invalide" }, { status: 400 });
+  }
 
-  if (!model) {
-    return NextResponse.json(
-      { error: "Le modèle est requis" },
-      { status: 400 }
-    );
+  let connectorType: string | undefined;
+  let apiBaseUrl: string | null | undefined;
+  let apiKey: string | null | undefined;
+  let model: string;
+
+  const byId = byIdSchema.safeParse(raw);
+  if (byId.success) {
+    // Même portée que la détection des modèles : 404 muet hors portée.
+    const scope = await resolveProviderScope(user, byId.data.providerId, false);
+    if (!scope.ok) return scope.response;
+
+    const [provider] = await db
+      .select()
+      .from(aiProviders)
+      .where(eq(aiProviders.id, byId.data.providerId))
+      .limit(1);
+    if (!provider) {
+      return NextResponse.json(
+        { error: "Fournisseur introuvable" },
+        { status: 404 }
+      );
+    }
+
+    connectorType = provider.connectorType;
+    apiBaseUrl = provider.apiBaseUrl;
+    model = byId.data.model;
+    apiKey = null;
+    if (provider.apiKeyEnc) {
+      try {
+        apiKey = decrypt(provider.apiKeyEnc);
+      } catch {
+        return NextResponse.json(
+          { success: false, error: "Clé du fournisseur illisible" },
+          { status: 200 }
+        );
+      }
+    }
+  } else {
+    const parsed = rawSchema.safeParse(raw);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Le modèle est requis" },
+        { status: 400 }
+      );
+    }
+    ({ connectorType, apiBaseUrl, apiKey, model } = parsed.data);
   }
 
   if (connectorType !== "anthropic" && connectorType !== "mistral" && apiBaseUrl) {

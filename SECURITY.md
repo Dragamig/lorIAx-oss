@@ -14,7 +14,8 @@ Nous accusons réception sous 72 heures ouvrées et vous tenons informé de l'av
 
 | Version | Licence | Prise en charge |
 |---|---|---|
-| 2.0.x | FSL-1.1-MIT | Oui |
+| 2.1.x | FSL-1.1-MIT | Oui |
+| 2.0.x | FSL-1.1-MIT | Correctifs de sécurité uniquement |
 | 1.21.x | MIT | Correctifs de sécurité uniquement |
 | Versions antérieures | | Non, mise à jour recommandée |
 

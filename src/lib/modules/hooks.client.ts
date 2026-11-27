@@ -24,8 +24,8 @@ export interface ClientSlots {
   adminTabs: AdminTabSlot[];
   /** Sélecteur et création d'organisation dans la barre latérale. Neutre : `null` (rien affiché, aucun appel réseau). */
   OrgSwitcher: ComponentType | null;
-  /** Lien d'inscription cloud (création d'organisation) sur les pages d'authentification. Neutre : false. */
-  cloudSignup: boolean;
+  /** Lien d'inscription cloud (création d'organisation) sur les pages d'authentification. Neutre : `null` (rien affiché). */
+  CloudSignupLink: ComponentType | null;
   /** Suggestion et mention de signalement de bug dans l'assistant d'aide. Neutre : false. */
   helpBugReport: boolean;
 }
@@ -37,7 +37,7 @@ export const NEUTRAL_CLIENT_SLOTS: ClientSlots = {
   SubscriptionTab: null,
   adminTabs: [],
   OrgSwitcher: null,
-  cloudSignup: false,
+  CloudSignupLink: null,
   helpBugReport: false,
 };
 

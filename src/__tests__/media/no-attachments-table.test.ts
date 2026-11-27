@@ -63,6 +63,14 @@ const PERMANENT: Record<string, string> = {
     "lecture seule des anciennes tables pour mesurer l'intégrité de la copie, tolère leur absence, aucune écriture",
   "src/lib/backup/restore-toc.ts":
     "LEGACY_TABLES : filtre de restauration qui ignore la table attachments des sauvegardes anciennes, aucune lecture ni écriture",
+  // Mailing : « attachments » désigne la colonne jsonb des pièces jointes d'un mail (`mail_messages.attachments`)
+  // ou une clé d'objet/de traduction, jamais l'ancienne table. Faux positifs du garde (clé « attachments » entre
+  // guillemets, ou clé d'objet `from:` suivie de `attachments`).
+  "src/lib/db/schema-mailing.ts": "colonne mail_messages.attachments (jsonb), pas l'ancienne table",
+  "src/lib/mailing/crm-trace.ts": "lecture de la colonne mail_messages.attachments, pas l'ancienne table",
+  "src/lib/mailing/threads.ts": "objet DTO `from:` puis clé `attachments`, pas l'ancienne table",
+  "src/components/mailing/compose-drawer.tsx": "objet `from:` puis clé `attachments` d'un brouillon, pas l'ancienne table",
+  "src/components/mailing/conversation-list.tsx": "clé de traduction `attachments`, pas l'ancienne table",
 };
 const PERMANENT_EXPECTED: Record<string, string> = {
   "scripts/retire-attachments.ts": "DDL de retrait des tables attachments et studio_images",

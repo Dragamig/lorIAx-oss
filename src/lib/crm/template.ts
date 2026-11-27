@@ -98,6 +98,7 @@ export function crmRelations(m: TemplateMessages): CrmRelationSpec[] {
   return [
     { from: "dossiers", to: "contacts", fieldKey: "contact", name: m.fields.dossiers.contact, inverseName: m.inverseNames.contactDossiers },
     { from: "interactions", to: "dossiers", fieldKey: "dossier", name: m.fields.interactions.dossier, inverseName: m.inverseNames.dossierInteractions },
+    { from: "interactions", to: "contacts", fieldKey: "contact", name: m.fields.interactions.contact, inverseName: m.inverseNames.dossierInteractions },
   ];
 }
 

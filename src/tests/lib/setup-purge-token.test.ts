@@ -31,4 +31,14 @@ describe("purgeAllData", () => {
     expect(kept).toContain("setup_completed");
     expect(kept).toContain(SETUP_TOKEN_KEY);
   });
+
+  it("conserve le marqueur de fermeture de l'inscription", async () => {
+    h.statements.length = 0;
+    await purgeAllData();
+    const dialect = new PgDialect();
+    const sqls = h.statements.map((q) => dialect.sqlToQuery(q as never));
+    const del = sqls.find((s) => /DELETE FROM system_settings/.test(s.sql));
+    const kept = [...del!.sql.matchAll(/'([a-z_0-9]+)'/g)].map((m) => m[1]).concat(del!.params as string[]);
+    expect(kept).toContain("oss_registration_closed_v2");
+  });
 });

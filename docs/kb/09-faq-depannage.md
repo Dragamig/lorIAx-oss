@@ -1,6 +1,6 @@
 ---
 title: "FAQ et dépannage"
-description: "Résoudre les problèmes courants de LorIAx : connexion, mot de passe oublié, image qui ne s'affiche pas, IA non configurée, synchronisation, et comment signaler un bug."
+description: "Résoudre les problèmes courants de LorIAx : connexion, mot de passe oublié, image qui ne s'affiche pas, IA non configurée, synchronisation, envoyer un mail, relancer le tuto, et comment décrire un problème à votre administrateur."
 ---
 
 ## Connexion
@@ -12,13 +12,20 @@ description: "Résoudre les problèmes courants de LorIAx : connexion, mot de pa
 - Après plusieurs mots de passe erronés d'affilée, la connexion est temporairement bloquée pour votre compte. Le blocage se lève tout seul : attendez quelques minutes avant de réessayer, et insister le prolonge.
 - Si le problème persiste, contactez l'administrateur de votre instance : votre compte est peut-être désactivé ou non encore créé.
 
+**Email non vérifié à la connexion.**
+
+- Un compte créé par l'inscription libre doit d'abord vérifier son adresse : le lien reçu par email est valable 24 heures.
+- Lien perdu ou expiré : sur la page de connexion, utilisez « Renvoyer le lien ». Un nouveau lien invalide le précédent, et deux envois doivent être espacés d'une minute.
+- Sans réception, un administrateur peut renvoyer le lien ou marquer l'adresse comme vérifiée depuis la liste des utilisateurs.
+
 **J'ai changé mon mot de passe et je suis déconnecté partout.**
 
 C'est voulu : un changement ou une réinitialisation de mot de passe invalide les sessions ouvertes, sur tous vos appareils. Reconnectez-vous avec le nouveau mot de passe.
 
 **J'ai oublié mon mot de passe.**
 
-- Demandez à un administrateur de réinitialiser votre mot de passe : les administrateurs peuvent recréer ou réinitialiser les identifiants.
+- Sur la page de connexion, cliquez sur **Mot de passe oublié ?** (`/forgot-password`), saisissez votre email puis **Envoyer le lien**. Si un compte existe avec cette adresse, vous recevez un lien de réinitialisation valable une heure.
+- Sinon, demandez à un administrateur de réinitialiser votre mot de passe : les administrateurs peuvent recréer ou réinitialiser les identifiants.
 - Si un email de bienvenue vous a été envoyé, il contient un lien de connexion.
 
 ## Images et fichiers
@@ -40,14 +47,16 @@ C'est voulu : un changement ou une réinitialisation de mot de passe invalide le
 
 - L'IA nécessite qu'un fournisseur soit configuré sur l'instance (Claude, OpenAI, Mistral ou Ollama).
 - Si aucun fournisseur n'est configuré, les fonctions IA restent indisponibles. Demandez à votre administrateur d'en activer un.
-- Si un quota est atteint, attendez son renouvellement ou contactez l'administrateur.
+- Si le fournisseur IA refuse les requêtes (clé invalide, limite de son côté), contactez l'administrateur.
+- Le chat IA est l'entrée **Assistant IA** de la barre latérale (`/ai`). Le bouton d'aide **?**, en bas de la barre latérale, n'apparaît que si un administrateur a activé l'assistant d'aide dans `/admin/ai/settings` et qu'une IA est configurée. Voir la fiche « Aide et prise en main ».
 
 ## Recherche
 
 **Je ne trouve pas un document.**
 
-- Vérifiez le filtre par espace : la recherche peut être limitée à un périmètre.
-- Essayez la recherche sémantique en reformulant par le sujet plutôt que par les mots exacts.
+- La recherche complète est l'entrée **Rechercher** de la barre latérale (`/search`) ; la palette `Ctrl+K` ne cherche que dans les documents et les médias.
+- Vérifiez le filtre par espace (liste **Tous les espaces** de la page **Rechercher**) : la recherche peut être limitée à un périmètre.
+- Essayez la recherche sémantique en reformulant par le sujet plutôt que par les mots exacts, ou passez en mode **Question IA**.
 - Assurez-vous d'avoir les droits d'accès au document recherché (classification ou rôle d'espace).
 
 ## Calendrier et synchronisation
@@ -55,15 +64,18 @@ C'est voulu : un changement ou une réinitialisation de mot de passe invalide le
 **Mon agenda externe ne se synchronise pas.**
 
 - Vérifiez la configuration CalDAV dans votre client (Thunderbird, Apple Calendar, DAVx⁵).
-- Si vous vous authentifiez avec une clé d'API, vérifiez qu'elle porte bien une portée de calendrier (`calendars:read` ou `calendars:write`). Une clé créée pour un autre usage est refusée.
+- Authentifiez-vous avec votre adresse e-mail et votre mot de passe LorIAx. Si votre client accepte un jeton (en-tête Bearer), vous pouvez aussi utiliser une clé créée dans **Paramètres > Clés API** avec la permission **Calendrier (lecture)** ou **Calendrier (écriture)** cochée ; une clé sans permission calendrier est refusée.
+- L'adresse à saisir se trouve dans **Paramètres > Général**, section **Synchronisation du calendrier**, lien **Synchroniser avec un autre agenda**.
 - Si votre administrateur a exigé une réinitialisation de votre mot de passe, la synchronisation CalDAV est refusée tant que vous ne l'avez pas changé. Connectez-vous une fois dans l'application pour le faire.
 - Après plusieurs échecs d'authentification d'affilée, la voie CalDAV est temporairement bloquée pour votre compte. Corrigez les identifiants dans votre client, puis patientez quelques minutes : une synchronisation réussie remet le compteur à zéro.
 - Pour un calendrier externe ponctuel, utilisez l'import/export iCal (.ics).
+- Le calendrier de LorIAx s'ouvre par l'entrée **Calendrier** de la barre latérale (`/calendar`).
 
 ## Visioconférence
 
 **Je n'arrive pas à rejoindre une réunion.**
 
+- Les réunions se trouvent dans l'entrée **Réunions** de la barre latérale (`/meet`) : bouton **Rejoindre** de la carte de la réunion. Si la page affiche « La visioconférence est désactivée », contactez un administrateur.
 - Autorisez l'accès au micro et à la caméra dans votre navigateur.
 - Les invités externes utilisent le lien d'invitation, sans compte.
 - Essayez un navigateur récent à jour.
@@ -75,8 +87,9 @@ C'est voulu : un changement ou une réinitialisation de mot de passe invalide le
 - Le contenu est sauvegardé automatiquement. En cas de coupure réseau, vous continuez à travailler hors-ligne ; les modifications se synchronisent au retour de la connexion.
 - En cas de doute, l'historique des versions permet de retrouver un état antérieur.
 
-## Signaler un bug
+## Décrire un problème
 
+- L'assistant d'aide (bouton **?**) répond aux questions d'utilisation, mais ne transmet aucun signalement : il n'y a pas de bouton de remontée de bug dans l'édition open source. Voir la fiche « Aide et prise en main ».
 - Notez ce que vous faisiez, ce que vous attendiez et ce qui s'est passé.
 - Précisez la page concernée et, si possible, une capture d'écran.
 - Transmettez ces informations à l'administrateur de votre instance ou au canal de support défini par votre organisation.
@@ -88,6 +101,12 @@ C'est voulu : un changement ou une réinitialisation de mot de passe invalide le
 
 **Mes données sont-elles hébergées chez un tiers ?**
 Non par défaut : LorIAx est auto-hébergé sur l'infrastructure de votre organisation. Certaines fonctions IA peuvent solliciter un fournisseur externe selon le choix de l'administrateur.
+
+**Comment envoyer un mail depuis LorIAx ?**
+Depuis le CRM, avec votre propre boîte mail. Configurez-la d'abord : menu utilisateur en bas de la barre latérale, **Paramètres**, onglet **Ma boîte mail** (`/settings?tab=mailbox`). Ouvrez ensuite la fiche d'un contact ou d'un dossier du CRM, onglet **Mails**, bouton **Écrire**. Le CRM doit être activé par un administrateur. Voir la fiche « Mailing ».
+
+**Comment relancer la visite guidée ?**
+Menu utilisateur en bas de la barre latérale, **Relancer le tuto**. Vos badges sont dans **Mes badges**. Voir la fiche « Aide et prise en main ».
 
 **Comment récupérer une version précédente d'un document ?**
 Ouvrez l'historique des versions du document et restaurez la version voulue.

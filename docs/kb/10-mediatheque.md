@@ -15,7 +15,7 @@ La page affiche à gauche l'arbre des dossiers, des tags et des vues (Tous les m
 2. Choisissez l'espace d'origine, un dossier et des tags facultatifs.
 3. Lancez l'envoi. Une file affiche l'avancement de chaque fichier.
 
-Chaque fichier fait au plus 50 Mo (200 Mo pour une vidéo). Si un fichier identique existe déjà, LorIAx le signale : **Réutiliser l'existant** évite le doublon, **Téléverser quand même** crée une copie. Les formats non acceptés sont refusés avec le motif.
+Chaque fichier fait au plus 50 Mo (200 Mo pour une vidéo, voir **Grosses vidéos** plus bas pour aller jusqu'à 5 Go). Si un fichier identique existe déjà, LorIAx le signale : **Réutiliser l'existant** évite le doublon, **Téléverser quand même** crée une copie. Les formats non acceptés sont refusés avec le motif.
 
 ## Classer
 
@@ -28,7 +28,54 @@ Chaque fichier fait au plus 50 Mo (200 Mo pour une vidéo). Si un fichier identi
 
 La barre de filtres combine recherche, type, tags, espace, auteur de l'ajout, période, taille et **Non utilisés**. **Réinitialiser les filtres** remet tout à zéro. La grille et la liste se trient par date, nom, taille, type ou nombre d'utilisations.
 
-Le panneau de propriétés affiche le titre, le nom du fichier, le texte alternatif, la description, les tags, le dossier, les dimensions et la liste **Utilisé dans** (documents, lignes de bases, designs, projets vidéo, Brand Kits, présentations). Un double clic ouvre l'aperçu agrandi des images, PDF, audio et vidéo.
+Le panneau de propriétés affiche le titre, le nom du fichier, le texte alternatif, la description, les tags, le dossier, les dimensions et la liste **Utilisé dans** (documents, lignes de bases, designs, Brand Kits, présentations). Un double clic ouvre l'aperçu agrandi des images, PDF, audio et vidéo.
+
+## Télécharger en archive
+
+Un zip se télécharge de deux façons :
+
+- **Une sélection** : cocher des médias dans la grille ou la liste, puis **Télécharger en archive** dans la barre d'actions groupées (200 médias au plus par sélection).
+- **Un dossier** : **Télécharger le dossier en archive** dans l'arbre des dossiers. Le dossier et ses sous-dossiers sont inclus, avec leur arborescence.
+
+Un dialogue récapitule la portée, le nombre de fichiers et la taille avant le lancement. Les fichiers sont ajoutés tels quels, sans compression. L'archive contient 500 fichiers et 2 Go au plus ; au-delà, un message l'indique avant tout envoi. Les médias en corbeille ou que vous n'avez pas le droit de lire sont omis et listés dans `_non-inclus.txt` à la racine de l'archive. Une seule archive à la fois par personne, et 3 archives par tranche de 10 minutes.
+
+## Vues enregistrées
+
+Dans la barre de filtres de la Médiathèque, le menu **Vues enregistrées** garde une combinaison de filtres, de tri et de dossier.
+
+- **Enregistrer la vue actuelle** : donner un nom, cocher **Partager avec l'organisation** si besoin. Le bouton est désactivé tant qu'aucun filtre n'est actif.
+- **Appliquer** une vue en un clic, **Modifier** (renommer, changer le partage) ou **Supprimer** : seul l'auteur modifie ou supprime ses vues. Les vues partagées apparaissent chez tous les membres de l'organisation, sous « Partagées avec l'organisation ».
+- Une vue ne donne aucun droit supplémentaire : la liste ne montre que les médias que vous pouvez lire, et un dossier devenu inaccessible est ignoré.
+- 50 vues au plus par personne.
+
+## Grosses vidéos
+
+Au-delà de 200 Mo et jusqu'à 5 Go, une vidéo est envoyée directement vers le stockage par parts de 16 Mo, depuis **Téléverser**. La file affiche la part en cours, la vitesse et le temps restant, avec **Mettre en pause l'envoi**, **Reprendre l'envoi** et **Annuler l'envoi**. Après une coupure, les parts déjà reçues sont conservées 24 h : un bandeau « Envoi interrompu » propose **Reprendre** (choisir de nouveau le même fichier) ou **Abandonner**. Le fichier est vérifié à la fin avant de devenir un média. Si le stockage direct n'est pas configuré sur l'instance, la limite reste à 200 Mo.
+
+## Vignettes des PDF
+
+Un PDF affiche dans la grille la première page en vignette, calculée à l'envoi. Un PDF protégé, corrompu ou trop lourd à dessiner reste utilisable, sans vignette.
+
+## Texte indexé et recherche par contenu
+
+Quand l'organisation a activé l'indexation, le texte des PDF, documents (docx, odt, pptx, odp), tableurs, fichiers texte et les métadonnées des images (jamais la position GPS) est extrait, puis retrouvable dans la recherche et dans les réponses de l'assistant IA. Les audio et vidéos le sont aussi si la transcription est activée. Les images ne sont pas lues par reconnaissance de texte.
+
+- **Fiche média** : cliquer sur un média ouvre le panneau **Propriétés**, section **Texte indexé** (sous Informations, onglet **Informations**). La pastille indique l'état : En attente, En cours, Indexé (date, source, nombre de caractères), Aucun texte trouvé, Ignoré (fichier ou média trop long), Plafond journalier atteint, Moteur indisponible, Échec de l'indexation ou Désactivée par l'organisation. Les états d'attente se relancent seuls.
+- **Voir le texte extrait** ouvre un panneau en lecture seule : champ **Rechercher dans le texte** (surlignage, résultat précédent et suivant, Entrée pour passer au suivant), **Copier le texte**. Pour une transcription, chaque ligne porte son horodatage ; depuis l'aperçu agrandi (double clic sur une vidéo ou un audio, bouton **Texte extrait** à côté de la navigation), un clic sur l'horodatage place le lecteur à ce moment.
+- **Réindexer** (ou **Réessayer** en cas d'échec) relance l'extraction. Le bouton est grisé, avec la raison en info-bulle, pour une personne qui ne peut pas modifier le média, quand l'indexation est désactivée, ou quand le média est déjà en file ou en cours.
+- **Recherche** : la page **Rechercher** (menu de gauche) et la palette de commandes (Ctrl+K) affichent un groupe **Médias, dans le contenu** avec un extrait autour de la correspondance. Seuls les médias que la personne peut lire apparaissent.
+- **Réglages (administrateurs)** : **Administration > Modules et services > Médiathèque** (`/admin/library`), carte **IA**. Deux interrupteurs, désactivés par défaut : **Texte et vecteurs** et **Transcription de l'audio et de la vidéo** (qui exige le premier). Les activer ouvre une fenêtre avec l'estimation (médias, blocs de recherche, jetons d'embedding) ; désactiver se fait directement, avec **Annuler** dans la notification, et conserve l'index. **Effacer l'index de l'organisation** supprime tout le texte extrait et les vecteurs. Sans fournisseur d'embedding configuré pour l'instance, les interrupteurs restent grisés. Les plafonds (300 médias indexés par jour, 120 minutes de transcription par jour, fichier de 50 Mo au plus, transcription de 60 minutes au plus, 200 000 caractères conservés par média) sont affichés en lecture seule.
+
+## Retoucher une image
+
+Pour les images jpeg, png, webp et gif (SVG, HEIC et AVIF ne se retouchent pas), le bouton **Retoucher** (touche E) se trouve dans le panneau **Propriétés** d'un média sélectionné et dans l'aperçu agrandi (double clic). Il ouvre le retoucheur en plein écran.
+
+- **Outils** (rail de gauche) : **Recadrer** (formats libres, 1:1, 4:3, 3:2, 16:9, 9:16, 4:5 ou ratio saisi ; poignées à la souris, flèches au clavier), **Pivoter** (quarts de tour, angle fin, miroirs), **Redimensionner** (verrou de ratio, sortie plafonnée à 8 192 px de côté et 24 mégapixels), **Réglages** (luminosité, contraste, saturation, vibrance, exposition, température, teinte), **Filtres**, **Netteté et flou**, **Texte** et **Formes**.
+- **Annuler** et **Rétablir** (Ctrl+Z, Ctrl+Maj+Z) couvrent 50 modifications. Maintenir `\` ou le bouton **Avant/après** compare avec l'original. Fermer avec des modifications non enregistrées ouvre un choix : Enregistrer, Abandonner ou Continuer.
+- **Enregistrer** : par défaut la retouche devient un **nouveau média** (nom, format PNG, JPEG ou WebP, qualité, espace et dossier au choix) et l'original reste intact. La case **Enregistrer comme nouvelle version de l'original** remplace l'image dans tous les emplacements où elle est utilisée (la liste s'affiche avant) ; l'ancien fichier reste restaurable depuis l'onglet **Versions**. Elle est grisée, avec la raison en info-bulle, sans droit de modification sur l'original. Le message de confirmation propose **Annuler** pendant 10 secondes.
+- Une image animée perd son animation (seule la première image est conservée). La position GPS d'un fichier d'origine est conservée dans la copie, un avertissement le signale.
+- Sans droit d'écriture dans aucun espace, le retoucheur s'ouvre en lecture seule : le bouton **Télécharger le résultat** remplace Enregistrer. Un contenu identique à un média existant ne crée pas de doublon.
+- La fiche d'une copie affiche **Retouché depuis** (lien vers l'original s'il est lisible) ; celle de l'original affiche **Retouches (N)**, limité aux médias que la personne peut lire. Supprimer l'original conserve la copie.
 
 ## Corbeille et restauration
 
@@ -38,27 +85,37 @@ La vue **Corbeille** liste les médias avec leur date de mise à la corbeille, l
 
 Un média reste 30 jours dans la corbeille (réglable par un administrateur), puis il est supprimé définitivement, fichier compris, même s'il est encore utilisé. Une notification prévient 7 jours avant la purge. Les administrateurs de l'organisation peuvent aussi **Effacer définitivement** un média immédiatement : le nom du fichier est à saisir pour confirmer, et l'action est irréversible.
 
+## Versions d'un média
+
+Dans la **Médiathèque** (`/mediatheque`), sélectionner un média ouvre le panneau **Propriétés** à droite. L'onglet **Versions** liste les versions, la plus récente en haut, avec l'auteur, la date et la taille. La version en cours porte le repère « Courante ».
+
+- **Remplacer le fichier** : choisir ou déposer un nouveau fichier, avec un commentaire facultatif. Le contenu actuel devient une version précédente. L'adresse du média et ses usages (documents, designs, bases) ne changent pas. Le nouveau fichier doit être du même type que le média (une image reste une image) et différer de la version courante. Le message de confirmation propose **Annuler**.
+- **Restaurer la version N** : crée une nouvelle version avec le contenu de la version choisie ; l'historique n'est pas réécrit. **Annuler** est proposé dans le message de confirmation.
+- **Télécharger la version N** et **Supprimer la version N** (confirmation, définitive). La version courante, ou la seule version, ne peut pas être supprimée.
+- Vingt versions sont conservées par média : au-delà, la plus ancienne est supprimée au remplacement. Les versions occupent de l'espace de stockage.
+- Un média en corbeille ne peut ni être remplacé ni voir ses versions modifiées : les boutons sont désactivés, l'info-bulle l'explique. Ces actions demandent le droit d'écriture sur le média.
+
 ## Droits
 
 - Lecture : toute personne qui a accès à l'espace du média.
 - Modification, déplacement, corbeille, restauration : droit d'écriture sur l'espace. Sans ce droit, les boutons sont désactivés et leur info-bulle donne la raison.
-- Médias hors espace : visibles de leur auteur et des administrateurs.
+- Médias hors espace : visibles de tous les membres de l'organisation.
 - Effacement définitif : administrateurs de l'organisation.
 
 ## Stockage
 
-L'édition open source n'impose aucun quota de stockage : l'espace disponible dépend du stockage S3 ou du disque configuré pour l'instance. Libérer de la place passe par l'effacement définitif de médias en corbeille.
+L'édition open source n'impose aucune limite de stockage : l'espace disponible dépend du stockage S3 ou du disque configuré pour l'instance. Libérer de la place passe par l'effacement définitif de médias en corbeille.
 
 ## Administration
 
-Les administrateurs règlent le délai de purge de la corbeille et consultent l'usage du stockage et les compteurs dans **Administration > Médiathèque** (`/admin/library`). Le module est actif par défaut et peut être désactivé dans la page des modules.
+Les administrateurs règlent le délai de purge de la corbeille et consultent l'usage du stockage et les compteurs dans **Administration > Modules et services > Médiathèque** (`/admin/library`). Le module est actif par défaut et peut être désactivé dans la page des modules.
 
 ## Choisir un média depuis une autre surface
 
-Le sélecteur de médias s'ouvre en modale depuis l'éditeur, les bases, le Brand Kit, le montage vidéo et le studio. Il propose jusqu'à quatre onglets selon la surface :
+Le sélecteur de médias s'ouvre en modale depuis l'éditeur, les bases, le Brand Kit, et le studio. Il propose jusqu'à quatre onglets selon la surface :
 
 - **Médiathèque** : grille des médias que vous pouvez lire, avec recherche, filtre de type et de dossier. La sélection est limitée au nombre autorisé par la surface (un seul média, ou un maximum indiqué dans le sélecteur).
-- **Téléverser** : envoi depuis l'appareil, dans l'espace du contexte (document, base, projet vidéo). Sans espace de contexte, un menu propose les espaces où vous pouvez écrire ; s'il n'y en a aucun, l'onglet est désactivé et son info-bulle en donne la raison.
+- **Téléverser** : envoi depuis l'appareil, dans l'espace du contexte (document ou base). Sans espace de contexte, un menu propose les espaces où vous pouvez écrire ; s'il n'y en a aucun, l'onglet est désactivé et son info-bulle en donne la raison.
 - **URL** (insertion d'images) : l'image est copiée dans la médiathèque. Les adresses refusées ou inaccessibles affichent le motif.
 - **Banque d'images** (insertion d'images) : recherche chez les fournisseurs configurés par un administrateur, import en un clic dans la médiathèque.
 
@@ -81,9 +138,8 @@ Un média choisi doit être lisible par la personne qui l'ajoute, et appartenir 
 
 Les logos du Brand Kit se choisissent dans la médiathèque, dans un espace ouvert à toute l'organisation. Un logo en URL externe reste accepté. Le rendu des designs lit le logo par l'organisation du Brand Kit.
 
-## Montage vidéo et bloc design
+## Bloc design
 
-- **Montage vidéo** : la bibliothèque du montage est le sélecteur de médias. Un nouveau clip enregistre l'identifiant du média et la clé de stockage ; le rendu utilise l'identifiant et retombe sur la clé pour les anciens projets.
 - **Bloc design** : les nouvelles miniatures sont des médias d'origine `studio` référencés par `/api/media/<identifiant>`. Les images insérées dans le canevas du studio passent par le sélecteur.
 
 ## Automatismes : `create_design`
@@ -92,10 +148,9 @@ L'action `create_design` enregistre l'image rendue dans la médiathèque (origin
 
 ## Réécriture des références existantes
 
-Les références anciennes (`/api/attachments/<clé>`, `sourceKey`) restent lisibles. Deux scripts les convertissent, à lancer depuis `loriax-app/` :
+Les références anciennes (`/api/attachments/<clé>`, `sourceKey`) restent lisibles. Un script les convertit, à lancer depuis `loriax-app/` :
 
 - `npm run media:rewrite-cells` : cellules image et pièces jointes des bases vers `/api/media/<identifiant>` et `{ mediaId }`.
-- `npm run media:rewrite-video` : ajoute `mediaId` à côté de `sourceKey` dans les clips des projets vidéo, sans retirer `sourceKey`.
 
 Fonctionnement commun :
 
@@ -109,7 +164,7 @@ Les documents ne sont pas réécrits en masse : l'alias ci-dessous sert les anci
 
 ## Anciennes adresses de fichiers
 
-Une adresse de la forme `/api/attachments/...`, présente dans un document, une cellule ou un projet vidéo, continue d'afficher le fichier. Aucune action n'est demandée aux utilisateurs. L'alias est permanent et suit les mêmes droits d'accès que `/api/media/<identifiant>`.
+Une adresse de la forme `/api/attachments/...`, présente dans un document, ou une cellule, continue d'afficher le fichier. Aucune action n'est demandée aux utilisateurs. L'alias est permanent et suit les mêmes droits d'accès que `/api/media/<identifiant>`.
 
 Les administrateurs disposent de deux scripts, à lancer depuis `loriax-app/` :
 
@@ -118,7 +173,7 @@ Les administrateurs disposent de deux scripts, à lancer depuis `loriax-app/` :
 
 ## API v1
 
-Les médias se lisent et se téléversent avec une clé d'API (en-tête `Authorization: Bearer lrx_...`). Les clés se créent dans **Paramètres > Clés API**. L'accès API est une fonctionnalité du plan enterprise. L'organisation est celle du sous-domaine appelé, et la clé agit avec les droits de son propriétaire. Limite : 100 requêtes par minute et par clé, au-delà la réponse est 429.
+Les médias se lisent et se téléversent avec une clé d'API (en-tête `Authorization: Bearer lrx_...`). Les clés se créent dans **Paramètres > Clés API**. L'organisation est celle du sous-domaine appelé, et la clé agit avec les droits de son propriétaire. Limite : 100 requêtes par minute et par clé, au-delà la réponse est 429.
 
 ### Portées
 
@@ -238,3 +293,10 @@ Un média absent, d'une autre organisation, en corbeille, illisible pour la clé
 ### Modifier et supprimer
 
 Les routes v1 ne modifient ni ne suppriment de médias : elles n'exposent que `GET`, et `POST` sur `/api/v1/media`. Renommer, déplacer, taguer ou mettre à la corbeille se fait dans l'application.
+
+## Studio design, tableau blanc et automatismes
+
+- **Studio design** : l'insertion d'image propose la médiathèque en plus du téléversement local. **Enregistrer dans la médiathèque** place l'export (PNG, SVG ou PDF) dans la médiathèque. Les images d'un design apparaissent dans **Utilisé dans** du média après la sauvegarde du design.
+- **Tableau blanc** : le bouton d'insertion d'image ouvre le sélecteur de la médiathèque. Les images insérées et la miniature du tableau figurent dans **Utilisé dans**.
+- **Automatismes** : le déclencheur **Média ajouté** se lance à chaque téléversement, avec une portée au choix : tous les médias, les médias hors espace, ou ceux d'un espace. Le créateur de l'automatisme doit pouvoir lire le média.
+- **Anciennes images du studio** : les adresses `/api/studio/images/<id>` redirigent vers `/api/media/<id>`.

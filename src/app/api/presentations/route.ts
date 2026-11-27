@@ -10,8 +10,8 @@ import { db } from "@/lib/db";
 import { presentations } from "@/lib/db/schema";
 import { and, desc, eq } from "drizzle-orm";
 import { requireOrgScoped, OrgScopeError } from "@/lib/auth/require-org-scoped";
-import { uploadFile } from "@/lib/storage/s3";
-import { createEmptyDeck, countSlides } from "@/lib/presentations/deck";
+import { createEmptyDeck } from "@/lib/presentations/deck";
+import { createPresentation, PresentationStorageError } from "@/lib/presentations/create-presentation";
 import { guardPresentationsModule } from "@/lib/presentations/guards";
 import { canLinkDocument } from "@/lib/presentations/document-link";
 import { requireTemplateReader, assertTemplateInOrg, canSeeTemplateRow } from "@/lib/presentations/template-access";
@@ -95,37 +95,22 @@ export async function POST(request: NextRequest) {
 
   const deck = createEmptyDeck(title);
 
-  // La ligne est écrite AVANT l'objet S3, comme dans designs/[id] : un objet
-  // sans ligne serait une charge utile orpheline, invisible et jamais purgée,
-  // alors qu'une ligne sans objet se rattrape toute seule (la lecture rend un
-  // document vide reconstruit à la volée).
-  const [created] = await db
-    .insert(presentations)
-    .values({
-      title,
-      spaceId,
-      documentId: documentId ?? null,
-      createdBy: ctx.user.id,
-      slideCount: countSlides(deck),
-    })
-    .returning();
-
   try {
-    await uploadFile(
-      `presentations/${created.id}.json`,
-      Buffer.from(JSON.stringify(deck)),
-      "application/json"
-    );
+    const created = await createPresentation({
+      spaceId,
+      title,
+      deck,
+      createdBy: ctx.user.id,
+      documentId,
+    });
+    return NextResponse.json(created, { status: 201 });
   } catch (err) {
-    console.error("[presentations/POST] Erreur S3 :", err);
-    return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
+    if (err instanceof PresentationStorageError) {
+      console.error("[presentations/POST] Erreur S3 :", err.cause);
+      return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
+    }
+    throw err;
   }
-
-  // Badge d'onboarding posé côté serveur, au moment de la création réelle.
-  // L'espace démo du tuto est exclu, comme pour les documents et les bases.
-  recordIfRealSpace(ctx.user.id, "presentation", spaceId).catch(() => {});
-
-  return NextResponse.json(created, { status: 201 });
 }
 
 /**

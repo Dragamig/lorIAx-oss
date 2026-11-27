@@ -32,11 +32,18 @@ interface MediaResult {
   spaceName: string | null;
 }
 
+interface MediaContentResult extends MediaResult {
+  snippet: string;
+}
+
 /** Destination de chaque action de médiathèque de la palette (dérivées du registre). */
 const LIBRARY_PALETTE_TARGET: Partial<Record<ActionId, string>> = {
   openLibrary: "/mediatheque",
   upload: "/mediatheque?upload=1",
 };
+
+/** Chemins de médiathèque produits par la navigation et la palette. */
+export const LIBRARY_ROUTES: string[] = ["/mediatheque", ...Object.values(LIBRARY_PALETTE_TARGET).filter((v): v is string => !!v)]
 
 /** Lien de la médiathèque avec le média ouvert (paramètre `id` de la page). */
 export function mediaHref(id: string): string {
@@ -56,6 +63,7 @@ export function CommandPalette() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [mediaResults, setMediaResults] = useState<MediaResult[]>([]);
+  const [mediaContentResults, setMediaContentResults] = useState<MediaContentResult[]>([]);
   const router = useRouter();
 
   // Miroir de `open` pour que le gestionnaire de touches global (deps []) lise
@@ -116,6 +124,7 @@ export function CommandPalette() {
     if (q.length < 2) {
       setResults([]);
       setMediaResults([]);
+      setMediaContentResults([]);
       return;
     }
     try {
@@ -125,9 +134,11 @@ export function CommandPalette() {
         setResults(data.results);
       }
       setMediaResults(Array.isArray(data.media) ? data.media : []);
+      setMediaContentResults(Array.isArray(data.mediaContent) ? data.mediaContent : []);
     } catch {
       setResults([]);
       setMediaResults([]);
+      setMediaContentResults([]);
     }
   }, []);
 
@@ -222,6 +233,31 @@ export function CommandPalette() {
                     </div>
                   </Command.Item>
                 ))}
+              </Command.Group>
+            )}
+
+            {libraryActive && mediaContentResults.length > 0 && (
+              <Command.Group heading={tLib("search.contentGroup")}>
+                {mediaContentResults.map((m) => {
+                  const name = m.title || m.filename;
+                  const label = tLib("search.contentOpen", { name });
+                  return (
+                    <Command.Item
+                      key={`content-${m.id}`}
+                      value={`media-content-${m.id}`}
+                      onSelect={() => navigate(mediaHref(m.id))}
+                      aria-label={label}
+                      title={label}
+                      className="flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer text-sm aria-selected:bg-accent"
+                    >
+                      <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" aria-hidden="true" />
+                      <div className="min-w-0">
+                        <p className="truncate">{name}</p>
+                        <p className="text-xs text-muted-foreground line-clamp-2">{m.snippet}</p>
+                      </div>
+                    </Command.Item>
+                  );
+                })}
               </Command.Group>
             )}
 

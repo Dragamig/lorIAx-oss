@@ -19,6 +19,13 @@ export async function guardPresentationsModule(
   return guardModuleEnabled("presentations", orgId);
 }
 
+/** Variante par organisation, pour un appelant dont l'organisation n'est pas celle de la requête. */
+export async function guardPresentationsModuleForOrg(
+  orgId: string
+): Promise<NextResponse | null> {
+  return guardModuleEnabled("presentations", orgId);
+}
+
 /**
  * Même question, posée depuis une page : le rendu appelle `notFound()` sur un
  * faux, il n'a pas de réponse HTTP à propager.

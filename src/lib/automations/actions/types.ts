@@ -16,7 +16,8 @@ export type AutomationEvent =
   | "date_reached"
   | "value_changed"
   | "manual"
-  | "webhook_inbound";
+  | "webhook_inbound"
+  | "media_uploaded";
 
 /**
  * Contexte d'exécution générique d'un workflow. Sur-ensemble de l'ancien
@@ -38,6 +39,8 @@ export interface ExecutionContext {
   // précédente stocké via `GraphNode.storeAs`, réutilisable dans les étapes
   // suivantes via `{{variables.<nom>...}}`.
   variables?: Record<string, unknown>;
+  // Contexte déclencheur « média ajouté ».
+  media?: { id: string; filename: string; spaceId: string; url: string };
 }
 
 /** Ligne d'automation telle que manipulée par l'executor et les actions. */

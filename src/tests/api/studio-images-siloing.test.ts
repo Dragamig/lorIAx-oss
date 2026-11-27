@@ -97,11 +97,6 @@ vi.mock("next/headers", () => ({
 }));
 
 import { GET as listGet, POST as uploadPost } from "@/app/api/studio/images/route";
-import {
-  GET as imageGet,
-  PATCH as imagePatch,
-  DELETE as imageDelete,
-} from "@/app/api/studio/images/[id]/route";
 
 /** Mallory est membre du seul tenant `acme`, jamais du tenant `victime`. */
 const MALLORY = { id: "mallory", email: "mallory@acme.tld", globalRole: "user" };
@@ -178,53 +173,6 @@ describe("Studio d'images : organisation étrangère (P0-6)", () => {
     expect(h.selectCalls.count).toBe(REQUETES_HELPER);
     attendreAucunEffetDeBord();
   });
-
-  it("répond 404 et ne lit aucune image unitaire du tenant victime", async () => {
-    queueNonMembre();
-
-    const res = await imageGet(
-      new NextRequest("http://victime.example.com/api/studio/images/img-1"),
-      { params: Promise.resolve({ id: "img-1" }) }
-    );
-
-    expect(res.status).toBe(404);
-    expect(h.selectCalls.count).toBe(REQUETES_HELPER);
-    attendreAucunEffetDeBord();
-  });
-
-  it("répond 404 et ne renomme rien sur le tenant victime", async () => {
-    queueNonMembre();
-
-    const res = await imagePatch(
-      new NextRequest("http://victime.example.com/api/studio/images/img-1", {
-        method: "PATCH",
-        body: JSON.stringify({ name: "détourné" }),
-        headers: { "Content-Type": "application/json" },
-      }),
-      { params: Promise.resolve({ id: "img-1" }) }
-    );
-
-    expect(res.status).toBe(404);
-    // Aucune requête au-delà de celles du helper : la table n'est pas lue,
-    // cohérent avec les autres cas de ce bloc.
-    expect(h.selectCalls.count).toBe(REQUETES_HELPER);
-    attendreAucunEffetDeBord();
-  });
-
-  it("répond 404 et ne supprime ni la ligne ni l'objet S3 du tenant victime", async () => {
-    queueNonMembre();
-
-    const res = await imageDelete(
-      new NextRequest("http://victime.example.com/api/studio/images/img-1", {
-        method: "DELETE",
-      }),
-      { params: Promise.resolve({ id: "img-1" }) }
-    );
-
-    expect(res.status).toBe(404);
-    expect(h.selectCalls.count).toBe(REQUETES_HELPER);
-    attendreAucunEffetDeBord();
-  });
 });
 
 describe("Studio d'images : permission d'espace (INJ-23)", () => {
@@ -270,78 +218,6 @@ describe("Studio d'images : permission d'espace (INJ-23)", () => {
     expect(h.selectCalls.count).toBe(REQUETES_HELPER + 1);
     attendreAucunEffetDeBord();
   });
-
-  it("répond 404 et ne supprime rien quand l'image appartient à un espace interdit", async () => {
-    queueMembre([
-      {
-        id: "img-rh",
-        storageKey: "studio/org-victime/spaces/space-rh/img-rh.png",
-        organizationId: "org-victime",
-        spaceId: "space-rh",
-      },
-    ]);
-    h.getSpacePermission.mockResolvedValue("viewer");
-
-    const res = await imageDelete(
-      new NextRequest("http://victime.example.com/api/studio/images/img-rh", {
-        method: "DELETE",
-      }),
-      { params: Promise.resolve({ id: "img-rh" }) }
-    );
-
-    expect(res.status).toBe(404);
-    attendreAucunEffetDeBord();
-  });
-
-  it("répond 404 et ne renomme rien quand l'utilisateur n'a pas la permission d'éditer l'espace", async () => {
-    // Renommage : seuil `editor` (même seuil que la suppression). Un simple
-    // viewer sur l'espace porteur de l'image ne doit rien pouvoir renommer.
-    queueMembre([
-      {
-        id: "img-rh",
-        storageKey: "studio/org-victime/spaces/space-rh/img-rh.png",
-        organizationId: "org-victime",
-        spaceId: "space-rh",
-      },
-    ]);
-    h.getSpacePermission.mockResolvedValue("viewer");
-
-    const res = await imagePatch(
-      new NextRequest("http://victime.example.com/api/studio/images/img-rh", {
-        method: "PATCH",
-        body: JSON.stringify({ name: "détourné" }),
-        headers: { "Content-Type": "application/json" },
-      }),
-      { params: Promise.resolve({ id: "img-rh" }) }
-    );
-
-    expect(res.status).toBe(404);
-    attendreAucunEffetDeBord();
-  });
-
-  it("répond 404 et ne lit pas une image rattachée à un espace interdit à l'utilisateur", async () => {
-    // Les seuls cas de lecture couverts jusqu'ici (`GET /studio/images/[id]`)
-    // portaient sur des images sans espace, qui court-circuitent tout
-    // contrôle (`hasSpaceAccess` renvoie `true` dès que `spaceId` est nul).
-    // Ce cas couvre le chemin où le contrôle d'espace s'applique réellement.
-    queueMembre([
-      {
-        id: "img-rh",
-        storageKey: "studio/org-victime/spaces/space-rh/img-rh.png",
-        organizationId: "org-victime",
-        spaceId: "space-rh",
-      },
-    ]);
-    h.getSpacePermission.mockResolvedValue(null);
-
-    const res = await imageGet(
-      new NextRequest("http://victime.example.com/api/studio/images/img-rh"),
-      { params: Promise.resolve({ id: "img-rh" }) }
-    );
-
-    expect(res.status).toBe(404);
-    attendreAucunEffetDeBord();
-  });
 });
 
 describe("Studio d'images : usages légitimes préservés", () => {
@@ -359,29 +235,7 @@ describe("Studio d'images : usages légitimes préservés", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toHaveLength(1);
-    // Contrat de réponse inchangé : chaque image porte son URL de proxy.
-    expect(body[0].url).toBe("/api/studio/images/img-1");
-  });
-
-  it("supprime une image de niveau organisation, sans espace, pour un membre", async () => {
-    queueMembre([
-      { id: "img-org", storageKey: "studio/org-victime/org/img-org.png", organizationId: "org-victime", spaceId: null },
-    ]);
-    h.updateRows = [{ id: "img-org", storageKey: "studio/org-victime/org/img-org.png" }];
-
-    const res = await imageDelete(
-      new NextRequest("http://victime.example.com/api/studio/images/img-org", {
-        method: "DELETE",
-      }),
-      { params: Promise.resolve({ id: "img-org" }) }
-    );
-
-    expect(res.status).toBe(204);
-    // Suppression douce (`deleted_at`) : ni DELETE SQL ni suppression S3.
-    expect(h.updateCalls.count).toBe(1);
-    expect(h.deleteCalls.count).toBe(0);
-    expect(h.deleteFile).not.toHaveBeenCalled();
-    // Une image sans espace ne déclenche aucun contrôle de permission d'espace.
-    expect(h.getSpacePermission).not.toHaveBeenCalled();
+    // Contrat de réponse inchangé : chaque image porte son URL /api/media.
+    expect(body[0].url).toBe("/api/media/img-1");
   });
 });

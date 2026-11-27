@@ -4,7 +4,7 @@ import { userDatabaseAutomations } from "@/lib/db/schema";
 import { and, eq, sql } from "drizzle-orm";
 import { getSetting } from "@/lib/settings/system-settings";
 import { executeAutomation } from "@/lib/automations/executor";
-import { verifyWebhookSecret, buildWebhookPayload, buildLastReceived } from "@/lib/automations/webhook-inbound";
+import { verifyWebhookSecret, buildWebhookPayload, buildLastReceived, tallyFormIdMismatch } from "@/lib/automations/webhook-inbound";
 import { markSubmissionDone, releaseSubmission, reserveSubmission, tallyResponseIdFromBody } from "@/lib/integrations/tally/submission-claims";
 import type { AutomationRow } from "@/lib/automations/actions/types";
 
@@ -56,9 +56,8 @@ export async function POST(request: Request, { params }: RouteParams) {
   if (automationsCfg && automationsCfg.enabled === false) {
     return NextResponse.json({ error: "Introuvable" }, { status: 404 });
   }
-  if (!automation.enabled) {
-    return NextResponse.json({ error: "Introuvable" }, { status: 404 });
-  }
+  // Automatisme désactivé : jeton et secret valides, le corps est mémorisé (réponse de test
+  // pour configurer la correspondance des champs) mais rien n'est exécuté.
 
   // Lecture bornée du corps : au-delà de MAX_BODY_BYTES, on tronque la lecture
   // sans jamais évaluer le contenu (défense contre un corps monstrueux).
@@ -77,6 +76,12 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
   }
 
+  // Automatisme lié à un formulaire Tally : une réponse d'un autre formulaire est
+  // ignorée (ni déclencheur ni lastReceived), en 2xx pour que Tally ne relance pas.
+  if (tallyFormIdMismatch(automation.triggerConfig, body)) {
+    return NextResponse.json({ status: "ignored" });
+  }
+
   // Dernier corps reçu (aide à la configuration). Secret déjà vérifié. Un échec
   // d'écriture ne doit jamais faire échouer la réception. Fusion atomique de la
   // seule clé lastReceived pour ne pas écraser jeton/secret.
@@ -92,6 +97,10 @@ export async function POST(request: Request, { params }: RouteParams) {
     console.error("[hook] lastReceived non enregistré", e instanceof Error ? e.message : e);
   }
 
+  if (!automation.enabled) {
+    return NextResponse.json({ status: "received" }, { status: 202 });
+  }
+
   // Corps de forme Tally : réserver la réponse avant d'exécuter, pour qu'un import
   // concurrent (ou une relivraison) ne la rejoue pas. Autres webhooks : inchangés.
   const responseId = tallyResponseIdFromBody(body);
@@ -105,7 +114,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       event: "webhook_inbound",
       spaceId: automation.spaceId ?? undefined,
       databaseId: automation.databaseId ?? undefined,
-      ...buildWebhookPayload(body),
+      ...buildWebhookPayload(body, automation.triggerConfig),
     });
   } catch (e) {
     if (responseId) await releaseSubmission(automation.id, responseId).catch(() => {});

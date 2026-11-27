@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
+import { getTableColumns } from "drizzle-orm";
 import { activateBodySchema, activateBodyV2Schema } from "../fields";
+import { crmConnections } from "@/lib/db/schema-crm";
 
 const UUID = "11111111-1111-4111-8111-111111111111";
 
@@ -62,5 +64,15 @@ describe("schéma strict de POST activate (v2)", () => {
   it("bindings historiques toujours acceptés", () => {
     expect(activateBodySchema.safeParse({ bindings: { contacts: { databaseId: UUID } } }).success).toBe(true);
     expect(activateBodySchema.safeParse({}).success).toBe(true);
+  });
+});
+
+describe("colonne created_automation_keys de crm_connections", () => {
+  it("existe, jsonb non nulle, défaut tableau vide", () => {
+    const col = getTableColumns(crmConnections).createdAutomationKeys;
+    expect(col).toBeDefined();
+    expect(col.name).toBe("created_automation_keys");
+    expect(col.notNull).toBe(true);
+    expect(col.default).toEqual([]);
   });
 });

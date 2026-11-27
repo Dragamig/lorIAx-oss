@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
+import { useSession } from "next-auth/react";
 import {
   Plus,
   Pencil,
@@ -12,14 +13,36 @@ import {
   Zap,
   Search,
   AlertTriangle,
+  Undo2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Hint } from "@/components/ui/hint";
+import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
+import { UnsavedChangesDialog } from "@/components/admin/unsaved-changes-dialog";
 import {
   AI_USAGE_LABELS,
   AI_USAGE_TYPES_ASSIGNABLE,
+  AI_USAGE_DESCRIPTIONS,
 } from "@/lib/ai/usage-labels";
+import { CreationUsageFallback } from "./creation-usage-fallback";
 import { submitAssignment } from "@/lib/ai/assignment-form";
+import {
+  buildPristine,
+  toDraft,
+  countDirty,
+  isRowDirty,
+  dirtyUsages,
+  applySavedRows,
+  resetRow,
+  resetAll,
+  validateDraft,
+  type AssignmentDraft,
+  type DraftMap,
+  type SaveResult,
+} from "@/lib/ai/assignment-drafts";
+import { AdminSaveBar } from "@/components/admin/floating-save-button";
 import {
   PROVIDER_PRESETS,
   getPreset,
@@ -37,6 +60,11 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import {
+  compareAssignedToCurrent,
+  type CurrentEmbeddingIndex,
+} from "@/lib/ai/embedding-assignment";
+import { dimensionForModel } from "@/lib/ai/embedding-model-dimensions";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -57,6 +85,8 @@ interface Provider {
   config: Record<string, unknown> | null;
   createdAt: string;
 }
+
+type RowStatus = { state: "idle" } | { state: "error"; message: string };
 
 interface Assignment {
   id: string;
@@ -113,6 +143,7 @@ const CONNECTOR_LABELS: Record<ConnectorType, string> = {
 const USAGE_TYPES = AI_USAGE_TYPES_ASSIGNABLE.map((value) => ({
   value,
   label: AI_USAGE_LABELS[value],
+  description: AI_USAGE_DESCRIPTIONS[value],
 }));
 
 // ---------------------------------------------------------------------------
@@ -158,7 +189,22 @@ async function callProviderApi(
 
 export default function AdminAIProvidersPage() {
   const [providers, setProviders] = useState<Provider[]>([]);
-  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  // Brouillons d'assignation : pristine = dernier état connu du serveur,
+  // drafts = saisie en cours, rowStatus = erreur d'enregistrement par usage.
+  const [pristine, setPristine] = useState<DraftMap>({});
+  const pristineRef = useRef<DraftMap>({});
+  pristineRef.current = pristine;
+  const [drafts, setDrafts] = useState<DraftMap>({});
+  const [rowStatus, setRowStatus] = useState<Record<string, RowStatus>>({});
+  const [savingAssignments, setSavingAssignments] = useState(false);
+  // Résultat du dernier test par ligne (effacé à la prochaine modification).
+  const [rowTest, setRowTest] = useState<
+    Record<string, "testing" | "ok" | "fail">
+  >({});
+  const { data: session } = useSession();
+  const isSuperAdmin =
+    (session?.user as { globalRole?: string } | undefined)?.globalRole ===
+    "super_admin";
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState<ProviderForm>(EMPTY_FORM);
@@ -199,7 +245,11 @@ export default function AdminAIProvidersPage() {
         toast.error("Impossible de charger les affectations de modèles.");
         return;
       }
-      setAssignments(await res.json());
+      // Chargement initial uniquement : alimente pristine et drafts une fois.
+      const rows = (await res.json()) as Assignment[];
+      const base = buildPristine(rows);
+      setPristine(base);
+      setDrafts(base);
     } catch {
       toast.error("Le serveur est injoignable : affectations non chargées.");
     }
@@ -448,51 +498,218 @@ export default function AdminAIProvidersPage() {
 
   // --- Assignments ---
 
-  function getAssignment(usageType: string): Assignment | undefined {
-    return assignments.find((a) => a.usageType === usageType);
+  function getDraft(usageType: string): AssignmentDraft {
+    return drafts[usageType] ?? pristine[usageType] ?? toDraft();
   }
 
-  async function saveAssignment(
-    usageType: string,
-    usageLabel: string,
-    updates: Partial<Assignment>
-  ): Promise<boolean> {
-    const existing = getAssignment(usageType);
-    const payload = {
-      usageType,
-      providerId:
-        updates.providerId ?? existing?.providerId ?? providers[0]?.id ?? null,
-      model: updates.model ?? existing?.model ?? "",
-      fallbackProviderId:
-        updates.fallbackProviderId !== undefined
-          ? updates.fallbackProviderId
-          : existing?.fallbackProviderId ?? null,
-      fallbackModel:
-        updates.fallbackModel !== undefined
-          ? updates.fallbackModel
-          : existing?.fallbackModel ?? null,
-      timeoutSeconds:
-        updates.timeoutSeconds ?? existing?.timeoutSeconds ?? 30,
-      maxRetries: updates.maxRetries ?? existing?.maxRetries ?? 1,
-      isEnabled: updates.isEnabled ?? existing?.isEnabled ?? true,
-    };
-
-    const saved = await submitAssignment(usageLabel, payload, {
-      send: async (body) => {
-        const res = await fetch("/api/admin/ai/assignments", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        return { ok: res.ok, status: res.status };
-      },
-      onError: (message) => toast.error(message),
-      onSuccess: (message) => toast.success(message),
+  function changeDraft(usageType: string, next: AssignmentDraft) {
+    setDrafts((prev) => ({ ...prev, [usageType]: next }));
+    setRowTest((prev) => {
+      if (!prev[usageType]) return prev;
+      const { [usageType]: _removed, ...rest } = prev;
+      return rest;
     });
-
-    if (saved) await fetchAssignments();
-    return saved;
+    setRowStatus((prev) =>
+      prev[usageType]?.state === "error"
+        ? { ...prev, [usageType]: { state: "idle" } }
+        : prev
+    );
   }
+
+  function cancelRow(usageType: string) {
+    setDrafts((prev) => resetRow(pristine, prev, usageType));
+    setRowStatus((prev) => ({ ...prev, [usageType]: { state: "idle" } }));
+  }
+
+  function cancelAll() {
+    setDrafts((prev) => resetAll(pristine, prev));
+    setRowStatus({});
+  }
+
+  // Annulation d'une ligne avec retour arrière possible via le toast.
+  function cancelRowWithUndo(usageType: string, label: string) {
+    const snapshot = drafts[usageType];
+    const pristineAtCancel = pristine[usageType];
+    cancelRow(usageType);
+    toast(`Modifications de la ligne ${label} annulées`, {
+      action: {
+        label: "Annuler",
+        onClick: () => {
+          // Un enregistrement intermediaire rend l'instantane perime.
+          if (snapshot && pristineRef.current[usageType] === pristineAtCancel)
+            setDrafts((prev) => ({ ...prev, [usageType]: snapshot }));
+        },
+      },
+    });
+  }
+
+  function cancelAllWithUndo() {
+    const snapshot = drafts;
+    const pristineAtCancel = pristine;
+    cancelAll();
+    toast("Toutes les modifications annulées", {
+      action: {
+        label: "Annuler",
+        onClick: () =>
+          setDrafts((prev) => {
+            const next = { ...prev };
+            for (const u of Object.keys(snapshot)) {
+              if (pristineRef.current[u] === pristineAtCancel[u]) {
+                next[u] = snapshot[u];
+              }
+            }
+            return next;
+          }),
+      },
+    });
+  }
+
+  // Teste le modèle du brouillon affiché, même non enregistré.
+  async function testRow(usageType: string) {
+    const d = getDraft(usageType);
+    if (!d.providerId || !d.model.trim()) return;
+    setRowTest((prev) => ({ ...prev, [usageType]: "testing" }));
+    try {
+      const res = await fetch("/api/admin/ai/providers/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ providerId: d.providerId, model: d.model }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        success?: boolean;
+        latency?: number;
+        response?: string;
+        error?: string;
+      };
+      if (res.ok && data.success) {
+        setRowTest((prev) => ({ ...prev, [usageType]: "ok" }));
+        toast.success(`Connexion réussie : ${data.latency} ms`, {
+          description: data.response || undefined,
+        });
+      } else {
+        setRowTest((prev) => ({ ...prev, [usageType]: "fail" }));
+        toast.error(data.error || "Le test du modèle a échoué.");
+      }
+    } catch {
+      setRowTest((prev) => ({ ...prev, [usageType]: "fail" }));
+      toast.error("Le serveur est injoignable : test impossible.");
+    }
+  }
+
+  // Enregistre les lignes modifiées : un PUT par ligne, en parallèle.
+  async function saveAll() {
+    const usages = dirtyUsages(pristine, drafts);
+    if (usages.length === 0) return true;
+    const labelOf = (u: string) =>
+      USAGE_TYPES.find((t) => t.value === u)?.label ?? u;
+
+    let allOk = false;
+    setSavingAssignments(true);
+    const status: Record<string, RowStatus> = {};
+    const toSend: string[] = [];
+    for (const u of usages) {
+      const check = validateDraft(drafts[u]);
+      if (!check.valid) {
+        status[u] = {
+          state: "error",
+          message: !drafts[u].providerId.trim()
+            ? "Aucun fournisseur choisi."
+            : "Aucun modèle choisi.",
+        };
+      } else {
+        toSend.push(u);
+      }
+    }
+
+    try {
+      const settled = await Promise.allSettled(
+        toSend.map(async (u): Promise<SaveResult> => {
+          const sent = { ...drafts[u] };
+          let errorMessage = "";
+          const ok = await submitAssignment(
+            labelOf(u),
+            {
+              usageType: u,
+              providerId: sent.providerId || null,
+              model: sent.model,
+              fallbackProviderId: sent.fallbackProviderId || null,
+              fallbackModel: sent.fallbackModel || null,
+              timeoutSeconds: sent.timeoutSeconds,
+              maxRetries: sent.maxRetries,
+              isEnabled: sent.isEnabled,
+            },
+            {
+              send: async (body) => {
+                const res = await fetch("/api/admin/ai/assignments", {
+                  method: "PUT",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(body),
+                });
+                return { ok: res.ok, status: res.status };
+              },
+              onError: (m) => {
+                errorMessage = m;
+              },
+              onSuccess: () => {},
+            }
+          );
+          if (!ok) status[u] = { state: "error", message: errorMessage };
+          return { usageType: u, ok, sent };
+        })
+      );
+
+      const results: SaveResult[] = settled.map((r, idx) => {
+        if (r.status === "fulfilled") return r.value;
+        const u = toSend[idx];
+        status[u] = { state: "error", message: "Enregistrement impossible." };
+        return { usageType: u, ok: false, sent: drafts[u] };
+      });
+
+      // Fusion locale : pas de nouveau fetch, les saisies en cours restent.
+      setPristine((prev) => applySavedRows(prev, drafts, results));
+      setRowStatus((prev) => {
+        const next = { ...prev };
+        for (const u of usages) next[u] = status[u] ?? { state: "idle" };
+        return next;
+      });
+
+      const okCount = results.filter((r) => r.ok).length;
+      const total = usages.length;
+      const failed = usages.filter((u) => status[u]?.state === "error");
+      allOk = failed.length === 0;
+      if (failed.length === 0) {
+        toast.success(
+          `${okCount} assignation${okCount > 1 ? "s" : ""} enregistrée${okCount > 1 ? "s" : ""}`
+        );
+      } else if (okCount === 0) {
+        toast.error("Aucune assignation enregistrée", {
+          description: failed.map(labelOf).join(", "),
+        });
+      } else {
+        toast.error(`${okCount} sur ${total} enregistrées`, {
+          description: failed.map(labelOf).join(", "),
+        });
+      }
+    } finally {
+      setSavingAssignments(false);
+    }
+    return allOk;
+  }
+
+  const dirtyCount = countDirty(pristine, drafts);
+  const guard = useUnsavedChangesGuard(dirtyCount > 0);
+
+  // Ctrl+S / Cmd+S : enregistre les assignations modifiées.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "s") return;
+      if (dirtyCount === 0) return;
+      e.preventDefault();
+      if (!savingAssignments) void saveAll();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
 
   // --- Render ---
 
@@ -1017,9 +1234,38 @@ export default function AdminAIProvidersPage() {
       {/* SECTION 2: Assignation modèle par usage                         */}
       {/* ================================================================ */}
       <section>
-        <h2 className="text-xl font-bold mb-4">
-          Assignation modèle par usage
-        </h2>
+        <AdminSaveBar
+          title="Assignation modèle par usage"
+          onSave={saveAll}
+          saving={savingAssignments}
+          isDirty={dirtyCount > 0}
+          pendingLabel={`${dirtyCount} modification${dirtyCount > 1 ? "s" : ""} non enregistrée${dirtyCount > 1 ? "s" : ""}`}
+          disabledHint="Aucune modification à enregistrer"
+          className="mb-4"
+        >
+          {dirtyCount > 0 && (
+            <Hint label="Annuler toutes les modifications non enregistrées">
+              <Button
+                variant="outline"
+                onClick={cancelAllWithUndo}
+                disabled={savingAssignments}
+                aria-label="Tout annuler"
+              >
+                <Undo2 className="h-4 w-4 mr-2" aria-hidden="true" />
+                Tout annuler
+              </Button>
+            </Hint>
+          )}
+        </AdminSaveBar>
+        <UnsavedChangesDialog
+          open={guard.confirmOpen}
+          onStay={guard.cancelLeave}
+          onLeave={guard.confirmLeave}
+          onSaveAndLeave={async () => {
+            if (await saveAll()) guard.confirmLeave();
+            else guard.cancelLeave();
+          }}
+        />
 
         <div className="rounded-lg border overflow-hidden">
           <table className="w-full text-sm">
@@ -1038,9 +1284,7 @@ export default function AdminAIProvidersPage() {
                 </th>
                 <th className="px-4 py-3 text-left font-medium">Timeout</th>
                 <th className="px-4 py-3 text-center font-medium">Actif</th>
-                <th className="px-4 py-3 text-center font-medium">
-                  <span className="sr-only">Sauvegarder</span>
-                </th>
+                <th className="px-4 py-3 text-right font-medium">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -1049,10 +1293,39 @@ export default function AdminAIProvidersPage() {
                   key={ut.value}
                   usageType={ut.value}
                   label={ut.label}
+                  description={ut.description}
                   providers={providers}
-                  assignment={getAssignment(ut.value)}
-                  onSave={(updates) =>
-                    saveAssignment(ut.value, ut.label, updates)
+                  value={getDraft(ut.value)}
+                  onChange={(next) => changeDraft(ut.value, next)}
+                  status={rowStatus[ut.value]}
+                  dirty={isRowDirty(pristine[ut.value], drafts[ut.value])}
+                  testState={rowTest[ut.value]}
+                  isSuperAdmin={isSuperAdmin}
+                  onTest={() => testRow(ut.value)}
+                  onCancel={() => cancelRowWithUndo(ut.value, ut.label)}
+                  extra={
+                    ut.value === "creation" ? (
+                      <CreationUsageFallback
+                        assigned={pristine.creation}
+                        onRemoved={() => {
+                          setPristine((prev) => {
+                            const { creation: _c, ...rest } = prev;
+                            return rest;
+                          });
+                          setDrafts((prev) => {
+                            const { creation: _c, ...rest } = prev;
+                            return rest;
+                          });
+                        }}
+                        onRestored={(previous) => {
+                          setPristine((prev) => ({ ...prev, creation: previous }));
+                          setDrafts((prev) => {
+                            const { creation: _c, ...rest } = prev;
+                            return rest;
+                          });
+                        }}
+                      />
+                    ) : undefined
                   }
                 />
               ))}
@@ -1064,7 +1337,11 @@ export default function AdminAIProvidersPage() {
       {/* ================================================================ */}
       {/* SECTION 3: Embeddings, réindexation                            */}
       {/* ================================================================ */}
-      <EmbeddingReindexPanel />
+      <EmbeddingReindexPanel
+        assigned={pristine.embeddings ?? null}
+        providers={providers}
+        embeddingsDirty={isRowDirty(pristine.embeddings, drafts.embeddings)}
+      />
     </div>
   );
 }
@@ -1075,7 +1352,7 @@ export default function AdminAIProvidersPage() {
 
 interface ReindexStatus {
   running: boolean;
-  phase: "idle" | "kb" | "documents" | "done" | "error";
+  phase: "idle" | "kb" | "documents" | "media" | "done" | "error";
   total: number;
   done: number;
   startedAt: string | null;
@@ -1083,17 +1360,27 @@ interface ReindexStatus {
   model?: string;
   dimensions?: number;
   error?: string;
+  current?: CurrentEmbeddingIndex | null;
 }
 
 const PHASE_LABELS: Record<ReindexStatus["phase"], string> = {
   idle: "Inactif",
   kb: "Base de connaissances",
   documents: "Documents",
+  media: "Médias",
   done: "Terminé",
   error: "Erreur",
 };
 
-function EmbeddingReindexPanel() {
+function EmbeddingReindexPanel({
+  assigned,
+  providers,
+  embeddingsDirty,
+}: {
+  assigned: { providerId: string; model: string } | null;
+  providers: Array<{ id: string; displayName: string }>;
+  embeddingsDirty: boolean;
+}) {
   const [status, setStatus] = useState<ReindexStatus | null>(null);
   const [starting, setStarting] = useState(false);
 
@@ -1106,9 +1393,11 @@ function EmbeddingReindexPanel() {
     }
   }, []);
 
+  // Chargement initial, et rechargement quand l'assignation enregistrée change.
+  const assignedKey = `${assigned?.providerId ?? ""}|${assigned?.model ?? ""}`;
   useEffect(() => {
     fetchStatus();
-  }, [fetchStatus]);
+  }, [fetchStatus, assignedKey]);
 
   // Polling tant qu'une réindexation est en cours.
   useEffect(() => {
@@ -1133,32 +1422,73 @@ function EmbeddingReindexPanel() {
       ? Math.round((status.done / status.total) * 100)
       : 0;
 
+  const current: CurrentEmbeddingIndex | null = status?.current ?? null;
+  const state = compareAssignedToCurrent(assigned, current);
+  const providerName = (id: string | null | undefined) =>
+    providers.find((p) => p.id === id)?.displayName ?? "fournisseur inconnu";
+  const dimText = (n: number | null) =>
+    n == null ? "dimension inconnue" : `${n} dimensions`;
+  const assignedDim = assigned ? dimensionForModel(assigned.model) : null;
+
   return (
     <section>
       <h2 className="text-xl font-bold mb-4">Embeddings et réindexation</h2>
 
       <div className="rounded-lg border p-4 space-y-4">
-        {/* Avertissement */}
-        <div className="flex items-start gap-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
-          <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5" />
-          <p>
-            Changer le modèle d&apos;embedding impose une réindexation complète
-            des documents et de la base de connaissances. Pendant
-            l&apos;opération, la recherche bascule en mode mots-clés.
-          </p>
+        <div className="space-y-1 text-sm" data-testid="embedding-models">
+          {state === "unassigned" && (
+            <div>
+              <span className="text-muted-foreground">Modèle assigné : </span>
+              <span>Aucun</span>
+            </div>
+          )}
+          {state === "same" && assigned && current && (
+            <div>
+              <span className="text-muted-foreground">Modèle actif : </span>
+              <span className="font-mono">{assigned.model}</span> (
+              {providerName(assigned.providerId)}), {dimText(current.dimensions)}
+            </div>
+          )}
+          {(state === "different" || state === "no-index") && assigned && (
+            <div>
+              <span className="text-muted-foreground">Modèle assigné : </span>
+              <span className="font-mono">{assigned.model}</span> (
+              {providerName(assigned.providerId)}), {dimText(assignedDim)}
+            </div>
+          )}
+          {(state === "different" || state === "no-index") && (
+            <div>
+              <span className="text-muted-foreground">Index actuel : </span>
+              {current ? (
+                <>
+                  <span className="font-mono">{current.model}</span> (
+                  {providerName(current.providerId)}),{" "}
+                  {dimText(current.dimensions)}
+                </>
+              ) : (
+                <span>Aucun index</span>
+              )}
+            </div>
+          )}
+          {embeddingsDirty && (
+            <p className="text-xs text-muted-foreground">
+              Enregistrez la ligne Embeddings pour la prendre en compte
+            </p>
+          )}
         </div>
 
-        {/* Modèle / dimension actifs */}
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
-          <div>
-            <span className="text-muted-foreground">Modèle actif : </span>
-            <span className="font-mono">{status?.model || "Non défini"}</span>
+        {(state === "different" || state === "no-index") && (
+          <div
+            role="alert"
+            className="flex items-start gap-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
+          >
+            <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5" />
+            <p>
+              Réindexation nécessaire pour appliquer le nouveau modèle. Pendant
+              l&apos;opération, la recherche bascule en mode mots-clés.
+            </p>
           </div>
-          <div>
-            <span className="text-muted-foreground">Dimension : </span>
-            <span className="font-mono">{status?.dimensions ?? "Non défini"}</span>
-          </div>
-        </div>
+        )}
 
         {/* Progression */}
         {status && status.phase !== "idle" && (
@@ -1166,16 +1496,16 @@ function EmbeddingReindexPanel() {
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">
                 Phase : {PHASE_LABELS[status.phase]}
-                {status.phase === "documents" &&
+                {(status.phase === "documents" || status.phase === "media") &&
                   ` (${status.done}/${status.total})`}
               </span>
-              {status.phase === "documents" && (
+              {(status.phase === "documents" || status.phase === "media") && (
                 <span className="font-mono text-xs text-muted-foreground">
                   {progress}%
                 </span>
               )}
             </div>
-            {status.phase === "documents" && (
+            {(status.phase === "documents" || status.phase === "media") && (
               <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
                 <div
                   className="h-full bg-primary transition-all"
@@ -1212,54 +1542,50 @@ function EmbeddingReindexPanel() {
 function AssignmentRow({
   usageType,
   label,
+  description,
   providers,
-  assignment,
-  onSave,
+  value,
+  onChange,
+  status,
+  dirty,
+  testState,
+  isSuperAdmin,
+  onTest,
+  onCancel,
+  extra,
 }: {
+  extra?: ReactNode;
   usageType: string;
   label: string;
+  description?: string;
   providers: Provider[];
-  assignment: Assignment | undefined;
-  onSave: (updates: Partial<Assignment>) => Promise<boolean>;
+  value: AssignmentDraft;
+  onChange: (next: AssignmentDraft) => void;
+  status?: RowStatus;
+  dirty: boolean;
+  testState?: "testing" | "ok" | "fail";
+  isSuperAdmin: boolean;
+  onTest: () => void;
+  onCancel: () => void;
 }) {
   // L'usage « rerank » a son propre catalogue de modèles (détection dédiée,
   // toujours non vide) : on l'ajoute en paramètre de requête plutôt que de
   // dupliquer les deux effets de chargement ci-dessous.
   const modelsQuery = usageType === "rerank" ? "?usage=rerank" : "";
-  const [providerId, setProviderId] = useState(
-    assignment?.providerId || ""
-  );
-  const [model, setModel] = useState(assignment?.model || "");
-  const [fallbackProviderId, setFallbackProviderId] = useState(
-    assignment?.fallbackProviderId || ""
-  );
-  const [fallbackModel, setFallbackModel] = useState(
-    assignment?.fallbackModel || ""
-  );
-  const [timeout, setTimeoutValue] = useState(
-    assignment?.timeoutSeconds ?? 30
-  );
-  const [isEnabled, setIsEnabled] = useState(
-    assignment?.isEnabled ?? true
-  );
-  const [saving, setSaving] = useState(false);
-  const [dirty, setDirty] = useState(false);
+  const {
+    providerId,
+    model,
+    fallbackProviderId,
+    fallbackModel,
+    timeoutSeconds: timeout,
+    isEnabled,
+  } = value;
   // Modèles détectés par fournisseur sélectionné (pour les listes déroulantes).
   const [modelOptions, setModelOptions] = useState<string[]>([]);
   const [fallbackModelOptions, setFallbackModelOptions] = useState<string[]>(
     []
   );
-
-  // Sync when assignment changes from parent
-  useEffect(() => {
-    setProviderId(assignment?.providerId || "");
-    setModel(assignment?.model || "");
-    setFallbackProviderId(assignment?.fallbackProviderId || "");
-    setFallbackModel(assignment?.fallbackModel || "");
-    setTimeoutValue(assignment?.timeoutSeconds ?? 30);
-    setIsEnabled(assignment?.isEnabled ?? true);
-    setDirty(false);
-  }, [assignment]);
+  const patch = (p: Partial<AssignmentDraft>) => onChange({ ...value, ...p });
 
   // Charge les modèles disponibles du fournisseur principal (clé déchiffrée
   // côté serveur). Alimente la datalist du champ « Modèle ».
@@ -1297,32 +1623,28 @@ function AssignmentRow({
     };
   }, [fallbackProviderId, modelsQuery]);
 
-  async function handleSave() {
-    setSaving(true);
-    try {
-      const saved = await onSave({
-        providerId,
-        model,
-        fallbackProviderId: fallbackProviderId || null,
-        fallbackModel: fallbackModel || null,
-        timeoutSeconds: timeout,
-        isEnabled,
-      });
-      // Les modifications restent marquées comme non enregistrées tant que le
-      // serveur n'a pas confirmé : le bouton reste actif pour réessayer.
-      if (saved) setDirty(false);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  function markDirty() {
-    setDirty(true);
-  }
-
   return (
     <tr className="border-b last:border-b-0">
-      <td className="px-4 py-3 font-medium">{label}</td>
+      <td className="px-4 py-3 font-medium">
+        <span className="inline-flex flex-wrap items-center gap-2">
+          {label}
+          {dirty && <Badge variant="secondary">Modifié</Badge>}
+          {status?.state === "error" && (
+            <Badge variant="destructive">Échec</Badge>
+          )}
+        </span>
+        {description && (
+          <p className="mt-1 text-xs font-normal text-muted-foreground">
+            {description}
+          </p>
+        )}
+        {extra}
+        {status?.state === "error" && (
+          <p role="alert" className="mt-1 text-xs font-normal text-destructive">
+            {status.message}
+          </p>
+        )}
+      </td>
 
       {/* Provider principal */}
       <td className="px-4 py-2">
@@ -1330,8 +1652,7 @@ function AssignmentRow({
           className="w-full rounded-md border bg-background px-2 py-1.5 text-sm"
           value={providerId}
           onChange={(e) => {
-            setProviderId(e.target.value);
-            markDirty();
+            patch({ providerId: e.target.value });
           }}
         >
           <option value="">Aucun fournisseur</option>
@@ -1350,8 +1671,7 @@ function AssignmentRow({
             className="w-full rounded-md border bg-background px-2 py-1.5 text-sm"
             value={model}
             onChange={(e) => {
-              setModel(e.target.value);
-              markDirty();
+              patch({ model: e.target.value });
             }}
           >
             <option value="">Aucun modèle</option>
@@ -1371,8 +1691,7 @@ function AssignmentRow({
             className="w-full rounded-md border bg-background px-2 py-1.5 text-sm"
             value={model}
             onChange={(e) => {
-              setModel(e.target.value);
-              markDirty();
+              patch({ model: e.target.value });
             }}
             placeholder="gemma4:e4b"
           />
@@ -1385,8 +1704,7 @@ function AssignmentRow({
           className="w-full rounded-md border bg-background px-2 py-1.5 text-sm"
           value={fallbackProviderId}
           onChange={(e) => {
-            setFallbackProviderId(e.target.value);
-            markDirty();
+            patch({ fallbackProviderId: e.target.value });
           }}
         >
           <option value="">Aucun</option>
@@ -1405,8 +1723,7 @@ function AssignmentRow({
             className="w-full rounded-md border bg-background px-2 py-1.5 text-sm"
             value={fallbackModel}
             onChange={(e) => {
-              setFallbackModel(e.target.value);
-              markDirty();
+              patch({ fallbackModel: e.target.value });
             }}
           >
             <option value="">Aucun modèle</option>
@@ -1424,8 +1741,7 @@ function AssignmentRow({
             className="w-full rounded-md border bg-background px-2 py-1.5 text-sm"
             value={fallbackModel}
             onChange={(e) => {
-              setFallbackModel(e.target.value);
-              markDirty();
+              patch({ fallbackModel: e.target.value });
             }}
             placeholder="Aucun"
           />
@@ -1439,11 +1755,10 @@ function AssignmentRow({
             type="number"
             min={5}
             max={300}
-            className="w-16 rounded-md border bg-background px-2 py-1.5 text-sm text-right"
+            className="w-20 rounded-md border bg-background py-1.5 pl-2 pr-1 text-sm text-right dark:[color-scheme:dark] [&::-webkit-inner-spin-button]:ml-1.5"
             value={timeout}
             onChange={(e) => {
-              setTimeoutValue(parseInt(e.target.value) || 30);
-              markDirty();
+              patch({ timeoutSeconds: parseInt(e.target.value) || 30 });
             }}
           />
           <span className="text-xs text-muted-foreground">s</span>
@@ -1454,8 +1769,7 @@ function AssignmentRow({
       <td className="px-4 py-2 text-center">
         <button
           onClick={() => {
-            setIsEnabled(!isEnabled);
-            markDirty();
+            patch({ isEnabled: !isEnabled });
           }}
           className={cn(
             "relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
@@ -1471,21 +1785,71 @@ function AssignmentRow({
         </button>
       </td>
 
-      {/* Save */}
-      <td className="px-4 py-2 text-center">
-        <Button
-          variant="outline"
-          size="icon-xs"
-          onClick={handleSave}
-          disabled={!dirty || saving || !providerId || !model}
-          title="Sauvegarder"
-        >
-          {saving ? (
-            <Loader2 className="h-3 w-3 animate-spin" />
-          ) : (
-            <RefreshCw className="h-3 w-3" />
+      {/* Actions */}
+      <td className="px-4 py-2">
+        <div className="flex items-center justify-end gap-1">
+          {testState === "ok" && (
+            <span
+              role="img"
+              aria-label="Dernier test réussi"
+              className="h-2 w-2 rounded-full bg-green-500"
+            />
           )}
-        </Button>
+          {testState === "fail" && (
+            <span
+              role="img"
+              aria-label="Dernier test en échec"
+              className="h-2 w-2 rounded-full bg-red-500"
+            />
+          )}
+          <Hint
+            label={
+              !isSuperAdmin
+                ? "Réservé au super administrateur"
+                : !providerId || !model.trim()
+                  ? "Choisissez un modèle pour le tester"
+                  : "Tester ce modèle"
+            }
+            disabled={!isSuperAdmin || !providerId || !model.trim() || testState === "testing"}
+          >
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Tester ce modèle"
+              onClick={onTest}
+              disabled={
+                !isSuperAdmin ||
+                !providerId ||
+                !model.trim() ||
+                testState === "testing"
+              }
+            >
+              {testState === "testing" ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <Zap className="h-4 w-4" aria-hidden="true" />
+              )}
+            </Button>
+          </Hint>
+          <Hint
+            label={
+              dirty
+                ? "Annuler les modifications de cette ligne"
+                : "Aucune modification sur cette ligne"
+            }
+            disabled={!dirty}
+          >
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Annuler les modifications de cette ligne"
+              onClick={onCancel}
+              disabled={!dirty}
+            >
+              <Undo2 className="h-4 w-4" aria-hidden="true" />
+            </Button>
+          </Hint>
+        </div>
       </td>
     </tr>
   );

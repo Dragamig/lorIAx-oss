@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { MediaAiSettings } from "./ai-settings";
 
 const MIN_DAYS = 7;
 const MAX_DAYS = 365;
@@ -230,6 +231,8 @@ export function LibraryAdminClient() {
           {!canEdit && <p className="text-xs text-muted-foreground">{t("retention.readOnly")}</p>}
         </form>
       </section>
+
+      <MediaAiSettings />
     </div>
   );
 }

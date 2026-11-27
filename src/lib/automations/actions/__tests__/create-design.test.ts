@@ -103,7 +103,6 @@ describe("createDesignAction", () => {
     expect(mockedUpload).not.toHaveBeenCalled();
     const input = mockedIngest.mock.calls[0][0];
     expect(input.origin).toBe("automation");
-    expect(input.allowOrgLevel).toBe(true);
     expect(input.spaceId).toBe("space-ctx");
     expect(input.orgId).toBe("org-1");
     expect(input.user.id).toBe("user-1");
@@ -127,7 +126,6 @@ describe("createDesignAction", () => {
     await createDesignAction.execute({ templateId: "t" }, auto, { event: "manual" });
     const input = mockedIngest.mock.calls[0][0];
     expect(input.spaceId).toBe("space-auto");
-    expect(input.allowOrgLevel).toBe(true);
   });
 
   it("sans espace ni ancre d'espace : spaceId null", async () => {

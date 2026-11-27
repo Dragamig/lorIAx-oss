@@ -39,6 +39,10 @@ const ORG = "11111111-1111-4111-8111-111111111111";
 const OTHER = "22222222-2222-4222-8222-222222222222";
 
 describe("extractMediaRefs", () => {
+  it("reconnaît une URL studio", () => {
+    expect(extractMediaRefs(`![a](/api/studio/images/${A})`)).toEqual([{ mediaId: A }]);
+    expect(extractMediaRefs(`https://autre.tld/api/studio/images/${A}`)).toEqual([]);
+  });
   it("Markdown", () => {
     expect(extractMediaRefs(`![a](/api/media/${A})`)).toEqual([{ mediaId: A }]);
   });

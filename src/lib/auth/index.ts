@@ -8,6 +8,7 @@ import bcrypt from "bcryptjs";
 import type { SessionUser } from "@/types";
 import logger from "@/lib/logger";
 import { INCLUDED_MODULE_IDS } from "@/lib/modules/registry.generated";
+import { EmailNotVerifiedError } from "@/lib/auth/errors";
 import {
   AUTH_ACCOUNT_TIERS,
   AUTH_FAILURE_TIERS,
@@ -171,6 +172,10 @@ export async function authorizeCredentials(
 
   const user = await verifyCredentials(email, password);
 
+  // Correct local password but unverified email: neither a password failure
+  // nor a success, so no quota is consumed or reset.
+  if (user && "unverified" in user) throw new EmailNotVerifiedError();
+
   if (user) {
     await resetLoginQuota(email, request);
     return user;
@@ -192,6 +197,8 @@ async function verifyCredentials(email: string, password: string) {
   if (user?.passwordHash) {
     const isValid = await bcrypt.compare(password, user.passwordHash);
     if (isValid) {
+      // Strict null check: undefined (legacy rows, mocks) counts as verified.
+      if (user.emailVerifiedAt === null) return { unverified: true as const };
       return {
         id: user.id,
         email: user.email,

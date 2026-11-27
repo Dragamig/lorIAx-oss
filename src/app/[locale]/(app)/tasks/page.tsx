@@ -197,6 +197,31 @@ export default function TasksPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
+                    {task.kind === "document_item" ? (
+                      // Le statut d'une tâche de document ne se change que dans le
+                      // document (la synchro écraserait un changement fait ici).
+                      <>
+                        <Tip label={t("statusInDocument")}>
+                          <Badge
+                            variant={STATUS_VARIANT[task.status]}
+                            className="text-xs"
+                            tabIndex={0}
+                          >
+                            {t(`statuses.${statusToTranslationKey(task.status)}`)}
+                          </Badge>
+                        </Tip>
+                        {task.documentUrl && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2"
+                            render={<Link href={task.documentUrl} />}
+                          >
+                            {t("openDocument")}
+                          </Button>
+                        )}
+                      </>
+                    ) : (
                     <DropdownMenu>
                       <DropdownMenuTrigger
                         render={
@@ -227,6 +252,7 @@ export default function TasksPage() {
                         )}
                       </DropdownMenuContent>
                     </DropdownMenu>
+                    )}
                   </div>
                 </li>
               ))}

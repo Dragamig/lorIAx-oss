@@ -27,6 +27,7 @@ export const rowChangeSourceEnum = pgEnum("row_change_source", [
   "relation_sync",
   "restore",
   "system",
+  "ai",
 ]);
 
 export type RowChangeSource = (typeof rowChangeSourceEnum.enumValues)[number];

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { readdirSync, readFileSync, statSync } from "fs";
 import path from "path";
-import { rewriteDocumentRefs, type LookupResult } from "./rewrite-document-refs";
+import { rewriteDocumentRefs, rewriteStudioRefs, type LookupResult } from "./rewrite-document-refs";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 const ORG = "org-1";
@@ -11,6 +11,18 @@ function lookupOf(map: Record<string, LookupResult>) {
     return new Map(keys.map((k) => [k, map[k] ?? { status: "missing" }] as [string, LookupResult]));
   });
 }
+
+describe("rewriteStudioRefs", () => {
+  it("remplace chaque occurrence et laisse intact un autre domaine", () => {
+    const md = `![a](/api/studio/images/${ID}) <img src="/api/studio/images/${ID}"> https://autre.tld/api/studio/images/${ID}`;
+    expect(rewriteStudioRefs(md)).toBe(
+      `![a](/api/media/${ID}) <img src="/api/media/${ID}"> https://autre.tld/api/studio/images/${ID}`,
+    );
+  });
+  it("laisse intacte une URL sans identifiant valide", () => {
+    expect(rewriteStudioRefs("/api/studio/images/abc")).toBe("/api/studio/images/abc");
+  });
+});
 
 describe("rewriteDocumentRefs", () => {
   it("remplace dans une image et dans un lien", async () => {

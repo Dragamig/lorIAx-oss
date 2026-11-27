@@ -158,7 +158,7 @@ describe("ViewsSidebar portée", () => {
     const [url, init] = fetchMock.mock.calls[1];
     expect(url).toBe("/api/databases/db/views");
     expect(init.method).toBe("POST");
-    expect(JSON.parse(init.body)).toEqual({ name: "Mes demandes", type: "kanban", scope: "personal", config: { groupBy: "x" } });
+    expect(JSON.parse(init.body)).toEqual({ name: "Mes demandes", type: "kanban", scope: "personal", config: { groupBy: "x" }, isDefault: false });
   });
 
   it("toutes les entrées de vue ont la même hauteur", () => {

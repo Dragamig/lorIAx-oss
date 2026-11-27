@@ -84,6 +84,10 @@ vi.mock("@/lib/git/repository", () => ({ initRepository: vi.fn(async () => {}) }
 vi.mock("@/lib/calendar/auto-provision", () => ({
   ensurePersonalCalendar: vi.fn(async () => {}),
 }));
+vi.mock("@/lib/auth/registration-setting", () => ({ isRegistrationOpen: vi.fn(async () => true) }));
+vi.mock("@/lib/auth/email-verification", () => ({
+  sendVerificationEmail: vi.fn(async () => ({ sent: true })),
+}));
 vi.mock("@/lib/org/get-org-id", () => ({
   getDefaultOrgId: vi.fn(async () => {
     throw new Error("pas d'organisation");

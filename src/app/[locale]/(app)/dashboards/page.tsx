@@ -1,10 +1,13 @@
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { getTranslations } from "next-intl/server";
 import { db } from "@/lib/db";
 import { asc, eq, inArray } from "drizzle-orm";
 import { spaces, dashboards } from "@/lib/db/schema";
 import { getSessionUser } from "@/lib/auth/get-user";
 import { getAccessibleSpaceIds } from "@/lib/auth/check-access";
+import { canEditSpace } from "@/lib/auth/can-edit-space";
+import { LAST_SPACE_COOKIE, resolveCurrentSpaceId } from "@/lib/spaces/resolve-current-space";
 import { DashboardsListClient } from "./dashboards-list-client";
 
 interface PageProps {
@@ -37,11 +40,15 @@ export default async function DashboardsPage({ searchParams }: PageProps) {
   }
 
   const sp = await searchParams;
-  const requestedSpaceId = sp.spaceId;
+  // L'espace demandé (URL, puis dernier espace choisi) n'est jamais pris au
+  // mot : il doit figurer dans les espaces accessibles, sinon premier espace.
+  const lastSpaceId = (await cookies()).get(LAST_SPACE_COOKIE)?.value ?? null;
   const spaceId =
-    requestedSpaceId && userSpaces.some((s) => s.id === requestedSpaceId)
-      ? requestedSpaceId
-      : userSpaces[0].id;
+    resolveCurrentSpaceId({
+      accessibleIds: userSpaces.map((s) => s.id),
+      requested: sp.spaceId,
+      lastSpaceId,
+    }) ?? userSpaces[0].id;
 
   const list = await db
     .select()
@@ -49,5 +56,17 @@ export default async function DashboardsPage({ searchParams }: PageProps) {
     .where(eq(dashboards.spaceId, spaceId))
     .orderBy(asc(dashboards.name));
 
-  return <DashboardsListClient spaceId={spaceId} initial={list} />;
+  // Même juge que les écritures de l'API (éditeur sur l'espace) : un lecteur
+  // ne se voit pas proposer d'action que l'API refuserait.
+  const canEdit = await canEditSpace(spaceId);
+
+  return (
+    <DashboardsListClient
+      key={spaceId}
+      spaceId={spaceId}
+      spaces={userSpaces}
+      canEdit={canEdit}
+      initial={list}
+    />
+  );
 }

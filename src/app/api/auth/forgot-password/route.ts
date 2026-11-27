@@ -1,10 +1,8 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { users, passwordResetTokens } from "@/lib/db/schema";
+import { users } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { randomBytes } from "crypto";
-import { sendEmail } from "@/lib/email/send";
-import { passwordResetEmail } from "@/lib/email/templates/password-reset";
+import { sendPasswordResetEmail } from "@/lib/auth/password-reset";
 import { checkRateLimitAsync, RATE_LIMITS, getClientIpOrNull } from "@/lib/rate-limit";
 import { z } from "zod";
 import logger from "@/lib/logger";
@@ -12,8 +10,6 @@ import logger from "@/lib/logger";
 const schema = z.object({
   email: z.string().email("Email invalide"),
 });
-
-const RESET_TOKEN_EXPIRY_MINUTES = 60;
 
 export async function POST(request: Request) {
   // AZ-26 : compteur PARTAGÉ, sinon la fenêtre de 15 minutes est multipliée par
@@ -75,32 +71,7 @@ export async function POST(request: Request) {
       return successResponse;
     }
 
-    // Generate secure token
-    const token = randomBytes(32).toString("hex");
-    const expiresAt = new Date(Date.now() + RESET_TOKEN_EXPIRY_MINUTES * 60 * 1000);
-
-    await db.insert(passwordResetTokens).values({
-      userId: user.id,
-      token,
-      expiresAt,
-    });
-
-    // Build reset URL
-    const baseUrl = process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-    const resetUrl = `${baseUrl}/reset-password?token=${token}`;
-
-    const template = passwordResetEmail({
-      userName: user.name,
-      resetUrl,
-      expiresInMinutes: RESET_TOKEN_EXPIRY_MINUTES,
-    });
-
-    await sendEmail({
-      to: email,
-      subject: template.subject,
-      html: template.html,
-      text: template.text,
-    });
+    await sendPasswordResetEmail({ id: user.id, name: user.name, email });
 
     return successResponse;
   } catch (error) {

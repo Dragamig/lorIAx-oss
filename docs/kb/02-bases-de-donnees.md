@@ -149,7 +149,7 @@ Dans l'Espace Bases, vous pouvez automatiser des actions :
 - **Déclencheurs** : à la création d'une ligne, à sa mise à jour, à sa suppression, ou selon une planification (cron).
 - **Actions** : appeler un webhook, notifier un utilisateur, créer une ligne, mettre à jour une ligne.
 
-Les automatisations sont encadrées par des quotas pour éviter les abus.
+Les automatisations sont encadrées par des limites de fréquence pour éviter les abus.
 
 ### Valeurs, base cible et correspondance
 

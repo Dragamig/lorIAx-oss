@@ -138,7 +138,93 @@ export function verifyWebhookSecret(config: { secret?: string }, provided: strin
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-/** Enveloppe le corps de la requête entrante pour l'interpolation `{{variables.body...}}`. */
-export function buildWebhookPayload(body: unknown): { variables: { body: unknown } } {
-  return { variables: { body } };
+interface TallyBodyShape {
+  eventType?: unknown;
+  data?: { formId?: unknown; fields?: unknown };
+}
+
+const asTally = (body: unknown): TallyBodyShape | null =>
+  body && typeof body === "object" ? (body as TallyBodyShape) : null;
+
+/**
+ * Vrai quand l'automatisme est lié à un formulaire Tally (`tallyFormId` renseigné)
+ * et que le corps reçu vient d'un autre formulaire : la réponse doit être ignorée.
+ * Sans `tallyFormId`, rien n'est filtré.
+ */
+export function tallyFormIdMismatch(config: unknown, body: unknown): boolean {
+  const wanted = (config as { tallyFormId?: unknown } | null | undefined)?.tallyFormId;
+  if (typeof wanted !== "string" || wanted.trim() === "") return false;
+  return asTally(body)?.data?.formId !== wanted;
+}
+
+/** Texte d'un champ Tally : chaîne ou nombre, sinon vide. */
+const fieldText = (v: unknown): string =>
+  typeof v === "string" ? v.trim() : typeof v === "number" && Number.isFinite(v) ? String(v) : "";
+
+export type TallyVariables = { email: string; name: string; title: string };
+
+/** Correspondance configurée dans `trigger_config.tallyFieldMap` : variable -> `key` d'un champ Tally. */
+const FIELD_MAP_KEYS = ["name", "email", "title"] as const;
+
+function readFieldMap(config: unknown): Partial<Record<(typeof FIELD_MAP_KEYS)[number], string>> {
+  const raw = (config as { tallyFieldMap?: unknown } | null | undefined)?.tallyFieldMap;
+  const out: Partial<Record<(typeof FIELD_MAP_KEYS)[number], string>> = {};
+  if (!raw || typeof raw !== "object") return out;
+  for (const k of FIELD_MAP_KEYS) {
+    const v = (raw as Record<string, unknown>)[k];
+    if (typeof v === "string" && v.trim() !== "") out[k] = v;
+  }
+  return out;
+}
+
+/**
+ * Variables normalisées d'une réponse Tally (`{{variables.tally.email}}`,
+ * `{{variables.tally.name}}`, `{{variables.tally.title}}`).
+ * Par défaut, choix par type de champ et non par position : e-mail = premier
+ * INPUT_EMAIL renseigné, nom = premier INPUT_TEXT renseigné. Un `tallyFieldMap`
+ * (clé de champ par variable) prime : la variable lit alors ce seul champ, vide
+ * s'il est absent. Le titre vaut le nom du contact tant qu'il n'est pas mappé.
+ */
+export function tallyVariables(body: unknown, config?: unknown): TallyVariables | null {
+  const b = asTally(body);
+  if (b?.eventType !== "FORM_RESPONSE" || !Array.isArray(b.data?.fields)) return null;
+  const fields = b.data.fields as { key?: unknown; type?: unknown; value?: unknown }[];
+  const map = readFieldMap(config);
+  const first = (type: string) => fields.map((f) => (f?.type === type ? fieldText(f.value) : "")).find((t) => t) ?? "";
+  const byKey = (key: string) => {
+    const f = fields.find((x) => x?.key === key);
+    return f ? fieldText(f.value) : "";
+  };
+  const email = map.email !== undefined ? byKey(map.email) : first("INPUT_EMAIL");
+  const name = map.name !== undefined ? byKey(map.name) : first("INPUT_TEXT");
+  const title = (map.title !== undefined ? byKey(map.title) : "") || name;
+  return { email, name, title };
+}
+
+/** Champs (`key`, `label`, `type`) d'une réponse Tally, pour proposer la correspondance. */
+export function tallyFieldsFromBody(body: unknown): { key: string; label: string; type: string }[] {
+  const b = asTally(body);
+  if (b?.eventType !== "FORM_RESPONSE" || !Array.isArray(b.data?.fields)) return [];
+  const out: { key: string; label: string; type: string }[] = [];
+  for (const f of b.data.fields as { key?: unknown; label?: unknown; type?: unknown }[]) {
+    if (typeof f?.key !== "string" || f.key === "") continue;
+    out.push({
+      key: f.key,
+      label: typeof f.label === "string" ? f.label : f.key,
+      type: typeof f.type === "string" ? f.type : "",
+    });
+  }
+  return out;
+}
+
+/**
+ * Enveloppe le corps de la requête entrante pour l'interpolation `{{variables.body...}}`
+ * (et `variables.tally` pour Tally ; `config` = trigger_config de l'automatisme).
+ */
+export function buildWebhookPayload(
+  body: unknown,
+  config?: unknown
+): { variables: { body: unknown; tally?: TallyVariables } } {
+  const tally = tallyVariables(body, config);
+  return { variables: tally ? { body, tally } : { body } };
 }

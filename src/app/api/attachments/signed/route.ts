@@ -33,7 +33,9 @@ export async function GET(req: NextRequest) {
   try {
     // Même disposition que la lecture en flux : pièce jointe hors liste blanche.
     const access = await getMediaByStorageKey(key);
-    const row = access ? await getMediaFull(access.id) : null;
+    const full = access ? await getMediaFull(access.id) : null;
+    // Clé d'ancienne version : droits du parent, métadonnées du parent non applicables.
+    const row = full && full.storageKey === key ? full : null;
     // H9 : type et disposition recomposes cote serveur, y compris pour une cle
     // sans ligne media (SVG deja stocke avec un type declare par son deposant).
     const filename = row?.filename ?? key.split("/").pop() ?? "file";

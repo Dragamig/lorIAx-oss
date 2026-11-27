@@ -3,7 +3,7 @@ import slugify from "slugify";
 import { db } from "@/lib/db";
 import { media, mediaTagLinks, mediaTags } from "@/lib/db/schema";
 import { canWriteLibrary } from "@/lib/media/folders";
-import { visibleMediaCondition } from "@/lib/media/list";
+import { listableMediaCondition } from "@/lib/media/list";
 import type { SessionUser } from "@/types";
 
 export type TagErrorStatus = 400 | 403;
@@ -36,7 +36,7 @@ export async function listTags(
   user: SessionUser,
   orgId: string
 ): Promise<{ id: string; label: string; count: number }[]> {
-  const visible = await visibleMediaCondition(user, orgId, "live");
+  const visible = await listableMediaCondition(user, orgId, "live");
   const rows = await db
     .select({
       id: mediaTags.id,
@@ -57,14 +57,10 @@ export async function listTags(
 }
 
 /**
- * Crée à la volée les tags manquants (unicité par slug, le libellé du premier
- * créateur est conservé) et rend un tag par slug distinct, dans l'ordre d'entrée.
+ * Libellés nettoyés (espaces retirés, vides écartés, un par slug distinct, ordre
+ * d'entrée) ; `TagError` 400 si un libellé est trop long ou invalide, ou s'il y en a trop.
  */
-export async function ensureTags(
-  orgId: string,
-  labels: string[],
-  tx: Executor = db
-): Promise<TagRow[]> {
+export function normalizeTagLabels(labels: string[]): string[] {
   const bySlug = new Map<string, string>();
   for (const raw of labels) {
     const label = String(raw ?? "").trim();
@@ -79,6 +75,19 @@ export async function ensureTags(
   if (bySlug.size > MEDIA_TAGS_MAX) {
     throw new TagError(400, `${MEDIA_TAGS_MAX} tags au plus par média`);
   }
+  return [...bySlug.values()];
+}
+
+/**
+ * Crée à la volée les tags manquants (unicité par slug, le libellé du premier
+ * créateur est conservé) et rend un tag par slug distinct, dans l'ordre d'entrée.
+ */
+export async function ensureTags(
+  orgId: string,
+  labels: string[],
+  tx: Executor = db
+): Promise<TagRow[]> {
+  const bySlug = new Map(normalizeTagLabels(labels).map((l) => [tagSlug(l), l] as const));
   const slugs = [...bySlug.keys()];
   if (slugs.length === 0) return [];
 

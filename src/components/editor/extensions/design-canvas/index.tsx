@@ -18,7 +18,10 @@ import {
   type DesignPage,
 } from "../design-constants";
 export type { DesignPage, DesignDocument } from "../design-constants";
-import { exportRaster, exportSvg, exportPdf } from "../design-export";
+import { dataUrlToBlob, exportRaster, rasterDataUrl, exportSvg, exportPdf } from "../design-export";
+import { saveExportToLibrary } from "./save-export-to-library";
+import { toast } from "sonner";
+import { useTranslations } from "next-intl";
 import { attachPageSnapping } from "../design-snapping";
 import { duplicateSelection, deleteSelection, groupSelection, ungroupSelection } from "../design-objects";
 import type { ToolType } from "./context";
@@ -111,6 +114,7 @@ export function DesignCanvas({ designId: _designId, initialJson, onSave, onClose
   const [activeTool, setActiveTool] = useState<ToolType>("select");
   const [zoom, setZoom] = useState(100);
   const [leftPanelWidth, setLeftPanelWidth] = useState(280);
+  const t = useTranslations("designCanvas");
   const [title, setTitle] = useState("Design sans titre");
   const [bgColor, setBgColor] = useState("#ffffff");
   const [pageFormat, setPageFormat] = useState<PageFormat>("a4-portrait");
@@ -732,10 +736,29 @@ export function DesignCanvas({ designId: _designId, initialJson, onSave, onClose
         }
         exportRaster(canvas, { format, dpi, zoomPercent: zoomRef.current, transparent: opts.transparent, title });
       } catch (err) {
-        alert(`Erreur lors de l'export : ${err instanceof Error ? err.message : "erreur inconnue"}`);
+        toast.error(t("exportFailed"));
       }
     },
-    [title, pageSize, currentPageIndex]
+    [title, pageSize, currentPageIndex, t]
+  );
+
+  // Export PNG enregistré dans la médiathèque (dédoublonné par SHA-256 côté serveur).
+  const handleSaveToLibrary = useCallback(
+    async (dpi: number, opts: { transparent: boolean }) => {
+      const canvas = fabricCanvasRef.current;
+      if (!canvas) return;
+      try {
+        canvas.discardActiveObject();
+        canvas.renderAll();
+        const dataUrl = rasterDataUrl(canvas, { format: "png", dpi, zoomPercent: zoomRef.current, transparent: opts.transparent, title });
+        const blob = dataUrlToBlob(dataUrl);
+        const res = await saveExportToLibrary(blob, { name: title || "Design", spaceId: spaceId ?? null });
+        toast.success(t(res.duplicate ? "alreadyInLibrary" : "savedToLibrary"));
+      } catch {
+        toast.error(t("saveToLibraryFailed"));
+      }
+    },
+    [title, spaceId, t]
   );
 
   // Enregistrer comme template de design — ouvre le dialog dédié.
@@ -892,6 +915,7 @@ export function DesignCanvas({ designId: _designId, initialJson, onSave, onClose
     handleFreeDimensionsChange,
     handleToolChange,
     handleExport,
+    handleSaveToLibrary,
     handleSaveAsTemplate,
     handlePanelDividerMouseDown,
     switchToPage,

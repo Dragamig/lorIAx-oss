@@ -13,15 +13,32 @@ import {
   Maximize2,
   Minimize2,
   RotateCw,
+  Trash2,
   X,
 } from "lucide-react";
-import { DialogOverlay, DialogPortal } from "@/components/ui/dialog";
+import {
+  Dialog as ConfirmDialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogOverlay,
+  DialogPortal,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tip } from "@/components/editor/extensions/database-block/row-tip";
 import { cn } from "@/lib/utils";
 import type { RecordNav } from "@/lib/bases/record-navigation";
 import { useNarrowViewport } from "./use-narrow-viewport";
+
+export interface RecordSheetDeletion {
+  /** Runs the deletion; resolves true on success (the confirmation closes), false on failure. */
+  onConfirm: () => Promise<boolean>;
+  /** When set, the button is disabled and this text explains why. */
+  disabledReason?: string;
+}
 
 export type RecordSheetStatus = "ready" | "loading" | "error" | "notFound";
 
@@ -44,6 +61,8 @@ export interface RecordSheetProps {
   sections?: React.ReactNode;
   /** Slot: right column; layout is two columns only when provided. */
   aside?: React.ReactNode;
+  /** Delete button in the header, with its confirmation dialog. Absent = no button. */
+  deletion?: RecordSheetDeletion;
   /** Properties. */
   children: React.ReactNode;
 }
@@ -62,11 +81,14 @@ export function RecordSheet({
   onRetry,
   sections,
   aside,
+  deletion,
   children,
 }: RecordSheetProps) {
   const t = useTranslations("recordSheet");
   const narrow = useNarrowViewport();
   const [fullscreen, setFullscreen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const closeRef = useRef<HTMLButtonElement>(null);
   const headerRef = useRef<HTMLElement>(null);
   const onCloseRef = useRef(onClose);
@@ -232,6 +254,22 @@ export function RecordSheet({
                   </a>
                 </Tip>
               )}
+              {deletion && (
+                <Tip label={deletion.disabledReason ?? t("delete")}>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={t("delete")}
+                    aria-disabled={deletion.disabledReason ? "true" : undefined}
+                    className={cn(deletion.disabledReason && "opacity-50")}
+                    onClick={() => {
+                      if (!deletion.disabledReason) setConfirmOpen(true);
+                    }}
+                  >
+                    <Trash2 aria-hidden="true" />
+                  </Button>
+                </Tip>
+              )}
               <Tip label={fullscreenLabel} kbd={narrow ? undefined : t("kbdFullscreen")}>
                 <Button
                   variant="ghost"
@@ -324,6 +362,34 @@ export function RecordSheet({
               <p className="text-sm font-medium">{t("notFoundTitle")}</p>
               <p className="text-sm text-muted-foreground">{t("notFoundBody")}</p>
             </div>
+          )}
+          {deletion && (
+            <ConfirmDialog open={confirmOpen} onOpenChange={(o) => !deleting && setConfirmOpen(o)}>
+              <DialogContent showCloseButton={false}>
+                <DialogHeader>
+                  <DialogTitle>{t("deleteTitle")}</DialogTitle>
+                  <DialogDescription>{t("deleteBody", { title: displayTitle })}</DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                  <Button variant="outline" disabled={deleting} onClick={() => setConfirmOpen(false)}>
+                    {t("deleteCancel")}
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    disabled={deleting}
+                    onClick={async () => {
+                      setDeleting(true);
+                      const ok = await deletion.onConfirm();
+                      setDeleting(false);
+                      if (ok) setConfirmOpen(false);
+                    }}
+                  >
+                    <Trash2 aria-hidden="true" />
+                    {t("deleteConfirm")}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </ConfirmDialog>
           )}
         </Dialog.Popup>
       </DialogPortal>

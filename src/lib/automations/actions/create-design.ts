@@ -134,7 +134,6 @@ export const createDesignAction: ActionDefinition = {
       orgId: anchor.organizationId,
       spaceId: spaceId ?? anchor.spaceId ?? null,
       origin: "automation",
-      allowOrgLevel: true,
       file: { name: filename, size: buffer.length, type: contentType },
       buffer,
     });

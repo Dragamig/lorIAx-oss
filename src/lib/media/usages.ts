@@ -17,6 +17,8 @@ const UUID = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-
 // Le caractère précédent exclut les URL absolues (autre domaine) et les chemins imbriqués.
 const NOT_AFTER = "(?<![A-Za-z0-9._~%:\\-])";
 const MEDIA_RE = new RegExp(`${NOT_AFTER}/api/media/(${UUID})(?![0-9A-Za-z-])`, "g");
+// Anciennes URLs du studio d'images, désormais servies par /api/media/<id> (même identifiant).
+const STUDIO_RE = new RegExp(`${NOT_AFTER}/api/studio/images/(${UUID})(?![0-9A-Za-z-])`, "g");
 const ATTACHMENT_RE = new RegExp(`${NOT_AFTER}/api/attachments/([^"'()\\s?#<>\\\\\\]]+)`, "g");
 const MEDIA_ID_RE = new RegExp(`\\\\?"mediaId\\\\?"\\s*:\\s*\\\\?"(${UUID})\\\\?"`, "g");
 
@@ -35,6 +37,7 @@ export function extractMediaRefs(payload: string | object): MediaRef[] {
   const keys = new Set<string>();
 
   for (const m of text.matchAll(MEDIA_RE)) ids.add(m[1].toLowerCase());
+  for (const m of text.matchAll(STUDIO_RE)) ids.add(m[1].toLowerCase());
   for (const m of text.matchAll(MEDIA_ID_RE)) ids.add(m[1].toLowerCase());
   for (const m of text.matchAll(ATTACHMENT_RE)) {
     const key = safeDecode(m[1]);

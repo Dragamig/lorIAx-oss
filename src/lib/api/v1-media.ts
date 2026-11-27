@@ -1,6 +1,6 @@
-import { asc, eq, inArray } from "drizzle-orm";
+import { asc, count, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { media, mediaTagLinks, mediaTags, type Media } from "@/lib/db/schema";
+import { media, mediaTagLinks, mediaTags, mediaVersions, type Media } from "@/lib/db/schema";
 import { getMediaFull, resolveMediaAccess } from "@/lib/media/access";
 import type { MediaListItem } from "@/lib/media/list";
 import { apiError } from "@/lib/api/response";
@@ -110,4 +110,10 @@ export async function getMediaTagLabels(mediaId: string): Promise<string[]> {
     .where(eq(mediaTagLinks.mediaId, mediaId))
     .orderBy(asc(mediaTags.label));
   return rows.map((r) => r.label);
+}
+
+/** Nombre de versions conservées d'un média (la courante comprise). */
+export async function countMediaVersions(mediaId: string): Promise<number> {
+  const [r] = await db.select({ n: count() }).from(mediaVersions).where(eq(mediaVersions.mediaId, mediaId));
+  return Number(r?.n ?? 0);
 }

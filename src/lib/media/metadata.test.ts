@@ -55,7 +55,9 @@ vi.mock("@/lib/media/access", () => ({
   resolveMediaAccess: (_u: unknown, _r: unknown, mode: string) =>
     Promise.resolve({ allowed: mode === "read" ? h.read : h.write }),
 }));
-vi.mock("@/lib/media/list", () => ({}));
+vi.mock("@/lib/media/list", () => ({
+  getRetouchLinks: () => Promise.resolve({ retouchedFrom: null, retouches: [] }),
+}));
 vi.mock("@/lib/media/tags", async () => {
   class TagError extends Error {
     status = 400;

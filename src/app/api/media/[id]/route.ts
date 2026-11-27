@@ -1,5 +1,6 @@
 import { serveMediaObject } from "@/lib/media/serve";
 import { guardMediaRead } from "@/lib/media/route-guard";
+import { contentEtagSeed } from "@/lib/media/etag";
 
 async function serve(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -13,9 +14,11 @@ async function serve(req: Request, { params }: { params: Promise<{ id: string }>
     key: row.storageKey,
     mime: row.mimeType,
     filename: row.filename,
-    etagSeed: `${row.id}-${row.updatedAt.getTime()}`,
+    etagSeed: contentEtagSeed(row),
     inline: !download,
-    maxAgeSeconds: 300,
+    maxAgeSeconds: 0,
+    revalidate: true,
+    renderSvg: true,
   });
 }
 

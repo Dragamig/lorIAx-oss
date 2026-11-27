@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Briefcase, FolderPlus, LayoutList, MessageCircle, Users, type LucideIcon } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, Briefcase, FolderPlus, LayoutList, MessageCircle, Users, type LucideIcon } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { CRM_ROLES, type CrmRole } from "@/lib/crm/fields";
 import type { ActivationPreview } from "@/lib/crm/preview";
@@ -84,15 +84,24 @@ export function ActivationRecap({ state, preview, orgName, spaceName }: Activati
                         );
                       }
                       const s = relationSides(p, state, preview);
-                      const n = Number(s.aNew) + Number(s.bNew);
-                      const pairLabel = t("activation.recap.relationPair", {
-                        left: `${t(`roles.${p.a}.label`)}.${t(`fields.${p.a}.${p.fieldKey}`)}`,
-                        right: `${t(`roles.${p.b}.label`)}.${t(`template.inverseNames.${p.inverseKey}`)}`,
-                      });
+                      const left = `${t(`roles.${p.a}.label`)}.${t(`fields.${p.a}.${p.fieldKey}`)}`;
+                      const right = `${t(`roles.${p.b}.label`)}.${t(`template.inverseNames.${p.inverseKey}`)}`;
+                      const side = (isNew: boolean) => (
+                        <Tag tone={isNew ? "new" : "ok"}>{isNew ? t("activation.recap.relationsCreated", { count: 1 }) : t("activation.recap.relationTwinned")}</Tag>
+                      );
                       return (
-                        <div key={`${p.fieldKey}-${other}`} className="mb-1">
-                          {pairLabel}{" "}
-                          <Tag tone={n ? "new" : "ok"}>{n ? t("activation.recap.relationsCreated", { count: n }) : t("activation.recap.relationTwinned")}</Tag>
+                        <div key={`${p.fieldKey}-${other}`} data-testid="recap-relation-pair" className="mb-1 flex flex-col gap-0.5 rounded-md border border-border px-1.5 py-1 text-xs">
+                          <div className="flex min-h-5 items-center gap-1.5">
+                            <span className="min-w-0 flex-1 truncate">{left}</span>
+                            {side(s.aNew)}
+                          </div>
+                          <div className="flex items-center pl-0.5 text-muted-foreground" data-testid="recap-relation-swap">
+                            <ArrowLeftRight className="size-3.5 shrink-0" aria-hidden="true" />
+                          </div>
+                          <div className="flex min-h-5 items-center gap-1.5">
+                            <span className="min-w-0 flex-1 truncate">{right}</span>
+                            {side(s.bNew)}
+                          </div>
                         </div>
                       );
                     })}

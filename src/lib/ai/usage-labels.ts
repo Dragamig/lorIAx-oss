@@ -27,6 +27,8 @@ export const AI_USAGE_TYPES = [
   "voice_note_summary",
   "voice_note_cleanup",
   "rerank",
+  "chat_database_actions",
+  "creation",
 ] as const;
 
 export type AiUsageType = (typeof AI_USAGE_TYPES)[number];
@@ -45,6 +47,8 @@ export const AI_USAGE_LABELS: Record<AiUsageType, string> = {
   voice_note_summary: "Synthèse note vocale",
   voice_note_cleanup: "Mise au propre note vocale",
   rerank: "Reclassement des recherches",
+  chat_database_actions: "Actions sur les bases",
+  creation: "Création",
 };
 
 /** Libellés courts, pour les colonnes serrées et les légendes de graphiques. */
@@ -61,6 +65,8 @@ export const AI_USAGE_SHORT_LABELS: Record<AiUsageType, string> = {
   voice_note_summary: "Synthèse note vocale",
   voice_note_cleanup: "Mise au propre note vocale",
   rerank: "Reclassement",
+  chat_database_actions: "Actions sur les bases",
+  creation: "Création",
 };
 
 /** Couleurs hexadécimales, pour les graphiques du tableau de bord IA. */
@@ -77,6 +83,8 @@ export const AI_USAGE_COLORS: Record<AiUsageType, string> = {
   voice_note_summary: "#0ea5e9",
   voice_note_cleanup: "#14b8a6",
   rerank: "#0ea5e9",
+  chat_database_actions: "#d946ef",
+  creation: "#22c55e",
 };
 
 /** Classes de badge Tailwind, pour les pastilles d'usage des prompts. */
@@ -93,6 +101,8 @@ export const AI_USAGE_BADGE_CLASSES: Record<AiUsageType, string> = {
   voice_note_summary: "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400",
   voice_note_cleanup: "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400",
   rerank: "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400",
+  chat_database_actions: "bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/30 dark:text-fuchsia-400",
+  creation: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
 };
 
 /**
@@ -111,7 +121,17 @@ export const AI_USAGE_TYPES_ASSIGNABLE: readonly AiUsageType[] = [
   "voice_note_summary",
   "voice_note_cleanup",
   "rerank",
+  "chat_database_actions",
+  "creation",
 ];
+
+/** Description d'une ligne d'affectation, pour les usages qui en ont besoin. */
+export const AI_USAGE_DESCRIPTIONS: Partial<Record<AiUsageType, string>> = {
+  chat_database_actions:
+    "Modèle fiable utilisé quand l'assistant travaille sur les bases",
+  creation:
+    "Modèle utilisé pour créer des tableurs, documents et présentations depuis le chat (repli sur Chat)",
+};
 
 /**
  * Usages volontairement absents de l'écran d'affectation, avec la raison.

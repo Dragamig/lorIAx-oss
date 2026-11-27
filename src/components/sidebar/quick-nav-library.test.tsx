@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { readdirSync, readFileSync } from "node:fs"
 import { cleanup, render, screen } from "@testing-library/react"
 
 const h = vi.hoisted(() => ({ modules: ["library"] as string[] }))
@@ -41,5 +42,14 @@ describe("QuickNav, Médiathèque", () => {
     h.modules = ["tasks"]
     render(<QuickNav pathname="/" user={null} />)
     expect(screen.queryByRole("link", { name: "Médiathèque" })).toBeNull()
+  })
+
+  it("clé shell.quickNav.library présente dans les 7 locales", () => {
+    const files = readdirSync("messages").filter((f) => f.endsWith(".json"))
+    expect(files.length).toBeGreaterThanOrEqual(7)
+    for (const f of files) {
+      const m = JSON.parse(readFileSync(`messages/${f}`, "utf8"))
+      expect(typeof m.shell?.quickNav?.library, f).toBe("string")
+    }
   })
 })

@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { Save, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { Hint } from "@/components/ui/hint";
 
 interface AdminSaveBarProps {
   /** Handler executed when the save button is pressed. */
@@ -19,6 +20,10 @@ interface AdminSaveBarProps {
   title?: string;
   /** Optional button label. */
   label?: string;
+  /** Replaces the "Modifications non enregistrées" status when provided. */
+  pendingLabel?: ReactNode;
+  /** Info-bulle affichée sur le bouton désactivé faute de modifications (isDirty à false). */
+  disabledHint?: string;
   /** Extra actions rendered just before the save button (test buttons, etc.). */
   children?: ReactNode;
   className?: string;
@@ -39,12 +44,25 @@ export function AdminSaveBar({
   isDirty,
   title,
   label = "Enregistrer",
+  pendingLabel,
+  disabledHint,
   children,
   className,
 }: AdminSaveBarProps) {
   const tracksChanges = isDirty !== undefined;
   const hasPendingChanges = tracksChanges && isDirty === true;
   const disabled = saving || (tracksChanges && !isDirty);
+
+  const saveButton = (
+    <Button onClick={onSave} disabled={disabled}>
+      {saving ? (
+        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+      ) : (
+        <Save className="h-4 w-4 mr-2" />
+      )}
+      {label}
+    </Button>
+  );
 
   return (
     <div
@@ -76,21 +94,20 @@ export function AdminSaveBar({
           ) : hasPendingChanges ? (
             <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-300">
               <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-              Modifications non enregistrées
+              {pendingLabel ?? "Modifications non enregistrées"}
             </span>
           ) : null}
         </span>
 
         {children}
 
-        <Button onClick={onSave} disabled={disabled}>
-          {saving ? (
-            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-          ) : (
-            <Save className="h-4 w-4 mr-2" />
-          )}
-          {label}
-        </Button>
+        {disabledHint && disabled && !saving ? (
+          <Hint label={disabledHint} disabled align="end">
+            {saveButton}
+          </Hint>
+        ) : (
+          saveButton
+        )}
       </div>
     </div>
   );

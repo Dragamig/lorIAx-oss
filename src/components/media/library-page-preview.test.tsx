@@ -9,6 +9,7 @@ const toastError = vi.hoisted(() => vi.fn((..._a: unknown[]) => "t2"))
 
 vi.mock("next-intl", async () => (await import("./test-fixtures")).intlMock())
 vi.mock("@/i18n/routing", () => ({ Link: ({ href, children, ...r }: { href: string; children: React.ReactNode }) => <a href={href} {...r}>{children}</a> }))
+vi.mock("@/hooks/use-session", () => ({ useCurrentUser: () => ({ globalRole: "member" }) }))
 vi.mock("sonner", () => ({ toast: { success: toastSuccess, error: toastError, dismiss: vi.fn() } }))
 vi.mock("./use-library-filters", () => ({
   useLibraryFilters: () => ({
@@ -65,6 +66,7 @@ beforeEach(() => {
         return json({ folder: {} })
       }
       if (url === "/api/media/usages-summary") return json({ perMedia: {}, trashRetentionDays: 30 })
+      if (url.endsWith("/text") || url.includes("/text?")) return json({ status: "unsupported" })
       if (url === "/api/media/m0/usages") return json({ entries: [], hiddenCount: 0 })
       if (url === "/api/media/m0/meta") return json({ media: { ...((h.list.items as object[])[0]), description: null, checksumSha256: null, pageCount: null, origin: "upload", documentId: null, deletedBy: null, publicShared: false, canChangeSpace: true, canErase: false } })
       return json({})

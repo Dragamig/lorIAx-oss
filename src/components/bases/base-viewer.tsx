@@ -318,7 +318,7 @@ function ViewContent({
   onRefresh: () => void;
 }) {
   if (view.type === "grid") {
-    return <GridView view={view} columns={columns} rows={rows} database={database} spaceId={spaceId} views={views} viewerId={viewerId} onRefresh={onRefresh} />;
+    return <GridView view={view} columns={columns} rows={rows} database={database} spaceId={spaceId} views={views} viewerId={viewerId} readOnly={readOnly} onRefresh={onRefresh} />;
   }
   if (view.type === "kanban") {
     return (
@@ -346,6 +346,7 @@ function ViewContent({
         columns={columns as unknown as DbData["columns"]}
         rows={rows as unknown as DbData["rows"]}
         onRefresh={onRefresh}
+        readOnly={readOnly}
       />
     );
   }
@@ -353,7 +354,7 @@ function ViewContent({
     return <DashboardViewWrapper view={view} columns={columns} rows={rows} databaseId={databaseId} />;
   }
   if (view.type === "calendar") {
-    return <CalendarViewWrapper view={view} columns={columns} rows={rows} databaseId={databaseId} spaceId={spaceId} />;
+    return <CalendarViewWrapper view={view} columns={columns} rows={rows} databaseId={databaseId} spaceId={spaceId} readOnly={readOnly} onRefresh={onRefresh} />;
   }
   if (view.type === "form") {
     return (
@@ -371,12 +372,14 @@ function GridView({
   spaceId,
   views,
   viewerId,
+  readOnly,
   onRefresh,
 }: {
   view: ViewDef;
   columns: ColumnDef[];
   rows: RowDef[];
   viewerId: string;
+  readOnly: boolean;
   database: { id: string; name: string; description: string | null; spaceId: string };
   spaceId: string;
   views: ViewDef[];
@@ -466,6 +469,7 @@ function GridView({
         nav={nav}
         onNavigate={navigate}
         onClose={closeRecord}
+        deletion={{ onChanged: onRefresh, readOnly }}
       />
     </>
   );
@@ -477,12 +481,16 @@ function CalendarViewWrapper({
   rows,
   databaseId,
   spaceId,
+  readOnly,
+  onRefresh,
 }: {
   view: ViewDef;
   columns: ColumnDef[];
   rows: RowDef[];
   databaseId: string;
   spaceId: string;
+  readOnly: boolean;
+  onRefresh: () => void;
 }) {
   const dateColumnId = view.config.dateColumnId as string | undefined;
   const titleColumnId = view.config.titleColumnId as string | undefined;
@@ -505,6 +513,8 @@ function CalendarViewWrapper({
       spaceId={spaceId}
       dateColumnId={dateColumnId}
       titleColumnId={titleColumnId}
+      readOnly={readOnly}
+      onRefresh={onRefresh}
       onConfigChange={persistConfig}
     />
   );

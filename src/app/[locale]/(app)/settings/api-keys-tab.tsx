@@ -16,6 +16,14 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 const ALL_SCOPES = [
   { value: "documents:read", labelKey: "scopeDocumentsRead" },
@@ -24,6 +32,8 @@ const ALL_SCOPES = [
   { value: "spaces:write", labelKey: "scopeSpacesWrite" },
   { value: "search", labelKey: "scopeSearch" },
   { value: "webhooks", labelKey: "scopeWebhooks" },
+  { value: "calendars:read", labelKey: "scopeCalendarsRead" },
+  { value: "calendars:write", labelKey: "scopeCalendarsWrite" },
   { value: "media:read", labelKey: "scopeMediaRead" },
   { value: "media:write", labelKey: "scopeMediaWrite" },
 ] as const;
@@ -60,6 +70,7 @@ export function ApiKeysTab() {
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [showKey, setShowKey] = useState(false);
   const [revoking, setRevoking] = useState<string | null>(null);
+  const [pendingRevoke, setPendingRevoke] = useState<ApiKey | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -141,6 +152,7 @@ export function ApiKeysTab() {
   }
 
   async function revokeKey(keyId: string, keyName: string) {
+    setPendingRevoke(null);
     setRevoking(keyId);
     try {
       const res = await fetch(`/api/user/api-keys?id=${keyId}`, {
@@ -200,6 +212,8 @@ export function ApiKeysTab() {
     "spaces:write": "spaces:w",
     search: "search",
     webhooks: "webhooks",
+    "calendars:read": "cal:r",
+    "calendars:write": "cal:w",
     "media:read": "media:r",
     "media:write": "media:w",
   };
@@ -439,7 +453,7 @@ export function ApiKeysTab() {
                     variant="ghost"
                     size="sm"
                     className="text-destructive hover:text-destructive hover:bg-destructive/10 gap-1.5 shrink-0"
-                    onClick={() => revokeKey(key.id, key.name)}
+                    onClick={() => setPendingRevoke(key)}
                     disabled={revoking === key.id}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -451,6 +465,36 @@ export function ApiKeysTab() {
           </div>
         )}
       </div>
+
+      <Dialog
+        open={pendingRevoke !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingRevoke(null);
+        }}
+      >
+        <DialogContent showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>
+              {t("revokeConfirmTitle", { name: pendingRevoke?.name ?? "" })}
+            </DialogTitle>
+            <DialogDescription>{t("revokeConfirmBody")}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendingRevoke(null)}>
+              {t("cancel")}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (pendingRevoke) revokeKey(pendingRevoke.id, pendingRevoke.name);
+              }}
+            >
+              <Trash2 aria-hidden="true" />
+              {t("revokeConfirm")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

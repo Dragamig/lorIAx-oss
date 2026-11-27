@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { inserted, documentCollabStates, documents, spaces } = vi.hoisted(() => ({
+const { inserted, documentCollabStates, documents, spaces, spaceState } = vi.hoisted(() => ({
+  spaceState: { classification: "internal" },
   inserted: [] as Array<{ table: unknown; values: Record<string, unknown> }>,
   documentCollabStates: { __t: "collab" },
   documents: { __t: "documents" },
@@ -18,7 +19,7 @@ vi.mock("@/lib/db", () => ({
     select: () => ({
       from: () => ({
         where: () => ({
-          limit: async () => [{ id: "s1", gitRepoPath: "repo", classification: "internal" }],
+          limit: async () => [{ id: "s1", gitRepoPath: "repo", classification: spaceState.classification }],
         }),
       }),
     }),
@@ -55,6 +56,19 @@ const base = {
 describe("createDocument Yjs seeding", () => {
   beforeEach(() => {
     inserted.length = 0;
+    spaceState.classification = "internal";
+  });
+
+  it("releve la classification demandee au plancher de l'espace", async () => {
+    spaceState.classification = "confidential";
+    await createDocument({ ...base, classification: "public" });
+    expect(inserted.find((i) => i.table === documents)!.values.classification).toBe("confidential");
+  });
+
+  it("conserve une classification demandee superieure au plancher", async () => {
+    spaceState.classification = "internal";
+    await createDocument({ ...base, classification: "secret" });
+    expect(inserted.find((i) => i.table === documents)!.values.classification).toBe("secret");
   });
 
   it("seeds the collab state when content is provided", async () => {

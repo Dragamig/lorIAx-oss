@@ -5,9 +5,9 @@ const A = "3f2b8c1e-5d4a-4b6c-9e7f-1a2b3c4d5e6f";
 const B = "7a1c9d2e-0b3f-4c5d-8e6a-9f0b1c2d3e4f";
 
 describe("registre CRM", () => {
-  it("17 champs, clés uniques par rôle, aucun champ obligatoire sans type", () => {
+  it("19 champs, clés uniques par rôle, aucun champ obligatoire sans type", () => {
     const all = CRM_ROLES.flatMap((r) => CRM_FIELDS[r]);
-    expect(all).toHaveLength(17);
+    expect(all).toHaveLength(19);
     for (const r of CRM_ROLES) {
       const keys = CRM_FIELDS[r].map((f) => f.key);
       expect(new Set(keys).size).toBe(keys.length);
@@ -23,6 +23,23 @@ describe("registre CRM", () => {
   it("les relations ciblent le bon rôle", () => {
     expect(CRM_FIELDS.dossiers.find((f) => f.key === "contact")?.relationTargetRole).toBe("contacts");
     expect(CRM_FIELDS.interactions.find((f) => f.key === "dossier")?.relationTargetRole).toBe("dossiers");
+  });
+});
+
+describe("clés facultatives des Interactions", () => {
+  it("interactions registry includes optional contact relation and sens select", () => {
+    const contact = CRM_FIELDS.interactions.find((f) => f.key === "contact");
+    const sens = CRM_FIELDS.interactions.find((f) => f.key === "sens");
+    expect(contact).toMatchObject({ types: ["relation"], relationTargetRole: "contacts", required: false, hints: ["contact"] });
+    expect(sens).toMatchObject({ types: ["select"], required: false, hints: ["sens", "direction"] });
+  });
+
+  it("a stored field_map without contact and sens still parses", () => {
+    expect(parseFieldMap({ interactions: { date: A, dossier: B } })).toEqual({ interactions: { date: A, dossier: B } });
+  });
+
+  it("bindingsSchema accepts interactions.contact and interactions.sens", () => {
+    expect(bindingsSchema.safeParse({ roles: {}, fieldMap: { interactions: { contact: A, sens: B } } }).success).toBe(true);
   });
 });
 

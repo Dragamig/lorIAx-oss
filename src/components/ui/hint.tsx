@@ -12,6 +12,8 @@ type Props = {
   className?: string
   /** `end` aligne l'info-bulle sur le bord droit du contrôle (contrôle collé au bord d'un conteneur qui rogne). */
   align?: "center" | "end"
+  /** `top` ouvre l'info-bulle au-dessus (contrôle en bas d'un conteneur qui rogne). */
+  side?: "top" | "bottom"
 }
 
 /**
@@ -19,7 +21,7 @@ type Props = {
  * et au focus clavier, y compris sur un bouton `disabled` (l'enveloppe reçoit
  * les événements que le bouton désactivé n'émet pas). Echap la ferme.
  */
-export function Hint({ label, children, disabled = false, className, align = "center" }: Props) {
+export function Hint({ label, children, disabled = false, className, align = "center", side = "bottom" }: Props) {
   const tipId = useId()
   const [open, setOpen] = useState(false)
   return (
@@ -39,7 +41,7 @@ export function Hint({ label, children, disabled = false, className, align = "ce
         <span
           id={tipId}
           role="tooltip"
-          className={`bg-popover text-popover-foreground border-border pointer-events-none absolute top-full z-50 mt-1 ${align === "end" ? "right-0" : "left-1/2 -translate-x-1/2"} rounded-md border px-2 py-1 text-xs whitespace-nowrap shadow-md`}
+          className={`bg-popover text-popover-foreground border-border pointer-events-none absolute z-50 ${side === "top" ? "bottom-full mb-1" : "top-full mt-1"} ${align === "end" ? "right-0" : "left-1/2 -translate-x-1/2"} rounded-md border px-2 py-1 text-xs whitespace-nowrap shadow-md`}
         >
           {label}
         </span>

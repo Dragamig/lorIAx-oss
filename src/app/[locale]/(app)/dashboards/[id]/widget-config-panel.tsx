@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
+import { dashboardRequest } from "../dashboard-request";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FilterBuilder } from "@/components/editor/extensions/database-block/filter-builder";
@@ -60,10 +61,19 @@ export function WidgetConfigPanel({
       setColumns([]);
       return;
     }
-    fetch(`/api/databases/${draft.databaseId}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => setColumns(d?.columns ?? []));
-  }, [draft.databaseId]);
+    let cancelled = false;
+    dashboardRequest(`/api/databases/${draft.databaseId}`, undefined, t, "loadColumns")
+      .then((r) => (r ? r.json() : null))
+      .then((d) => {
+        if (!cancelled) setColumns(d?.columns ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setColumns([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [draft.databaseId, t]);
 
   // Reset filter when the source database changes
   useEffect(() => {

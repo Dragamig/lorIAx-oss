@@ -11,6 +11,9 @@ interface StudioShellProps {
   bottombar?: ReactNode;
   children: ReactNode;
   className?: string;
+  /** Classes de la rangée centrale (par exemple pour l'empiler sur petit écran). */
+  rowClassName?: string;
+  mainClassName?: string;
 }
 
 export function StudioShell({
@@ -20,14 +23,16 @@ export function StudioShell({
   bottombar,
   children,
   className,
+  rowClassName,
+  mainClassName,
 }: StudioShellProps) {
   return (
     <div className={cn("flex flex-col h-full bg-background", className)}>
       {topbar}
-      <div className="flex flex-1 min-h-0">
+      <div className={cn("flex flex-1 min-h-0", rowClassName)}>
         {rail}
         {panel}
-        <main className="flex-1 min-w-0 min-h-0">{children}</main>
+        <main className={cn("flex-1 min-w-0 min-h-0", mainClassName)}>{children}</main>
       </div>
       {bottombar}
     </div>

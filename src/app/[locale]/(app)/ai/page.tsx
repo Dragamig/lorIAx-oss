@@ -7,6 +7,22 @@ import { DefaultChatTransport } from "ai";
 import { Sparkles, Send, User, Bot } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { MarkdownContent } from "@/components/ai/markdown-content";
+import { ProposalCard } from "@/components/ai/proposal-card";
+import { CreationCard } from "@/components/ai/creation-card";
+import { ToolCallLine, type ToolPart } from "@/components/ai/tool-call-line";
+import { PendingProposalsBanner } from "@/components/ai/pending-proposals-banner";
+
+/** Identifiant de proposition d'une partie outil `propose_*` terminée (règle R4), sinon null. */
+function proposalIdOf(part: ToolPart): string | null {
+  if (part.state !== "output-available") return null;
+  const out = part.output as { proposalId?: unknown } | null | undefined;
+  return typeof out?.proposalId === "string" ? out.proposalId : null;
+}
+
+function isToolPart(p: { type: string }): p is ToolPart {
+  return p.type.startsWith("tool-");
+}
 
 function TypingIndicator() {
   return (
@@ -36,6 +52,16 @@ export default function AIPage() {
   const inputRef = useRef<HTMLInputElement>(null);
   const isLoading = status === "streaming" || status === "submitted";
 
+  // Curseur dans le champ à l'ouverture. Le lien du menu cliqué garde le focus :
+  // on le reprend, sauf si une autre saisie est déjà active.
+  useEffect(() => {
+    const active = document.activeElement as HTMLElement | null;
+    const editing =
+      !!active &&
+      (active.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(active.tagName));
+    if (!editing) inputRef.current?.focus();
+  }, []);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
@@ -59,6 +85,10 @@ export default function AIPage() {
     }, 0);
   }
 
+  const renderedProposalIds = messages.flatMap((m) =>
+    (m.parts ?? []).filter(isToolPart).map(proposalIdOf).filter((id): id is string => id !== null),
+  );
+
   const suggestions = [
     t("suggestions.summarize"),
     t("suggestions.links"),
@@ -75,6 +105,8 @@ export default function AIPage() {
           {t("subtitle")}
         </span>
       </div>
+
+      <PendingProposalsBanner hiddenIds={renderedProposalIds} />
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
@@ -100,7 +132,15 @@ export default function AIPage() {
           </div>
         )}
 
-        {messages.map((message) => (
+        {messages.map((message) => {
+          // Une partie texte par étape (avant et après les outils) : séparées
+          // par un paragraphe, sinon « disponibles.Aucune » se colle.
+          const text = (message.parts ?? [])
+            .map((p) => (p.type === "text" ? p.text.trim() : ""))
+            .filter(Boolean)
+            .join("\n\n");
+          const toolParts = (message.parts ?? []).filter(isToolPart);
+          return (
           <div
             key={message.id}
             className={`flex gap-3 ${message.role === "user" ? "justify-end" : ""}`}
@@ -110,20 +150,33 @@ export default function AIPage() {
                 <Bot className="h-4 w-4 text-primary" />
               </div>
             )}
-            <div
-              className={`max-w-[70%] rounded-xl px-4 py-3 text-sm ${
-                message.role === "user"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted"
-              }`}
-            >
-              <div className="whitespace-pre-wrap">
-                {(message.parts ?? [])
-                  .filter((p) => p.type === "text")
-                  .map((p, i) => (
-                    <span key={i}>{i === 0 ? p.text.replace(/^\s+/, "") : p.text}</span>
-                  ))}
-              </div>
+            <div className="flex min-w-0 max-w-[70%] flex-col gap-2">
+              {(text || toolParts.length === 0) && (
+                <div
+                  className={`rounded-xl px-4 py-3 text-sm ${
+                    message.role === "user"
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted"
+                  }`}
+                >
+                  {message.role === "user" ? (
+                    <div className="whitespace-pre-wrap">{text}</div>
+                  ) : (
+                    <MarkdownContent text={text} />
+                  )}
+                </div>
+              )}
+              {toolParts.map((part, i) => {
+                const proposalId = proposalIdOf(part);
+                if (proposalId && part.type.startsWith("tool-propose_create_")) {
+                  return <CreationCard key={`${message.id}-${i}`} proposalId={proposalId} />;
+                }
+                return proposalId ? (
+                  <ProposalCard key={`${message.id}-${i}`} proposalId={proposalId} />
+                ) : (
+                  <ToolCallLine key={`${message.id}-${i}`} part={part} />
+                );
+              })}
             </div>
             {message.role === "user" && (
               <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center flex-shrink-0">
@@ -131,7 +184,8 @@ export default function AIPage() {
               </div>
             )}
           </div>
-        ))}
+          );
+        })}
 
         {isLoading && <TypingIndicator />}
 

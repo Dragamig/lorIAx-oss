@@ -117,6 +117,19 @@ async function ensureKbVectorColumn(): Promise<void> {
     await pool.query(
       "CREATE INDEX IF NOT EXISTS idx_embeddings_vector ON document_embeddings USING hnsw (embedding vector_cosine_ops);"
     );
+    // media_embeddings : meme traitement, la colonne vector est absente de schema-media-ai.ts, donc
+    // le push la considere inconnue. Pose gardee par l'existence de la table.
+    const { rows: mediaTable } = await pool.query(
+      "SELECT to_regclass('public.media_embeddings') IS NOT NULL AS present"
+    );
+    if (mediaTable[0]?.present === true) {
+      await pool.query(
+        `ALTER TABLE media_embeddings ADD COLUMN IF NOT EXISTS embedding vector(${dimension});`
+      );
+      await pool.query(
+        "CREATE INDEX IF NOT EXISTS idx_media_embeddings_vector ON media_embeddings USING hnsw (embedding vector_cosine_ops);"
+      );
+    }
   } finally {
     await pool.end();
   }
@@ -146,6 +159,37 @@ async function ensureAiUsageEnumValues(): Promise<void> {
     // par Postgres et le reclassement echoue a 100 %.
     await pool.query(
       "ALTER TYPE ai_usage_type ADD VALUE IF NOT EXISTS 'rerank';"
+    );
+    // Actions sur les bases : modele fiable du chat quand des outils de base
+    // sont fournis. Sans cette valeur, l'affectation, le journal d'usage et la
+    // recherche d'affectation sont rejetes par Postgres.
+    await pool.query(
+      "ALTER TYPE ai_usage_type ADD VALUE IF NOT EXISTS 'chat_database_actions';"
+    );
+    // Creation de tableurs, documents et presentations depuis le chat : sans
+    // cette valeur l'affectation et le journal d'usage sont rejetes par Postgres.
+    await pool.query(
+      "ALTER TYPE ai_usage_type ADD VALUE IF NOT EXISTS 'creation';"
+    );
+  } finally {
+    await pool.end();
+  }
+}
+
+/**
+ * Valeur d'enum 'ai' de `row_change_source` (modifications de lignes ecrites
+ * par l'assistant). Meme idiome : hors transaction, APRES `push`, saute si le
+ * type n'existe pas (le push le cree alors avec la valeur).
+ */
+async function ensureRowChangeSourceAi(): Promise<void> {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  try {
+    const { rows } = await pool.query(
+      "SELECT to_regtype('row_change_source') IS NOT NULL AS present"
+    );
+    if (rows[0]?.present !== true) return;
+    await pool.query(
+      "ALTER TYPE row_change_source ADD VALUE IF NOT EXISTS 'ai';"
     );
   } finally {
     await pool.end();
@@ -204,6 +248,14 @@ async function ensureAutomationEnumValues(): Promise<void> {
     );
     await pool.query(
       "ALTER TYPE notification_type ADD VALUE IF NOT EXISTS 'media';"
+    );
+    // Valeurs ajoutees apres 2.0.0 : sans elles une base existante rejette les requetes
+    // qui comparent la colonne a ces litteraux.
+    await pool.query(
+      "ALTER TYPE media_usage_target ADD VALUE IF NOT EXISTS 'whiteboard';"
+    );
+    await pool.query(
+      "ALTER TYPE database_automation_trigger ADD VALUE IF NOT EXISTS 'media_uploaded';"
     );
   } finally {
     await pool.end();
@@ -352,6 +404,9 @@ async function main() {
   await ensureAiUsageEnumValues();
   console.log("✓ Valeurs d'enum ai_usage_type à jour");
 
+  await ensureRowChangeSourceAi();
+  console.log("✓ Valeur d'enum row_change_source 'ai' à jour");
+
   await ensureAutomationEnumValues();
   console.log("✓ Valeurs d'enum d'automatisation à jour (webhook_inbound, automation)");
 
@@ -417,6 +472,28 @@ async function main() {
       `✓ Backfill tableurs → espace : ${sheetStats.linked} rattaché(s), ` +
         `${sheetStats.after} orphelin(s) restant(s)`
     );
+  }
+
+  // CORS du bucket pour l'envoi multipart direct (règle ajoutée, jamais retirée).
+  // Un échec est journalisé sans bloquer l'initialisation.
+  if (process.env.S3_ENDPOINT && process.env.S3_PUBLIC_URL) {
+    try {
+      const { ensureBucketCors } = await import("../src/lib/storage/s3");
+      // Organisations en sous-domaine : une règle CORS exacte par slug (Garage n'apparie pas les jokers).
+      const orgPool = new Pool({ connectionString: process.env.DATABASE_URL });
+      let slugs: string[] = [];
+      try {
+        slugs = (await orgPool.query<{ slug: string }>("SELECT slug FROM organizations WHERE is_active")).rows.map(
+          (r) => r.slug,
+        );
+      } finally {
+        await orgPool.end();
+      }
+      const cors = await ensureBucketCors(slugs);
+      if (cors === "updated") console.log("✓ CORS du bucket : règle d'envoi direct ajoutée");
+    } catch (e) {
+      console.warn("⚠ CORS du bucket non posé :", e instanceof Error ? e.message : e);
+    }
   }
 
   console.log("✓ Schéma BDD réconcilié");

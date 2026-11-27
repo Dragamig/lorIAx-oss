@@ -20,6 +20,7 @@ import {
   LINES_HEADERS,
   type DemandWorkbookInput,
 } from "@/lib/spreadsheet/demand-workbook";
+import { buildGenericWorkbook, type GenericWorkbookInput } from "./generic-workbook";
 
 export class ParentDocumentNotFoundError extends Error {
   constructor(public readonly parentId: string) {
@@ -30,6 +31,8 @@ export class ParentDocumentNotFoundError extends Error {
 
 export interface CreateSpreadsheetDocumentInput extends Omit<CreateDocumentInput, "content"> {
   workbook?: DemandWorkbookInput;
+  /** Classeur générique (colonnes et lignes libres) ; sans lui, classeur de demande. */
+  data?: GenericWorkbookInput;
   /** Titre affiché du bloc tableur (défaut : titre du document). */
   sheetTitle?: string;
 }
@@ -52,7 +55,7 @@ export function spreadsheetBlockMarkdown(
 }
 
 export async function createSpreadsheetDocument(input: CreateSpreadsheetDocumentInput) {
-  const { workbook, sheetTitle, ...docInput } = input;
+  const { workbook, data: genericData, sheetTitle, ...docInput } = input;
 
   if (docInput.parentId) {
     const [parent] = await db
@@ -64,8 +67,11 @@ export async function createSpreadsheetDocument(input: CreateSpreadsheetDocument
   }
 
   const sheetId = randomUUID();
-  const data = buildDemandWorkbook(workbook);
-  const lineCount = workbook?.lines?.length ?? 0;
+  const data = genericData ? buildGenericWorkbook(genericData) : buildDemandWorkbook(workbook);
+  const rowCount = genericData
+    ? (genericData.rows?.length ?? 0) + 1
+    : (workbook?.lines?.length ?? 0) + 1;
+  const colCount = genericData ? genericData.columns.length : LINES_HEADERS.length;
 
   await db.insert(spreadsheetData).values({
     sheetId,
@@ -79,8 +85,8 @@ export async function createSpreadsheetDocument(input: CreateSpreadsheetDocument
       content: spreadsheetBlockMarkdown(
         sheetId,
         sheetTitle ?? docInput.title,
-        lineCount + 1,
-        LINES_HEADERS.length,
+        rowCount,
+        colCount,
       ),
     });
     return { document, sheetId };

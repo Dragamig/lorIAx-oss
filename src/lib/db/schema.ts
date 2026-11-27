@@ -186,6 +186,9 @@ export const users = pgTable("users", {
   themePreferences: jsonb("theme_preferences").default("{}"),
   tokenInvalidatedAt: timestamp("token_invalidated_at", { withTimezone: true }),
   mustResetPassword: boolean("must_reset_password").notNull().default(false),
+  // NULL = email not verified yet. Existing rows and admin-created users get the
+  // default (now), only the two self-service sign-up routes insert NULL explicitly.
+  emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }).defaultNow(),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -624,6 +627,23 @@ export const passwordResetTokens = pgTable(
   ]
 );
 
+export const emailVerificationTokens = pgTable(
+  "email_verification_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tokenHash: varchar("token_hash", { length: 64 }).unique().notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index("idx_email_verification_user").on(table.userId)]
+);
+
 // ============================================================
 // DOCUMENT COLLABORATION STATES (Yjs)
 // ============================================================
@@ -763,6 +783,8 @@ export const automationTriggerEnum = pgEnum("database_automation_trigger", [
   "manual",
   // Déclencheur webhook entrant (Spec 1 — unification façon Airtable).
   "webhook_inbound",
+  // Un média vient d'être ajouté à la médiathèque (configuration : { scope, spaceId? }).
+  "media_uploaded",
 ]);
 
 export const automationActionEnum = pgEnum("database_automation_action", [
@@ -2317,6 +2339,8 @@ export * from "./schema-tally";
 
 // Médiathèque : réexport obligatoire, sinon `drizzle-kit push` ne crée jamais ces tables.
 export * from "./schema-media";
+export * from "./schema-media-comfort";
+export * from "./schema-media-ai";
 
 // Historique de ligne : réexport obligatoire, sinon `drizzle-kit push` ne crée jamais la table
 // database_row_changes en production (incident chat v1.80.1).
@@ -2326,3 +2350,9 @@ export * from "./schema-crm";
 // Même règle pour la table presentations : le réexport est le seul levier qui
 // la fasse exister en production.
 export * from "./schema-presentations";
+// Mailing : réexport obligatoire, sinon `drizzle-kit push` ne crée jamais la table mail_accounts en production.
+export * from "./schema-mailing";
+// Propositions IA et journal d'outils : réexport obligatoire, sinon `drizzle-kit push` ne crée jamais ces tables en production (incident chat v1.80.1).
+export * from "./schema-ai-proposals";
+// Propositions de creation IA (tableur, document, presentation) : reexport obligatoire, sinon `drizzle-kit push` ne cree jamais la table en production.
+export * from "./schema-ai-creation-proposals";

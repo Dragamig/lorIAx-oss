@@ -39,6 +39,7 @@ import logger from "@/lib/logger";
 import { getRequestOrgId } from "@/lib/org/get-request-org";
 import { isModuleActive } from "@/lib/modules/enablement";
 import { searchMedia } from "@/lib/media/search";
+import { searchMediaContent, type MediaContentHit } from "@/lib/media/ai/content-search";
 
 /** Limite par défaut si absente ou invalide. */
 const DEFAULT_LIMIT = 20;
@@ -440,15 +441,24 @@ export async function GET(request: NextRequest) {
   // Médias : même visibilité que la liste de la médiathèque (searchMedia passe
   // par listMedia), uniquement si le module est actif pour l'organisation.
   let mediaHits: Awaited<ReturnType<typeof searchMedia>> | null = null;
+  let mediaContent: MediaContentHit[] = [];
   try {
     if (await isModuleActive("library", orgId)) {
       mediaHits = await searchMedia(user, orgId, q);
+      // Contenu indexé (si l'indexation IA est active pour l'organisation), reclassé
+      // selon l'interrupteur de la surface « search ». Un échec n'ôte rien au reste.
+      mediaContent = (await searchMediaContent(user, orgId, q, { surface: "search" })).map(
+        ({ chunkText: _chunkText, ...hit }) => hit
+      );
     }
   } catch (error) {
     logger.error({ err: error }, "Erreur recherche de médias");
   }
 
-  return NextResponse.json(mediaHits ? { results, media: mediaHits } : { results });
+  if (!mediaHits) return NextResponse.json({ results });
+  return NextResponse.json(
+    mediaContent.length > 0 ? { results, media: mediaHits, mediaContent } : { results, media: mediaHits }
+  );
 }
 
 function buildExcerpt(contentText: string | null, query: string): string {

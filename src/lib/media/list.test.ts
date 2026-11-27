@@ -42,7 +42,7 @@ vi.mock("@/lib/media/library-settings", () => ({
 }));
 
 import { PgDialect } from "drizzle-orm/pg-core";
-import { listMedia, getLibraryStats, visibleMediaCondition } from "./list";
+import { listMedia, getLibraryStats, visibleMediaCondition, listableMediaCondition } from "./list";
 import { FilterError, decodeCursor, encodeCursor, parseMediaFilters } from "./filters";
 import { registerHooks, resetHooksForTests } from "@/lib/modules/hooks";
 import { beforeEach as hooksBeforeEach } from "vitest";
@@ -64,7 +64,7 @@ function row(i: number, over: Record<string, unknown> = {}) {
     filename: "same.png", title: null, altText: null, kind: "image", mimeType: "image/png",
     sizeBytes: "10", width: null, height: null, spaceId: SPACE_A, spaceName: "A", folderId: null,
     uploadedBy: "u1", uploaderName: "U", createdAt: new Date(1000), deletedAt: null,
-    thumbnailKey: null, usageCount: 0, publicShared: false, sortValue: "same.png", ...over,
+    thumbnailKey: null, currentVersion: 1, usageCount: 0, publicShared: false, sortValue: "same.png", ...over,
   };
 }
 
@@ -76,6 +76,19 @@ beforeEach(() => {
   h.bulkCalls = 0;
   h.notWritable = [];
   h.retention = 30;
+});
+
+describe("listableMediaCondition", () => {
+  it("exclut les miniatures de design par la clé de stockage", async () => {
+    const q = new PgDialect().sqlToQuery(await listableMediaCondition(user, ORG, "live"));
+    expect(q.sql).toContain("not like");
+    expect(q.params).toContain("studio/%/design-thumbnails/%");
+    expect(q.params).toContain(ORG);
+  });
+  it("la condition de visibilité seule ne l'exclut pas (service et quota intacts)", async () => {
+    const q = new PgDialect().sqlToQuery(await visibleMediaCondition(user, ORG, "live"));
+    expect(q.params).not.toContain("studio/%/design-thumbnails/%");
+  });
 });
 
 describe("visibleMediaCondition", () => {
@@ -191,7 +204,8 @@ describe("listMedia", () => {
     h.queue = [[row(1, { thumbnailKey: "k" })], [{ mediaId: row(1).id, id: "t1", label: "Logo" }]];
     const r = await listMedia(user, ORG, f());
     expect(r.items[0].tags).toEqual([{ id: "t1", label: "Logo" }]);
-    expect(r.items[0].thumbnailUrl).toBe(`/api/media/${row(1).id}/thumbnail`);
+    expect(r.items[0].thumbnailUrl).toBe(`/api/media/${row(1).id}/thumbnail?v=1`);
+    expect(r.items[0].currentVersion).toBe(1);
     expect(r.items[0].createdAt).toBe(new Date(1000).toISOString());
   });
 });

@@ -2,14 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const h = vi.hoisted(() => ({
   ingest: vi.fn(),
-  admin: vi.fn(),
   lookup: vi.fn(),
   fetch: vi.fn(),
   write: vi.fn(),
 }))
 
 vi.mock("@/lib/media/ingest", () => ({ ingestMedia: h.ingest }))
-vi.mock("@/lib/media/access", () => ({ isOrgAdminOrOwner: h.admin }))
 vi.mock("@/lib/media/folders", () => ({ canWriteLibrary: h.write }))
 vi.mock("dns", () => ({
   promises: { lookup: h.lookup },
@@ -31,7 +29,6 @@ function call(url: string, extra: Partial<Parameters<typeof importRemoteImage>[0
 beforeEach(() => {
   Object.values(h).forEach((f) => f.mockReset())
   h.lookup.mockResolvedValue([{ address: "203.0.113.34", family: 4 }])
-  h.admin.mockResolvedValue(false)
   h.write.mockResolvedValue(true)
   h.ingest.mockResolvedValue({ ok: true, media: { id: "m1" }, quota: {}, hasLocationExif: false })
   vi.stubGlobal("fetch", h.fetch)
@@ -180,7 +177,6 @@ describe("importRemoteImage, ingestion", () => {
     expect(arg.file.type).toBe("image/png")
     expect(arg.file.name).toMatch(/^[^/\\]+\.png$/)
     expect(arg.file.name).toContain("logo")
-    expect(arg.allowOrgLevel).toBe(false)
   })
 
   it("répercute le quota atteint (507) sans toast de succès possible", async () => {
@@ -189,18 +185,10 @@ describe("importRemoteImage, ingestion", () => {
     expect(res).toMatchObject({ ok: false, status: 507 })
   })
 
-  it("sans espace : 400 pour l'origine url d'un non administrateur", async () => {
-    const res = await call("https://example.com/a.png", { spaceId: null })
-    expect(res).toMatchObject({ ok: false, status: 400, error: "space_required" })
-    expect(h.fetch).not.toHaveBeenCalled()
-  })
-
-  it("sans espace : permis pour un administrateur et pour la banque", async () => {
-    h.admin.mockResolvedValue(true)
+  it("sans espace : permis à un membre pour l'origine url comme pour la banque", async () => {
     expect((await call("https://example.com/a.png", { spaceId: null })).ok).toBe(true)
-    h.admin.mockResolvedValue(false)
     expect((await call("https://images.unsplash.com/a.png", { spaceId: null, origin: "stock" })).ok).toBe(true)
-    expect(h.ingest.mock.calls.at(-1)![0].allowOrgLevel).toBe(true)
+    expect(h.ingest.mock.calls.at(-1)![0].spaceId).toBeNull()
   })
 })
 

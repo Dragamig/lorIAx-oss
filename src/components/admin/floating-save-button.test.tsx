@@ -41,4 +41,20 @@ describe("AdminSaveBar", () => {
     expect(button.disabled).toBe(false);
     expect(screen.queryByText(/modifications non enregistrées/i)).toBeNull();
   });
+
+  it("remplace le témoin de modifications par pendingLabel quand il est fourni", () => {
+    render(<AdminSaveBar onSave={vi.fn()} saving={false} isDirty pendingLabel="Brouillon modifié à 14:02" />);
+
+    expect(screen.getByText("Brouillon modifié à 14:02")).toBeTruthy();
+    expect(screen.queryByText(/modifications non enregistrées/i)).toBeNull();
+  });
+
+  it("affiche disabledHint sur le bouton désactivé quand il n'y a pas de modifications", () => {
+    render(<AdminSaveBar onSave={vi.fn()} saving={false} isDirty={false} disabledHint="Aucune modification à enregistrer" />);
+
+    const button = screen.getByRole("button", { name: /enregistrer/i }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(screen.getByRole("tooltip", { hidden: true }).textContent).toBe("Aucune modification à enregistrer");
+    expect(button.getAttribute("aria-describedby")).toBeTruthy();
+  });
 });

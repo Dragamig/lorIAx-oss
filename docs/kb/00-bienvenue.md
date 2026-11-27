@@ -12,7 +12,7 @@ LorIAx est une plateforme de gestion de connaissances collaborative et auto-héb
 - une recherche puissante sur tout votre contenu,
 - un assistant IA qui répond à partir de vos documents,
 - un calendrier partagé et de la visioconférence,
-- des studios de création (design et montage vidéo).
+- un studio de création de designs.
 
 LorIAx s'adresse aux organismes multi-services : collectivités, associations, PME structurées. Plusieurs services travaillent côte à côte, chacun avec ses espaces, tout en partageant une base de connaissances commune.
 

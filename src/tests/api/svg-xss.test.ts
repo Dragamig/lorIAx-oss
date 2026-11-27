@@ -229,59 +229,6 @@ describe("Upload du studio d'images : le type déclaré ne fait plus foi (INJ-03
   });
 });
 
-describe("Restitution du studio d'images : neutralisation (INJ-03)", () => {
-  it("force le téléchargement du SVG et pose nosniff + politique verrouillée", async () => {
-    const { GET } = await import("@/app/api/studio/images/[id]/route");
-    const res = await GET(new NextRequest("http://localhost/api/studio/images/img-1"), {
-      params: Promise.resolve({ id: "img-1" }),
-    });
-
-    expect(res.status).toBe(200);
-    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
-    const csp = res.headers.get("content-security-policy") ?? "";
-    expect(csp).toContain("default-src 'none'");
-    expect(csp).toContain("sandbox");
-    expect(csp).toContain("frame-ancestors 'none'");
-    expect(res.headers.get("content-disposition")).toMatch(/^attachment;/);
-  });
-
-  it("laisse un PNG s'afficher en ligne, l'usage du studio design n'est pas cassé", async () => {
-    h.row.mimeType = "image/png";
-    h.row.filename = "logo.png";
-    const { GET } = await import("@/app/api/studio/images/[id]/route");
-    const res = await GET(new NextRequest("http://localhost/api/studio/images/img-1"), {
-      params: Promise.resolve({ id: "img-1" }),
-    });
-
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toBe("image/png");
-    expect(res.headers.get("content-disposition")).toMatch(/^inline;/);
-    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
-  });
-
-  it("resserre un type stocké inattendu en flux binaire opaque téléchargé", async () => {
-    h.row.mimeType = "text/html";
-    const { GET } = await import("@/app/api/studio/images/[id]/route");
-    const res = await GET(new NextRequest("http://localhost/api/studio/images/img-1"), {
-      params: Promise.resolve({ id: "img-1" }),
-    });
-
-    expect(res.headers.get("content-type")).toBe("application/octet-stream");
-    expect(res.headers.get("content-disposition")).toMatch(/^attachment;/);
-  });
-
-  it("assainit le nom de fichier de l'en-tête Content-Disposition", async () => {
-    h.row.filename = 'evil"; filename="x.html';
-    const { GET } = await import("@/app/api/studio/images/[id]/route");
-    const res = await GET(new NextRequest("http://localhost/api/studio/images/img-1"), {
-      params: Promise.resolve({ id: "img-1" }),
-    });
-
-    const disposition = res.headers.get("content-disposition") ?? "";
-    expect(disposition).not.toContain('"; filename="x.html');
-  });
-});
-
 describe("Proxy d'images : types exécutables exclus (INJ-04)", () => {
   function proxyRequest(url: string) {
     return new NextRequest(

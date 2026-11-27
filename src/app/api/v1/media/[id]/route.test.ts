@@ -18,7 +18,10 @@ vi.mock("@/lib/media/access", () => ({
 vi.mock("@/lib/db", () => ({
   db: {
     select: () => ({
-      from: () => ({ innerJoin: () => ({ where: () => ({ orderBy: async () => [{ label: "logo" }] }) }) }),
+      from: () => ({
+        innerJoin: () => ({ where: () => ({ orderBy: async () => [{ label: "logo" }] }) }),
+        where: async () => [{ n: 3 }],
+      }),
     }),
   },
 }));
@@ -45,6 +48,7 @@ const row = {
   deletedAt: null,
   createdAt: new Date("2026-01-01T00:00:00.000Z"),
   updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+  currentVersion: 3,
 };
 const call = (id = ID) => GET(new Request("http://x"), { params: Promise.resolve({ id }) });
 
@@ -71,7 +75,7 @@ describe("GET /api/v1/media/<id>", () => {
     expect(res.status).toBe(200);
     expect(resolveMediaAccess.mock.calls[0][3]).toEqual({ orgId: "org1" });
     const body = await res.json();
-    expect(body.data).toMatchObject({ id: ID, tags: ["logo"], altText: "alt", contentUrl: `/api/v1/media/${ID}/content` });
+    expect(body.data).toMatchObject({ id: ID, tags: ["logo"], altText: "alt", contentUrl: `/api/v1/media/${ID}/content`, currentVersion: 3, versionCount: 3 });
     const text = JSON.stringify(body);
     for (const k of ["storage", "secret/key", "organization", "checksum", "uploaded"]) expect(text).not.toContain(k);
   });

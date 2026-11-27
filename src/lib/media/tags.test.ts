@@ -40,7 +40,7 @@ function chain(kind: string): unknown {
 vi.mock("@/lib/db", () => ({
   db: { select: () => chain("select"), insert: () => chain("insert") },
 }));
-vi.mock("@/lib/media/list", () => ({ visibleMediaCondition: () => Promise.resolve({}) }));
+vi.mock("@/lib/media/list", () => ({ listableMediaCondition: () => Promise.resolve({}) }));
 vi.mock("@/lib/media/folders", () => ({ canWriteLibrary: () => Promise.resolve(h.canWrite) }));
 
 import { TagError, createTag, ensureTags, listTags, tagSlug } from "./tags";

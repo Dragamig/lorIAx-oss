@@ -1,9 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Database, Link2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { CRM_ROLES, type CrmRole } from "@/lib/crm/fields";
+import { ActivationAutomationsRecap } from "./activation-automations-recap";
+import { takeActivationHandoff, type ActivationHandoff } from "./activation-handoff";
 import { CrmActionButton, CrmDisabledState, CrmEmptyBlock, CrmErrorState, CrmLoadingState } from "./crm-states";
 import { FieldMapTable } from "./field-map-table";
 import { RoleTile } from "./role-tile";
@@ -13,6 +15,13 @@ export function ConnectionScreen({ organisation = "" }: { organisation?: string 
   const t = useTranslations("crm");
   const c = useCrmConnection();
   const [picked, setPicked] = useState<CrmRole | null>(null);
+  const [handoff, setHandoff] = useState<ActivationHandoff | null>(null);
+  const taken = useRef<ActivationHandoff | null | undefined>(undefined);
+  useEffect(() => {
+    // Une seule lecture, même si l'effet est rejoué (mode strict).
+    if (taken.current === undefined) taken.current = takeActivationHandoff();
+    setHandoff(taken.current);
+  }, []);
 
   const data = c.data;
   const selected: CrmRole = useMemo(() => {
@@ -54,6 +63,14 @@ export function ConnectionScreen({ organisation = "" }: { organisation?: string 
       </div>
 
       <div className="space-y-4 p-6">
+        {handoff && (
+          <ActivationAutomationsRecap
+            created={handoff.created}
+            skipped={handoff.skipped}
+            statusOptionsAdded={handoff.statusOptionsAdded}
+            automationsHref={`/automations${data.roles.dossiers.spaceId ? `?spaceId=${encodeURIComponent(data.roles.dossiers.spaceId)}` : ""}`}
+          />
+        )}
         {nobody && <CrmEmptyBlock title={t("empty.noneConnectedTitle")} body={t("empty.noneConnectedBody")} />}
 
         <h2 className="flex items-center gap-1.5 text-sm font-semibold">

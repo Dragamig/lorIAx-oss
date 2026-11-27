@@ -7,9 +7,11 @@ const SRC = path.resolve(__dirname, "../..");
 /** Fichiers autorisés à supprimer un objet S3, hors tests, avec la raison. */
 const ALLOWED: Record<string, string> = {
   "lib/storage/s3.ts": "définition de deleteFile",
+  "lib/media/multipart.ts": "supprime l'objet assemblé d'un envoi multipart refusé à la finalisation (jamais référencé par une ligne media)",
   "lib/media/purge.ts": "seul point de suppression de la médiathèque (purge et effacement)",
   "app/api/user/avatar/route.ts": "hors médiathèque : suppression de l'avatar de l'utilisateur, objet propre à l'utilisateur",
   "app/api/meeting-rooms/[id]/upload/route.ts": "hors médiathèque : remplacement de l'image de salle, clé propre à la salle",  "app/api/presentations/[id]/route.ts": "hors médiathèque : révisions JSON et suppression d'une présentation, clés propres à la présentation (préfixe presentations/)",
+  "lib/ai/creation/apply.ts": "hors médiathèque : annulation d'une création par le chat, révisions et clé de la présentation créée (préfixe presentations/)",
 };
 
 /** Toute suppression d'objet : fonction maison, commandes SDK, envoi direct d'une commande Delete*. */
@@ -28,7 +30,6 @@ const SDK_IMPORTERS: Record<string, string> = {
   "app/api/attachments/[...key]/route.ts": "lecture : GetObject",
   "app/api/designs/[id]/route.ts": "lecture : GetObject",
   "app/api/setup/upload/route.ts": "lecture : GetObject",
-  "app/api/studio/images/[id]/route.ts": "lecture : GetObject",
   "app/api/user/avatar/route.ts": "lecture : GetObject",
   "app/api/meeting-rooms/[id]/upload/route.ts": "lecture : GetObject",
 };

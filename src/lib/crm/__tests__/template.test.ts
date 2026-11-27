@@ -18,6 +18,7 @@ describe("description générique des bases CRM", () => {
     expect(crmRelations(m)).toEqual([
       { from: "dossiers", to: "contacts", fieldKey: "contact", name: "Contact", inverseName: "Dossiers" },
       { from: "interactions", to: "dossiers", fieldKey: "dossier", name: "Dossier", inverseName: "Interactions" },
+      { from: "interactions", to: "contacts", fieldKey: "contact", name: "Contact", inverseName: "Interactions" },
     ]);
   });
 

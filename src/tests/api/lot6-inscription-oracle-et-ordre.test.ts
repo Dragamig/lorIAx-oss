@@ -70,6 +70,10 @@ const checkUsersLimit = vi.hoisted(() =>
 );
 
 const sendEmail = vi.hoisted(() => vi.fn(async (_options: { to: string }) => {}));
+vi.mock("@/lib/auth/registration-setting", () => ({ isRegistrationOpen: vi.fn(async () => true) }));
+vi.mock("@/lib/auth/email-verification", () => ({
+  sendVerificationEmail: vi.fn(async () => ({ sent: true })),
+}));
 vi.mock("@/lib/email/send", () => ({ sendEmail }));
 
 vi.mock("bcryptjs", () => ({ default: { hash: vi.fn(async () => "hash") } }));

@@ -113,10 +113,13 @@ export async function checkCanvasEditAccess(
     rowExists,
     storedDocumentId,
     requestedDocumentId,
+    requireMention = false,
   }: {
     rowExists: boolean;
     storedDocumentId: string | null;
     requestedDocumentId: string | null;
+    /** Exige que le document mentionne la ressource même sans ligne existante (routes qui n'insèrent pas). */
+    requireMention?: boolean;
   }
 ): Promise<CanvasAccessResult> {
   // 1. Ligne déjà rattachée : la base fait foi, le paramètre client est ignoré.
@@ -149,7 +152,7 @@ export async function checkCanvasEditAccess(
   // 3. Adoption d'une ligne préexistante : exiger en plus que le document
   //    contienne réellement l'identifiant, sinon n'importe quel éditeur
   //    pourrait s'approprier le canevas d'une autre organisation.
-  if (rowExists) {
+  if (rowExists || requireMention) {
     const mentioned = await documentMentionsResource(
       requestedDocumentId,
       resourceId

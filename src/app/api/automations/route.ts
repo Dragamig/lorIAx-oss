@@ -7,6 +7,9 @@ import { canManageAutomations } from "@/lib/auth/rbac";
 import { getSetting } from "@/lib/settings/system-settings";
 import { validateActionConfig } from "@/lib/automations/actions/registry";
 import { sanitizeWebhookTriggerConfig, redactWebhookTriggerConfig } from "@/lib/automations/webhook-inbound";
+import { activationRequiresTallyForm } from "@/lib/automations/tally-activation-guard";
+import { tallyFormRequiredResponse } from "@/lib/automations/tally-activation-response";
+import { validateMediaTriggerConfig } from "@/lib/media/events";
 import { z } from "zod";
 
 /**
@@ -22,7 +25,7 @@ import { z } from "zod";
 // Déclencheurs supportés par les workflows autonomes : bouton manuel et
 // webhook entrant (Spec 1 §5). `cron` reste hors scope de cette API pour
 // l'instant.
-const triggerSchema = z.enum(["manual", "webhook_inbound"]);
+const triggerSchema = z.enum(["manual", "webhook_inbound", "media_uploaded"]);
 // Actions compatibles workflow autonome (les actions base-liées sont rejetées
 // par validateActionConfig({ autonomous: true })).
 const actionSchema = z.enum([
@@ -127,6 +130,16 @@ export async function POST(request: Request) {
   // faible/devinable et exposer un webhook public à un tiers non authentifié.
   if (triggerType === "webhook_inbound") {
     triggerConfig = sanitizeWebhookTriggerConfig(triggerConfig);
+  }
+
+  if (triggerType === "media_uploaded") {
+    const checked = await validateMediaTriggerConfig(triggerConfig, { userId: ctx.user.id, orgId: ctx.orgId });
+    if (!checked.ok) return NextResponse.json({ error: checked.error }, { status: 400 });
+    triggerConfig = checked.config;
+  }
+
+  if (activationRequiresTallyForm(null, { enabled: parsed.data.enabled ?? true, triggerType: triggerType, triggerConfig })) {
+    return tallyFormRequiredResponse();
   }
 
   const [created] = await db

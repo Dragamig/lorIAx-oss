@@ -37,7 +37,7 @@
  */
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { documents, spaces, userDatabases } from "@/lib/db/schema";
+import { documents, media, spaces, userDatabases } from "@/lib/db/schema";
 import { voiceNotes } from "@/lib/db/schema-voice-notes";
 import logger from "@/lib/logger";
 import {
@@ -146,5 +146,28 @@ export async function orgIdForAutomation(automation: {
     return orgIdForSpace(row?.spaceId);
   } catch (err) {
     return replier("automation", err);
+  }
+}
+
+/**
+ * Organisation propriétaire d'un média (colonne `media.organization_id`, NOT NULL).
+ *
+ * Contrairement aux autres fonctions de ce module, FERMÉE sans repli : un média
+ * introuvable ou une lecture en erreur rendent `null`, jamais la portée
+ * d'instance. L'indexation IA d'un média qu'on ne sait pas rattacher à une
+ * organisation ne doit pas partir sur le fournisseur d'un autre périmètre.
+ */
+export async function orgIdForMedia(mediaId: string | null | undefined): Promise<string | null> {
+  if (!mediaId) return null;
+  try {
+    const [row] = await db
+      .select({ organizationId: media.organizationId })
+      .from(media)
+      .where(eq(media.id, mediaId))
+      .limit(1);
+    return row?.organizationId ?? null;
+  } catch (err) {
+    logger.warn({ err, objet: "media" }, "Organisation du média indérivable, accès refusé");
+    return null;
   }
 }

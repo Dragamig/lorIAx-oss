@@ -27,6 +27,11 @@ export interface UsageHooks {
   checkUsersLimit(orgId: string): Promise<UsageStatus>;
   checkSpacesLimit(orgId: string): Promise<UsageStatus>;
   getOrgStorageLimitBytes(orgId: string): Promise<number | null>;
+  /**
+   * Offre effective de l'organisation (une offre échue compte comme `free`).
+   * Neutre : `null`, aucune offre donc aucun plafond lié à l'offre (quota d'envoi de mails).
+   */
+  getOrgPlan(orgId: string): Promise<"free" | "growth" | "enterprise" | null>;
 }
 
 /**
@@ -103,6 +108,7 @@ export const NEUTRAL_HOOKS: ModuleHooks = {
     checkUsersLimit: async () => ({ ...NEUTRAL_USAGE }),
     checkSpacesLimit: async () => ({ ...NEUTRAL_USAGE }),
     getOrgStorageLimitBytes: async () => null,
+    getOrgPlan: async () => null,
   },
   entitlements: {
     getEntitledModuleIds: async () => null,

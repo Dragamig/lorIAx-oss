@@ -25,7 +25,10 @@ describe("LIBRARY_ACTIONS", () => {
   })
 
   it("n'a pas de raccourci en double", () => {
-    const keys = Object.values(LIBRARY_ACTIONS).map((a) => a.shortcut).filter(Boolean)
+    // Le retoucheur est un écran à part : ses raccourcis ne partagent pas l'espace de ceux de la médiathèque.
+    const keys = Object.values(LIBRARY_ACTIONS)
+      .filter((a) => a.shortcut)
+      .map((a) => `${a.group === "retouch" ? "retouch" : "library"}:${a.shortcut}`)
     expect(new Set(keys).size).toBe(keys.length)
   })
 

@@ -13,6 +13,8 @@ const h = vi.hoisted(() => ({
   collisions: {} as unknown,
   orgs: [] as unknown[],
   userArgs: [] as unknown[],
+  sample: { toCreate: [], skipped: [], statusOptionsToAdd: [] } as unknown,
+  sampleCalls: [] as unknown[][],
 }));
 
 vi.mock("@/lib/crm/access", () => ({
@@ -36,6 +38,10 @@ vi.mock("@/lib/crm/preview", async (orig) => {
   return {
     ...real,
     listEditableSpaces: vi.fn(async () => h.spaces),
+    previewSampleAutomations: vi.fn(async (...a: unknown[]) => {
+      h.sampleCalls.push(a);
+      return h.sample;
+    }),
     findCollisions: vi.fn(async (...a: unknown[]) => {
       h.collisionCalls.push(a);
       return h.collisions;
@@ -70,6 +76,8 @@ beforeEach(() => {
   h.collisions = { contacts: [], dossiers: [], interactions: [] };
   h.orgs = [];
   h.userArgs = [];
+  h.sample = { toCreate: [], skipped: [], statusOptionsToAdd: [] };
+  h.sampleCalls = [];
 });
 
 describe("GET /api/crm/activate/preview", () => {
@@ -130,5 +138,12 @@ describe("GET /api/crm/activate/preview", () => {
     expect(j.orgs).toEqual([{ slug: "alpha", name: "Alpha" }]);
     expect(JSON.stringify(j.orgs)).not.toMatch(/id/i);
     expect(h.userArgs[0]).toMatchObject({ id: "u1" });
+  });
+  it("sampleAutomations : aperçu calculé pour l'organisation de la session, noms dans la locale de la requête", async () => {
+    h.sample = { toCreate: [{ key: "lostClose", name: "Closed lost" }], skipped: [], statusOptionsToAdd: ["Dropped"] };
+    const j = await (await getP("NEXT_LOCALE=en")).json();
+    expect(j.sampleAutomations).toEqual(h.sample);
+    expect(h.sampleCalls[0].slice(0, 2)).toEqual(["org1", "u1"]);
+    expect((h.sampleCalls[0][2] as { automations: { lostClose: { name: string } } }).automations.lostClose.name).toBeTruthy();
   });
 });

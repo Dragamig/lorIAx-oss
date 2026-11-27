@@ -60,7 +60,7 @@ async function resolveSample(
     return {
       sample: {
         ...(sample.cells ? { cells: sample.cells } : {}),
-        ...(sample.body !== undefined ? buildWebhookPayload(sample.body) : {}),
+        ...(sample.body !== undefined ? buildWebhookPayload(sample.body, automation.triggerConfig) : {}),
       },
     };
   }
@@ -72,7 +72,7 @@ async function resolveSample(
         error: NextResponse.json({ error: "Aucun corps reçu à rejouer" }, { status: 409 }),
       };
     }
-    return { sample: buildWebhookPayload(last.body) };
+    return { sample: buildWebhookPayload(last.body, automation.triggerConfig) };
   }
   // row : la ligne doit appartenir à la base de l'automatisme.
   if (!automation.databaseId) {

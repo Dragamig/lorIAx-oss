@@ -28,6 +28,7 @@ const row = {
   filename: "a.png",
   mimeType: "image/png",
   deletedAt: null,
+  currentVersion: 1,
   updatedAt: new Date("2026-01-02T00:00:00.000Z"),
 };
 const stream = () => ({ transformToWebStream: () => new Response("0123456789").body });
@@ -100,5 +101,14 @@ describe("GET /api/v1/media/<id>/content", () => {
     expect(ok.headers.get("content-range")).toBe("bytes 0-4/10");
     expect((await call({ range: "bytes=50-60" })).status).toBe(416);
     expect((await call({ range: "bogus" })).status).toBe(416);
+  });
+
+  it("l'ETag suit la version : l'ancien ETag ne donne plus 304 après remplacement", async () => {
+    const oldEtag = (await call()).headers.get("etag")!;
+    expect((await call({ "if-none-match": oldEtag })).status).toBe(304);
+    getMediaFull.mockResolvedValue({ ...row, currentVersion: 2 });
+    const after = await call({ "if-none-match": oldEtag });
+    expect(after.status).toBe(200);
+    expect(after.headers.get("etag")).not.toBe(oldEtag);
   });
 });

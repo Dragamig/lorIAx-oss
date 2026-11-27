@@ -13,7 +13,10 @@ import { getSessionUser } from "@/lib/auth/get-user";
 import { getAccessibleSpaceIds, getSpacePermission } from "@/lib/auth/check-access";
 import type { AutomationGraph } from "@/lib/automations/automation-graph";
 import { AutomationsList } from "./automations-list";
-import { TRIGGER_LABELS, ACTION_LABELS } from "./automation-labels";
+import { TRIGGER_LABELS, deriveActionLabel } from "./automation-labels";
+import { canManageSpaceAutomations } from "./automation-access";
+import { canManageAutomations } from "@/lib/auth/rbac";
+import { redactWebhookTriggerConfig } from "@/lib/automations/webhook-inbound";
 
 interface PageProps {
   searchParams?: Promise<{ spaceId?: string }>;
@@ -54,6 +57,12 @@ export default async function AutomationsPage({ searchParams }: PageProps) {
 
   const permission = await getSpacePermission(user.id, spaceId);
   if (!permission) redirect("/bases");
+  // Même règle que les routes de gestion : droit d'édition sur l'espace ET
+  // rôle admin, super admin ou gestionnaire d'automatisations.
+  const canManage = canManageSpaceAutomations(user, permission);
+  // Jeton, secret et dernier corps reçu du webhook entrant : masqués comme
+  // dans les réponses GET de l'API pour qui ne gère pas les automatisations.
+  const revealWebhookSecrets = canManageAutomations(user.globalRole, user.capabilities ?? []);
 
   // 1. Bases actives du space
   const bases = await db
@@ -123,7 +132,8 @@ export default async function AutomationsPage({ searchParams }: PageProps) {
   }
 
   type Row = (typeof baseAutomations)[number];
-  const mapItem = (a: Row, kind: "base" | "autonomous") => {
+  const mapItem = (row: Row, kind: "base" | "autonomous") => {
+    const a = revealWebhookSecrets ? row : redactWebhookTriggerConfig(row);
     const last = lastRunByAutomationId.get(a.id);
     return {
       id: a.id,
@@ -137,7 +147,7 @@ export default async function AutomationsPage({ searchParams }: PageProps) {
       actionConfig: (a.actionConfig ?? {}) as Record<string, unknown>,
       graph: (a.graph ?? null) as AutomationGraph | null,
       triggerLabel: TRIGGER_LABELS[a.triggerType] ?? a.triggerType,
-      actionLabel: ACTION_LABELS[a.actionType] ?? a.actionType,
+      actionLabel: deriveActionLabel(a.actionType, a.graph as AutomationGraph | null),
       enabled: a.enabled,
       lastRunAt: last?.triggeredAt?.toISOString() ?? a.lastRunAt?.toISOString() ?? null,
       lastRunStatus: last?.status ?? null,
@@ -159,15 +169,17 @@ export default async function AutomationsPage({ searchParams }: PageProps) {
         <h1 className="mb-1 text-xl font-semibold">Automatisations</h1>
         <p className="mb-4 text-sm text-neutral-500">
           Workflows autonomes (déclenchés par un bouton dans un document) et
-          automatisations des bases de cet espace. Créez, configurez et activez
-          vos automatisations d&apos;ici.
+          automatisations des bases de cet espace.{" "}
+          {canManage
+            ? "Créez, configurez et activez vos automatisations d'ici."
+            : "Consultez leur enchaînement et leur historique d'exécution."}
         </p>
 
         <AutomationsList
           items={items}
           bases={bases}
           currentSpaceId={spaceId}
-          canMutate={permission !== "viewer"}
+          canManage={canManage}
         />
       </div>
     </div>

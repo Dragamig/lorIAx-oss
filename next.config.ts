@@ -5,6 +5,7 @@ import type { NextConfig } from "next";
 import { withSerwist } from "@serwist/turbopack";
 import createNextIntlPlugin from "next-intl/plugin";
 import { frameHeaderRules } from "./src/lib/media/frame-policy";
+import { legacyStudioImageRedirect } from "./src/lib/media/legacy-redirects";
 
 const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
 
@@ -30,6 +31,12 @@ const nextConfig: NextConfig = {
    */
   outputFileTracingIncludes: {
     "/api/presentations/runtime/[version]": ["./vendor/bento/**"],
+    // Worker de miniature PDF : JS pur chargé par `new Worker(chemin)`, invisible
+    // pour la trace (aucun `import`). Sans cette ligne : pas de miniature en Docker.
+    "/api/**": [
+      "./src/lib/media/pdf-thumbnail-worker.mjs",
+      "./src/lib/media/ai/pdf-text-worker.mjs",
+    ],
   },
   env: {
     NEXT_PUBLIC_APP_VERSION: appVersion,
@@ -55,6 +62,7 @@ const nextConfig: NextConfig = {
    */
   async redirects() {
     return [
+      legacyStudioImageRedirect,
       {
         source: "/admin/services",
         destination: "/admin/modules",
@@ -138,7 +146,7 @@ const nextConfig: NextConfig = {
       return patterns;
     })(),
   },
-  serverExternalPackages: ["re2", "metascraper", "metascraper-description", "metascraper-image", "metascraper-title", "metascraper-url", "ldapjs", "pino", "thread-stream", "ioredis", "esbuild-wasm", "yjs", "y-protocols", "@hocuspocus/server", "@hocuspocus/extension-database"],
+  serverExternalPackages: ["pdfjs-dist", "@napi-rs/canvas", "re2", "metascraper", "metascraper-description", "metascraper-image", "metascraper-title", "metascraper-url", "ldapjs", "pino", "thread-stream", "ioredis", "esbuild-wasm", "yjs", "y-protocols", "@hocuspocus/server", "@hocuspocus/extension-database"],
   turbopack: {
     root: __configDir,
   },

@@ -61,6 +61,14 @@ describe("libellés du module CRM", () => {
     for (const key of required) expect(reference, key).toContain(key);
   });
 
+  it("les libellés contact et sens des Interactions existent dans les 7 langues", () => {
+    for (const locale of LOCALES) {
+      for (const k of ["fields.interactions.contact", "fields.interactions.sens"]) {
+        expect(messages[locale][k], `${locale}.${k}`).toBeTruthy();
+      }
+    }
+  });
+
   it("aucune valeur vide ni identique à la clé", () => {
     for (const locale of LOCALES) {
       for (const [key, value] of Object.entries(messages[locale])) {

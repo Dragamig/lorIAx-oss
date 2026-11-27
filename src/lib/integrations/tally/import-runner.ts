@@ -282,7 +282,7 @@ export async function runImport(
         }
         attempted++;
         const body = submissionToWebhookBody(sub, page.questions, form);
-        const sample = { event: "webhook_inbound" as const, ...buildWebhookPayload(body) };
+        const sample = { event: "webhook_inbound" as const, ...buildWebhookPayload(body, automation.triggerConfig) };
         let steps: TraceStep[] | undefined;
         let ok = false;
         let runId: string | undefined;

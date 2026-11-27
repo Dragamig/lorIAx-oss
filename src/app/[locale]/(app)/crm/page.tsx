@@ -7,10 +7,10 @@ import { getSessionUser } from "@/lib/auth/get-user"
 import { isCrmOrgAdmin } from "@/lib/crm/access"
 import { isModuleActive } from "@/lib/modules/enablement"
 import { getModuleScopeOrgId } from "@/lib/modules/org-context"
-import { ConnectionScreen } from "@/components/crm/connection-screen"
+import { PipelineScreen } from "@/components/crm/pipeline/pipeline-screen"
 import { CrmDisabled } from "@/components/crm/crm-disabled"
 
-/** Au lot 6, /crm affiche l'écran Raccordement (le Pipeline du lot 7 le remplacera). */
+/** /crm affiche le Pipeline ; le Raccordement vit à /crm/raccordement. */
 export default async function CrmPage() {
   const orgId = await getModuleScopeOrgId()
   if (!orgId || !(await isModuleActive("crm", orgId))) notFound()
@@ -33,5 +33,5 @@ export default async function CrmPage() {
     const isAdmin = await isCrmOrgAdmin(user, orgId)
     return <CrmDisabled organisationName={organisationName} isAdmin={isAdmin} />
   }
-  return <ConnectionScreen organisation={organisationName} />
+  return <PipelineScreen />
 }

@@ -54,6 +54,7 @@ export interface DesignContextValue {
     dpi: number,
     opts: { transparent: boolean }
   ) => Promise<void>;
+  handleSaveToLibrary: (dpi: number, opts: { transparent: boolean }) => Promise<void>;
   handleSaveAsTemplate: () => Promise<void>;
   handlePanelDividerMouseDown: (e: React.MouseEvent) => void;
 

@@ -1,6 +1,7 @@
 import { purgeExpiredTrash, type PurgeReport } from "@/lib/media/purge";
 import { notifyTrashNearPurge } from "@/lib/media/notify";
 import { trashStaleDesignThumbnails } from "@/lib/media/stale-thumbnails";
+import { abortStaleMultipartUploads } from "@/lib/media/multipart";
 import logger from "@/lib/logger";
 
 /** Planification coupée par MEDIA_PURGE_DISABLED=1 ou, comme le balayage d'usages, MEDIA_USAGE_SWEEP=off. */
@@ -10,14 +11,15 @@ export function isMediaPurgeDisabled(): boolean {
   return off === "1" || off === "true" || sweep === "off";
 }
 
-export type MediaPurgeRun = PurgeReport & { notified: number; thumbnailsTrashed: number };
+export type MediaPurgeRun = PurgeReport & { notified: number; thumbnailsTrashed: number; multipartAborted: number };
 
-/** Corbeille des miniatures de design sans usage depuis 7 jours, purge des médias échus, puis notification. */
+/** Corbeille des miniatures de design sans usage depuis 7 jours, purge des médias échus, envois multipart abandonnés, puis notification. */
 export async function runMediaPurge(now: Date = new Date()): Promise<MediaPurgeRun> {
   const { trashed } = await trashStaleDesignThumbnails(now);
   const report = await purgeExpiredTrash({ now });
+  const { aborted, orphans } = await abortStaleMultipartUploads(now);
   const { notified } = await notifyTrashNearPurge(now);
-  return { ...report, notified, thumbnailsTrashed: trashed };
+  return { ...report, notified, thumbnailsTrashed: trashed, multipartAborted: aborted + orphans };
 }
 
 let running = false;

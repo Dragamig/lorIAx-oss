@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { authenticateApiRequest } from "@/lib/api/auth-api";
 import { apiUserToSessionUser, requireMediaScope } from "@/lib/api/media-user";
-import { getMediaTagLabels, loadReadableMedia, toV1Media } from "@/lib/api/v1-media";
+import { countMediaVersions, getMediaTagLabels, loadReadableMedia, toV1Media } from "@/lib/api/v1-media";
 
 /** GET /api/v1/media/<id> : métadonnées d'un média. Portée `media:read`. */
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -16,9 +16,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const found = await loadReadableMedia(user, auth.user.orgId, id);
   if (!found.ok) return found.res;
 
-  const tags = await getMediaTagLabels(found.row.id);
+  const [tags, versionCount] = await Promise.all([
+    getMediaTagLabels(found.row.id),
+    countMediaVersions(found.row.id),
+  ]);
   return NextResponse.json(
-    { success: true, data: toV1Media(found.row, tags) },
+    { success: true, data: { ...toV1Media(found.row, tags), currentVersion: found.row.currentVersion, versionCount } },
     { headers: { "Cache-Control": "private, no-store" } }
   );
 }

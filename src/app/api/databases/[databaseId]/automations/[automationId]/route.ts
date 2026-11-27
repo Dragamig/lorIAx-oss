@@ -8,6 +8,8 @@ import { getSetting } from "@/lib/settings/system-settings";
 import { validateGraph, type AutomationGraph } from "@/lib/automations/automation-graph";
 import { validateActionConfig } from "@/lib/automations/actions/registry";
 import { resolvePatchedTriggerConfig } from "@/lib/automations/webhook-inbound";
+import { activationRequiresTallyForm } from "@/lib/automations/tally-activation-guard";
+import { tallyFormRequiredResponse } from "@/lib/automations/tally-activation-response";
 import { validateValueChangedConfig } from "@/lib/automations/value-changed";
 import { z } from "zod";
 
@@ -81,6 +83,9 @@ export async function PATCH(request: Request, { params }: RouteParams) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
   }
+
+  // Activation d'un automatisme Tally sans formulaire choisi : refusée.
+  if (activationRequiresTallyForm(existing, parsed.data)) return tallyFormRequiredResponse();
 
   // Kill-switch global : si désactivé, refuser la modification (cohérent avec POST).
   // Sans ce contrôle, un automation_manager pouvait pivoter l'URL webhook ou

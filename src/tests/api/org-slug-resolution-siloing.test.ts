@@ -139,7 +139,10 @@ vi.mock("@/lib/ai/embeddings", () => ({
 }));
 vi.mock("@/lib/ai/rerank", () => ({ rerankCandidates: vi.fn(async (_q, items) => items) }));
 vi.mock("@/lib/logger", () => ({
-  default: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
+  default: (() => {
+    const l = { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() };
+    return { ...l, child: () => l };
+  })(),
 }));
 
 import { GET as spacesGet, POST as spacesPost } from "@/app/api/spaces/route";

@@ -42,7 +42,7 @@ export function buildBindingPayload(
   return out;
 }
 
-const RESERVED_PREFIXES = ["cells.", "variables.", "user.", "space.", "doc."];
+const RESERVED_PREFIXES = ["cells.", "variables.", "user.", "space.", "doc.", "media."];
 const RESERVED_KEYS = new Set(["rowId", "databaseId", "event"]);
 
 export function extractTemplateVariables(content: unknown): TemplateVariable[] {

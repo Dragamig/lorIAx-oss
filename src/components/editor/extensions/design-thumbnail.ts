@@ -1,3 +1,5 @@
+import { dataUrlToBlob } from "./design-export"
+
 const MEDIA_URL = /^\/api\/media\/[0-9a-f-]{36}$/i
 
 /**
@@ -22,7 +24,7 @@ export async function uploadDesignThumbnail(dataUrl: string, spaceId?: string | 
   if (!dataUrl.startsWith("data:image/")) return null
   if (lastUploaded?.data === dataUrl) return lastUploaded.url
   try {
-    const blob = await (await fetch(dataUrl)).blob()
+    const blob = dataUrlToBlob(dataUrl)
     const ext = blob.type === "image/png" ? "png" : "jpg"
     const fd = new FormData()
     fd.append("file", new File([blob], `miniature-design.${ext}`, { type: blob.type }))

@@ -1,4 +1,4 @@
-# User Stories — LorIAx
+# User Stories : LorIAx
 
 ## Epic 1 : Authentification et gestion des utilisateurs
 
@@ -600,8 +600,8 @@
 **En tant qu'** éditeur, **je veux** insérer un mini-calendrier ou un événement inline dans un document, **afin de** contextualiser la planification dans mes notes.
 
 **Critères d'acceptation :**
-- Bloc calendrier via `/calendrier` — configurable (calendriers, vue, plage)
-- Événement inline via `/événement` — titre + date, tooltip avec détails
+- Bloc calendrier via `/calendrier`, configurable (calendriers, vue, plage)
+- Événement inline via `/événement`, titre + date, tooltip avec détails
 - Notifications calendrier (rappels, invitations) in-app et par email
 
 **Statut : fait**
@@ -666,8 +666,8 @@
 **En tant qu'** administrateur d'espace ou auteur de document, **je veux** choisir la densité verticale de l'éditeur (compact, normal, aéré), **afin d'** adapter l'expérience de lecture et d'écriture à chaque usage.
 
 **Critères d'acceptation :**
-- Paramètre `editorPaddingY` dans le preset d'apparence de l'espace (Compact / Normal / Aéré) — visible dans les paramètres si un preset est actif
-- Bouton « Mise en page » dans le header du document — popover avec les 3 options, persisté en BDD (`properties JSONB`)
+- Paramètre `editorPaddingY` dans le preset d'apparence de l'espace (Compact / Normal / Aéré), visible dans les paramètres si un preset est actif
+- Bouton « Mise en page » dans le header du document, popover avec les 3 options, persisté en BDD (`properties JSONB`)
 - Cascade de priorité : document > espace > défaut CSS (2rem)
 - L'override du document est appliqué via CSS variable sans rechargement
 
@@ -684,7 +684,7 @@
 - Document LorIAx créé automatiquement dans l'espace de la réunion
 - Transcript complet disponible en annexe du document
 - Lien direct vers le compte-rendu depuis le bloc réunion et la page `/meet`
-- 100 % auto-hébergé — aucune donnée ne quitte l'infrastructure
+- 100 % auto-hébergé, aucune donnée ne quitte l'infrastructure
 
 **Statut : planifié**
 
@@ -739,7 +739,7 @@
 - Validation : créneau dans les horaires d'ouverture, hors jours fériés, sans chevauchement
 - Anti-chevauchement garanti par contrainte PostgreSQL `EXCLUDE USING gist` (pas de race condition)
 - Réservation confirmée immédiatement si l'utilisateur est autorisé (auto-validée)
-- En cas de conflit : message d'erreur explicite (409 — créneau déjà réservé)
+- En cas de conflit : message d'erreur explicite (409, créneau déjà réservé)
 - Annulation possible par l'auteur, un admin ou un facility_manager
 
 **Statut : implémenté (Sprint 92)**
@@ -855,7 +855,7 @@
 **En tant qu'** éditeur, **je veux** téléverser des images depuis mon poste et les retrouver dans la bibliothèque de mon espace, **afin de** les réutiliser facilement dans mes créations Studio.
 
 **Critères d'acceptation :**
-- Onglet "Téléverser" dans le panneau Images du Studio : sélection de fichier ou glisser-déposer (JPG, PNG, WebP, GIF, SVG — 10 Mo max)
+- Onglet "Téléverser" dans le panneau Images du Studio : sélection de fichier ou glisser-déposer (JPG, PNG, WebP, GIF, SVG, 10 Mo max)
 - Onglet "Bibliothèque" : grille de miniatures des images de l'espace + images org-partagées
 - Clic sur une miniature insère l'image sur le canvas (redimensionnée à 60 % de la largeur)
 - Renommage de l'image depuis la bibliothèque
@@ -1057,7 +1057,7 @@
 
 **Statut : implémenté (Sprint 101)**
 
-## US-26 — Apparence personnalisée avancée
+## US-26 : Apparence personnalisée avancée
 
 ### US-26.1 : Activer un preset d'apparence Terminal (CRT phosphore)
 **En tant qu'** utilisateur, **je veux** pouvoir activer un thème visuel rétro-futuriste "Terminal", **afin de** personnaliser l'interface selon mes préférences esthétiques.
@@ -1077,12 +1077,12 @@
 **Critères d'acceptation :**
 - Toggle pour activer/désactiver l'effet de glitch (micro-distorsions périodiques)
 - Toggle pour activer/désactiver le scan vertical (faisceau animé simulant le balayage CRT)
-- Slider pour régler l'intensité des lignes de scan (0–100 %)
+- Slider pour régler l'intensité des lignes de scan (0 à 100 %)
 - Les changements sont appliqués en temps réel sans rechargement
 
 **Statut : implémenté (Sprint 108)**
 
-## US-27 — Alias des commandes slash personnalisables
+## US-27 : Alias des commandes slash personnalisables
 
 ### US-27.1 : Personnaliser les alias d'une commande slash
 **En tant qu'** administrateur, **je veux** ajouter ou supprimer des alias pour chaque commande slash de l'éditeur, **afin de** les adapter au vocabulaire de mon organisation et réduire les incompréhensions des utilisateurs.
@@ -1107,7 +1107,7 @@
 
 **Statut : implémenté (Sprint 113)**
 
-## US-28 — Banques d'images multi-fournisseurs dans l'éditeur
+## US-28 : Banques d'images multi-fournisseurs dans l'éditeur
 
 ### US-28.1 : Insérer une image depuis l'éditeur via un panneau unifié
 **En tant qu'** auteur, **je veux** insérer une image dans mon document via la commande `/image`, avec le choix entre un fichier local, une URL ou une banque d'images, **afin de** trouver rapidement le bon visuel sans quitter l'éditeur.
@@ -1135,60 +1135,9 @@
 **Statut : implémenté (Sprint 114)**
 
 
-## US-29 — Éditeur vidéo/son intégré
+## Epic 27 : Espace Bases : Tableur Airtable-like standalone
 
-### US-29.1 : Créer et monter une vidéo sans quitter l'espace de travail
-**En tant qu'** auteur, **je veux** monter une vidéo directement depuis LorIAx, **afin de** produire du contenu vidéo sans outil externe ni export/import de fichiers.
-
-**Critères d'acceptation :**
-- La sidebar propose une entrée « Vidéo » (icône Clapperboard)
-- La page liste les projets vidéo avec bouton « Nouveau projet »
-- L'éditeur plein-écran affiche : médiathèque à gauche, preview au centre, timeline en bas
-- Les clips se glissent depuis la médiathèque vers la timeline (drag & drop)
-- Le player HTML5 se synchronise avec la tête de lecture de la timeline
-
-**Statut : implémenté (Sprint 115)**
-
-### US-29.2 : Importer des vidéos et des stocks Pexels
-**En tant qu'** auteur, **je veux** importer mes propres vidéos ou rechercher des clips Pexels gratuits, **afin d'** enrichir mon montage avec des ressources libres.
-
-**Critères d'acceptation :**
-- Upload de fichiers vidéo/audio (mp4, mov, webm, avi, mkv, mp3, wav, aac, ogg) directement vers S3 via URL signée
-- Recherche Pexels Vidéo depuis la médiathèque (onglet « Stock Pexels »)
-- Téléchargement Pexels côté serveur → stocké en S3 (pas de re-upload client)
-- Les clips téléchargés apparaissent immédiatement dans la médiathèque
-
-**Statut : implémenté (Sprint 115)**
-
-### US-29.3 : Exporter la vidéo montée en MP4
-**En tant qu'** auteur, **je veux** exporter mon montage en MP4 720p ou 1080p, **afin de** partager la vidéo finale.
-
-**Critères d'acceptation :**
-- Le panneau « Exporter » propose le choix de résolution (720p / 1080p)
-- L'export déclenche un job serveur (`fluent-ffmpeg`) avec statut affiché (En cours / Prêt / Erreur)
-- Un lien de téléchargement apparaît quand le job est terminé
-- Le polling s'arrête automatiquement après 5 erreurs consécutives
-
-**Statut : implémenté (Sprint 115)**
-
-### US-30.1 : Insérer un projet de montage vidéo dans un document
-**En tant qu'** auteur, **je veux** taper `/montage` ou `/video` dans l'éditeur pour insérer un bloc vidéo lié à un projet, **afin de** référencer mon travail de montage directement dans le document de contexte.
-
-**Critères d'acceptation :**
-- La commande `/montage` (alias : `/video`, `/film`, `/clip`) apparaît dans le menu slash
-- Un bloc carte est inséré avec le titre éditable « Nouveau montage »
-- Le projet vidéo est créé automatiquement via POST `/api/video/projects` au premier rendu
-- Le bouton « Ouvrir l'éditeur » ouvre `/video-editor/[id]` dans un nouvel onglet
-- Le titre du bloc se synchronise avec `updateAttributes` (persisté dans Yjs)
-- Le bloc est draggable et supprimable comme les autres blocs éditeur
-
-**Statut : implémenté (Sprint 117)**
-
----
-
-## Epic 27 : Espace Bases — Tableur Airtable-like standalone
-
-### US-32 — Gérer mes bases dans une section dédiée
+### US-32 : Gérer mes bases dans une section dédiée
 
 **En tant que** chef de projet
 **Je veux** une section `/bases` séparée de l'éditeur de documents
@@ -1200,9 +1149,9 @@
 - Boutons de création : nouvelle base, nouveau groupe, création IA
 - Cliquer sur une base navigue vers sa vue par défaut
 
-**Statut : ✅ livré — v1.23.0 (Phase 2)**
+**Statut : ✅ livré, v1.23.0 (Phase 2)**
 
-### US-33 — Persister filtres, tris et widgets par vue
+### US-33 : Persister filtres, tris et widgets par vue
 
 **En tant qu'** utilisateur
 **Je veux** créer plusieurs vues de la même table (ex. grid pour saisir, kanban pour suivre, dashboard pour reporter)
@@ -1213,9 +1162,9 @@
 - Bouton + pour créer une nouvelle vue (choix du type)
 - Les vues sont persistées en BDD (`user_database_views`) avec leur config JSONB versionnée
 
-**Statut : ✅ livré — v1.23.0 (Phase 1+2)** — backlog : application des filtres/tris à la requête (Phase 2.5)
+**Statut : ✅ livré, v1.23.0 (Phase 1+2)**, backlog : application des filtres/tris à la requête (Phase 2.5)
 
-### US-34 — Visualiser mes données dans un dashboard
+### US-34 : Visualiser mes données dans un dashboard
 
 **En tant que** manager
 **Je veux** une vue dashboard avec des indicateurs et graphiques sur ma base
@@ -1226,9 +1175,9 @@
 - Édition inline du type de widget, agg, colonne, groupé par
 - Persistance immédiate de la config dans `view.config.widgets[]`
 
-**Statut : ✅ livré — v1.23.0 (Phase 3)**
+**Statut : ✅ livré, v1.23.0 (Phase 3)**
 
-### US-35 — Visualiser mes données dans un calendrier
+### US-35 : Visualiser mes données dans un calendrier
 
 **En tant que** chef de projet
 **Je veux** afficher ma base comme un calendrier mensuel
@@ -1239,9 +1188,9 @@
 - Sélecteur de colonne date et de colonne titre (si plusieurs candidates)
 - Empty state si aucune colonne date
 
-**Statut : ✅ livré — v1.23.0 (Phase 4)** — backlog : drag-drop d'évènement (4.5)
+**Statut : ✅ livré, v1.23.0 (Phase 4)**, backlog : drag-drop d'évènement (4.5)
 
-### US-36 — Collecter des soumissions via un formulaire public
+### US-36 : Collecter des soumissions via un formulaire public
 
 **En tant qu'** organisateur
 **Je veux** générer un lien public vers un formulaire qui alimente ma base
@@ -1253,9 +1202,9 @@
 - Honey-pot anti-bot + rate-limit IP+token (10/heure)
 - Soumissions créent une row, déclenchent les automations `row_created`
 
-**Statut : ✅ livré — v1.23.0 (Phase 6)** — backlog : captcha hCaptcha (6.5)
+**Statut : ✅ livré, v1.23.0 (Phase 6)**, backlog : captcha hCaptcha (6.5)
 
-### US-37 — Automatiser des actions sur changement de données
+### US-37 : Automatiser des actions sur changement de données
 
 **En tant que** chef d'équipe
 **Je veux** déclencher un webhook à chaque création/modification de ligne (ou en cron)
@@ -1269,9 +1218,9 @@
 - Logs d'exécution paginés (`user_database_automation_runs`)
 - Cron multi-pod safe via `pg_try_advisory_lock`
 
-**Statut : ✅ livré — v1.23.0 (Phase 5)** — backlog : UI éditeur visuel, démarrage tickCron, actions create_row/update_row (5.5)
+**Statut : ✅ livré, v1.23.0 (Phase 5)**, backlog : UI éditeur visuel, démarrage tickCron, actions create_row/update_row (5.5)
 
-### US-38 — Exporter ma base au format tableur
+### US-38 : Exporter ma base au format tableur
 
 **En tant qu'** utilisateur
 **Je veux** télécharger ma base au format CSV ou Excel
@@ -1284,9 +1233,9 @@
 - Limite 100 000 lignes (413 au-delà avec message clair)
 - ODS reporté (XLSX s'ouvre nativement dans LibreOffice Calc)
 
-**Statut : ✅ livré — v1.23.0 (Phase 3+)** — backlog : ODS via SheetJS, export streaming, filtres de vue appliqués (3++)
+**Statut : ✅ livré, v1.23.0 (Phase 3+)**, backlog : ODS via SheetJS, export streaming, filtres de vue appliqués (3++)
 
-### US-39 — Créer une base via une description en langage naturel (option luxe)
+### US-39 : Créer une base via une description en langage naturel (option luxe)
 
 **En tant qu'** utilisateur non technique
 **Je veux** décrire la base que je veux et que l'IA me propose un schéma
@@ -1299,9 +1248,9 @@
 - Conditionnel à un provider IA configuré (sinon 503 avec message clair)
 - Schéma Zod strict côté serveur (max 20 colonnes, types restreints)
 
-**Statut : ✅ livré — v1.23.0 (Phase 7)** — backlog : quotas Free 10/jour, audit log
+**Statut : ✅ livré, v1.23.0 (Phase 7)**, backlog : quotas Free 10/jour, audit log
 
-### US-40 — Demander à l'IA d'écrire une formule (option luxe)
+### US-40 : Demander à l'IA d'écrire une formule (option luxe)
 
 **En tant qu'** utilisateur
 **Je veux** décrire ce que je veux calculer et obtenir une formule prête à l'emploi
@@ -1314,9 +1263,9 @@
 - Liste des colonnes de la base injectée dans le prompt (noms+types, JAMAIS valeurs)
 - Boutons « Affiner » et « Utiliser cette formule »
 
-**Statut : ✅ livré — v1.23.0 (Phase 8)** — backlog : preview live sur une ligne, câblage dans le bloc inline, quotas Free 50/jour
+**Statut : ✅ livré, v1.23.0 (Phase 8)**, backlog : preview live sur une ligne, câblage dans le bloc inline, quotas Free 50/jour
 
-### US-41 — Gérer la charte graphique de mon organisation (Brand Kit)
+### US-41 : Gérer la charte graphique de mon organisation (Brand Kit)
 
 **En tant qu'** administrateur d'une organisation
 **Je veux** définir les couleurs, logos et polices officiels de mon organisation
@@ -1329,9 +1278,9 @@
 - Les membres sans droits voient le Brand Kit en lecture seule
 - Validation des URLs de logos côté serveur (protocoles dangereux rejetés)
 
-**Statut : ✅ livré — v1.69.0**
+**Statut : ✅ livré, v1.69.0**
 
-### US-42 — Utiliser la charte graphique dans le Studio de design
+### US-42 : Utiliser la charte graphique dans le Studio de design
 
 **En tant qu'** utilisateur du Studio de design
 **Je veux** accéder aux couleurs, logos et polices de mon organisation depuis le panneau Marque
@@ -1344,7 +1293,7 @@
 - Clic sur une police → applique la famille à l'objet texte actif
 - Exporter en PNG transparent, SVG ou PDF multi-pages depuis le menu Exporter
 
-**Statut : ✅ livré — v1.69.0**
+**Statut : ✅ livré, v1.69.0**
 
 ### US-43 : Construire une automatisation dans un builder visuel
 

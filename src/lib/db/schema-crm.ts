@@ -27,6 +27,8 @@ export const crmConnections = pgTable("crm_connections", {
     onDelete: "set null",
   }),
   createdDatabaseIds: jsonb("created_database_ids").$type<string[]>().notNull().default([]),
+  /** Clés des automatismes d'exemple déjà créés : un exemple supprimé ne revient jamais. */
+  createdAutomationKeys: jsonb("created_automation_keys").$type<string[]>().notNull().default([]),
   fieldMap: jsonb("field_map").$type<CrmFieldMap>().notNull().default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

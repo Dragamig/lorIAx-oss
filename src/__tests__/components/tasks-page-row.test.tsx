@@ -65,7 +65,9 @@ describe("Mes tâches, tâches de ligne", () => {
   it("les tâches de document gardent leur rendu", async () => {
     mount([task({ id: "d1", documentTitle: "Mon doc", documentUrl: "/s/x/d1" })]);
     await waitFor(() => expect(screen.getByText("Mon doc")).toBeTruthy());
-    expect(screen.getByRole("link").getAttribute("href")).toBe("/s/x/d1");
+    const links = screen.getAllByRole("link");
+    expect(links.length).toBeGreaterThan(0);
+    for (const l of links) expect(l.getAttribute("href")).toBe("/s/x/d1");
     expect(screen.queryByText("Fiche")).toBeNull();
   });
 });
