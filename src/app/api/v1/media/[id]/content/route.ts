@@ -2,6 +2,7 @@ import { authenticateApiRequest } from "@/lib/api/auth-api";
 import { apiUserToSessionUser, requireMediaScope } from "@/lib/api/media-user";
 import { loadReadableMedia } from "@/lib/api/v1-media";
 import { serveMediaObject } from "@/lib/media/serve";
+import { contentEtagSeed } from "@/lib/media/etag";
 
 /**
  * GET /api/v1/media/<id>/content : octets du média (Range, ETag). Portée `media:read`.
@@ -26,7 +27,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     key: row.storageKey,
     mime: row.mimeType,
     filename: row.filename,
-    etagSeed: `${row.id}-${row.updatedAt.getTime()}`,
+    etagSeed: contentEtagSeed(row),
     inline: true,
     maxAgeSeconds: 0,
     revalidate: true,

@@ -16,6 +16,9 @@ import dynamic from "next/dynamic";
 import { createPortal } from "react-dom";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { Loader2 } from "lucide-react";
+import { toast } from "sonner";
+import { useTranslations } from "next-intl";
+import { collectMediaIds } from "./design-canvas/collect-media-ids";
 import { useBlockLock } from "@/hooks/use-block-lock";
 import type { DesignDocument } from "./design-canvas";
 import { uploadDesignThumbnail } from "./design-thumbnail";
@@ -92,6 +95,7 @@ export function DesignModal({
   onClose,
   updateAttributes,
 }: DesignModalProps) {
+  const t = useTranslations("designCanvas");
   const [mounted, setMounted] = useState(false);
   const [canvasJson, setCanvasJson] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
@@ -187,17 +191,34 @@ export function DesignModal({
   // Sauvegarder en S3 via PUT + mettre à jour thumbnailUrl dans le bloc
   const handleSave = useCallback(
     async (doc: DesignDocument, thumbnail: string) => {
-      await fetch(withDoc(`/api/designs/${designId}`, documentId), {
+      const saved = await fetch(withDoc(`/api/designs/${designId}`, documentId), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(doc),
-      }).catch(() => {});
+      }).catch(() => null);
+      // Usages `explicit` : le serveur ne peut pas lire le design (S3). Un échec ne bloque pas la sauvegarde.
+      if (saved?.ok) {
+        const spaceId =
+          (window as typeof window & { __loriax_spaceId?: string }).__loriax_spaceId ?? null;
+        const synced = await fetch("/api/media/usages/explicit", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            targetType: "design",
+            targetId: designId,
+            documentId: documentId ?? null,
+            spaceId,
+            mediaIds: collectMediaIds(doc),
+          }),
+        }).catch(() => null);
+        if (!synced?.ok) toast.error(t("usageSyncFailed"));
+      }
       // Ne jamais effacer un aperçu valide : si la génération de miniature a
       // échoué (canvas taché, etc.), `thumbnail` est vide → on garde l'ancien.
       // La miniature n'est envoyée qu'à la fermeture (voir flushThumbnail).
       if (thumbnail) latestThumbRef.current = thumbnail;
     },
-    [designId, documentId]
+    [designId, documentId, t]
   );
 
   if (!mounted) return null;

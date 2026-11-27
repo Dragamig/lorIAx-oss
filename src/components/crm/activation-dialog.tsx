@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ChevronDown, ChevronRight, Folder } from "lucide-react";
+import { AlertTriangle, Check, ChevronRight, Folder } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 import { useRouter } from "@/i18n/routing";
@@ -16,6 +16,7 @@ import { buildOrgUrl } from "@/lib/org/org-url";
 import { cn } from "@/lib/utils";
 import { ActivationProgress } from "./activation-progress";
 import { ActivationUndoToast } from "./activation-undo-toast";
+import { saveActivationHandoff } from "./activation-handoff";
 import { ActivationRecap } from "./activation-recap";
 import { ActivationRoleTile, ActivationTileSkeleton, addedColumns } from "./activation-role-tile";
 import {
@@ -60,7 +61,8 @@ export function ActivationDialog({ open, onOpenChange, onDone }: ActivationDialo
   const { org } = useOrganization();
   const [load, setLoad] = useState<Load>({ state: "loading" });
   const [state, setState] = useState<ActivationState | null>(null);
-  const [expanded, setExpanded] = useState(false);
+  const [step, setStep] = useState<1 | 2>(1);
+  const bodyRef = useRef<HTMLDivElement>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [notices, setNotices] = useState<Partial<Record<CrmRole, string>>>({});
@@ -85,7 +87,7 @@ export function ActivationDialog({ open, onOpenChange, onDone }: ActivationDialo
 
   useEffect(() => {
     if (!open) return;
-    setExpanded(false);
+    setStep(1);
     setSubmitError(null);
     setNotices({});
     setSwitching(false);
@@ -149,6 +151,8 @@ export function ActivationDialog({ open, onOpenChange, onDone }: ActivationDialo
       fail(t("activation.errors.generic"));
       return;
     }
+    // Le message de collision s'affiche sur la tuile du rôle, à l'étape Analyse.
+    setStep(1);
     const adopted = adoptCollision(state, role, preview) ?? adoptByName(state, role, preview);
     if (adopted) {
       const message = t("activation.errors.nameCollision", { role: t(`roles.${role}.label`) });
@@ -175,7 +179,7 @@ export function ActivationDialog({ open, onOpenChange, onDone }: ActivationDialo
       fail(t("activation.errors.generic"));
       return;
     }
-    const data = (await res.json().catch(() => ({}))) as { reactivated?: boolean; code?: string; role?: CrmRole };
+    const data = (await res.json().catch(() => ({}))) as { automationsCreated?: string[]; automationsSkipped?: string[]; statusOptionsAdded?: string[]; reactivated?: boolean; code?: string; role?: CrmRole };
     if (!res.ok) {
       if (res.status === 409 && data.code === "name_collision") onNameCollision(data.role);
       else if (res.status === 404) fail(t("activation.errors.notFound"));
@@ -184,6 +188,7 @@ export function ActivationDialog({ open, onOpenChange, onDone }: ActivationDialo
       else fail(t("activation.errors.generic"));
       return;
     }
+    saveActivationHandoff({ created: data.automationsCreated, skipped: data.automationsSkipped, statusOptionsAdded: data.statusOptionsAdded });
     const created = !!state && CRM_ROLES.some((r) => state.roles[r].mode !== "connect");
     const message = t(
       data.reactivated ? "activation.toast.reactivated" : created ? "activation.toast.activatedCompleted" : "activation.toast.activated",
@@ -261,6 +266,13 @@ export function ActivationDialog({ open, onOpenChange, onDone }: ActivationDialo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, preview, t]);
 
+  function goTo(next: 1 | 2) {
+    setStep(next);
+    setSubmitError(null);
+    // Le bouton cliqué disparaît avec l'étape : le focus passe à la zone de contenu.
+    window.setTimeout(() => bodyRef.current?.focus(), 0);
+  }
+
   function setMode(role: CrmRole, mode: RoleMode) {
     setState((s) => (s && preview ? withMode(s, preview, role, mode) : s));
   }
@@ -305,29 +317,77 @@ export function ActivationDialog({ open, onOpenChange, onDone }: ActivationDialo
       : preview?.spaces.find((s) => s.id === state.spaceId)?.name ?? "";
   const orgAction = getCrmAction("activation.switchOrg");
   const OrgIcon = orgAction.icon;
-  const orgDisabled = !ready || switching || submitting || orgs.length < 2;
+  const recap = step === 2;
+  const orgDisabled = !ready || switching || submitting || recap || orgs.length < 2;
   const orgTip = switching
     ? t("activation.org.switching")
-    : ready && orgs.length < 2
+    : recap
+      ? t("activation.org.lockedRecapTip")
+      : ready && orgs.length < 2
       ? t("activation.org.none")
       : t(orgAction.tipKey as string);
-  const spaceDisabled = !ready || submitting || (!!state && isSpaceSelectorDisabled(state));
-  const spaceTip = !ready ? t("activation.space.pendingTip") : spaceDisabled && !submitting ? t("activation.space.disabledTip") : t("activation.space.tip");
+  const spaceDisabled = !ready || submitting || recap || (!!state && isSpaceSelectorDisabled(state));
+  const spaceTip = !ready ? t("activation.space.pendingTip") : recap ? t("activation.space.recapTip") : spaceDisabled && !submitting ? t("activation.space.disabledTip") : t("activation.space.tip");
   const anyCreate = !!state && !isSpaceSelectorDisabled(state);
 
   const counts = { connect: 0, complete: 0, create: 0 };
   if (state) for (const r of CRM_ROLES) counts[state.roles[r].mode]++;
-  const toggle = getCrmAction("activation.toggleRecap");
-  const ToggleIcon = expanded ? ChevronDown : ChevronRight;
+  const nextAction = getCrmAction("activation.next");
+  const backAction = getCrmAction("activation.back");
+  const nextBlock = switching
+    ? t("activation.org.switching")
+    : load.state === "loading"
+      ? t("activation.nextPendingTip")
+      : load.state === "error"
+        ? t("activation.nextErrorTip")
+        : confirmBlock;
+  const stepItems = [
+    { n: 1, label: t("activation.stepAnalysis") },
+    { n: 2, label: t("activation.stepSummary") },
+  ] as const;
 
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : close())}>
       <DialogContent showCloseButton={false} aria-describedby={undefined} className="max-h-[calc(100vh-2rem)] overflow-hidden sm:max-w-5xl">
-        <DialogHeader>
+        <DialogHeader className="flex-row flex-wrap items-center gap-x-3 gap-y-1">
           <DialogTitle>{t("activation.title")}</DialogTitle>
+          <ol aria-label={t("activation.stepsAria")} className="m-0 flex list-none items-center gap-2 p-0 text-xs text-muted-foreground">
+            {stepItems.map((item, i) => {
+              const current = step === item.n;
+              const done = step > item.n;
+              return (
+                <li key={item.n} className="contents">
+                  {i > 0 && <ChevronRight className="size-3.5" aria-hidden="true" />}
+                  <span
+                    aria-current={current ? "step" : undefined}
+                    className={cn("inline-flex items-center gap-1.5", current && "font-semibold text-foreground")}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={cn(
+                        "inline-flex size-5 items-center justify-center rounded-full border border-border text-[11px] font-bold",
+                        current && "border-primary bg-primary text-primary-foreground",
+                        done && "border-transparent bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-300",
+                      )}
+                    >
+                      {done ? <Check className="size-3" /> : item.n}
+                    </span>
+                    {item.label}
+                    {done && <span className="sr-only">{t("activation.stepDone")}</span>}
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
         </DialogHeader>
 
-        <div className="-mx-4 max-h-[calc(100vh-12rem)] space-y-3 overflow-auto px-4">
+        <div
+          ref={bodyRef}
+          tabIndex={-1}
+          role="region"
+          aria-label={t(step === 1 ? "activation.stepAnalysis" : "activation.stepSummary")}
+          className="-mx-4 max-h-[calc(100vh-12rem)] space-y-3 overflow-auto px-4 outline-none"
+        >
           <div className="grid gap-3 md:grid-cols-2">
             <div className="flex min-w-0 flex-col gap-1">
               <label htmlFor="crm-activation-org" className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
@@ -414,81 +474,93 @@ export function ActivationDialog({ open, onOpenChange, onDone }: ActivationDialo
             </div>
           )}
 
-          {preview && state && (
+          {preview && state && step === 1 && (
+            <fieldset disabled={submitting || switching} className="m-0 grid min-w-0 gap-3 border-0 p-0 md:grid-cols-3">
+              {CRM_ROLES.map((role) => (
+                <ActivationRoleTile
+                  key={role}
+                  role={role}
+                  state={state}
+                  preview={preview}
+                  spaceName={spaceName}
+                  onMode={setMode}
+                  onPick={pick}
+                  onAdopt={adopt}
+                  notice={notices[role]}
+                />
+              ))}
+            </fieldset>
+          )}
+
+          {preview && state && step === 2 && (
             <>
-              <fieldset disabled={submitting || switching} className="m-0 grid min-w-0 gap-3 border-0 p-0 md:grid-cols-3">
-                {CRM_ROLES.map((role) => (
-                  <ActivationRoleTile
-                    key={role}
-                    role={role}
-                    state={state}
-                    preview={preview}
-                    spaceName={spaceName}
-                    onMode={setMode}
-                    onPick={pick}
-                    onAdopt={adopt}
-                    notice={notices[role]}
-                  />
-                ))}
-              </fieldset>
+              {submitting && <ActivationProgress steps={steps} />}
+              {submitError && (
+                <div role="alert" className="flex items-start gap-2 rounded-xl border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+                  <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+                  <p className="min-w-0">
+                    <b>{t("activation.errors.createFailed")}</b> {submitError}
+                  </p>
+                </div>
+              )}
               <section aria-label={t("activation.recap.title")} className="space-y-2 rounded-xl border border-border p-3">
                 <div className="flex items-center gap-2">
                   <h3 className="text-sm font-semibold">{t("activation.recap.title")}</h3>
                   <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
                     {t("activation.recap.rolesSummary", counts)}
                   </span>
-                  <Tip label={t(toggle.tipKey as string)}>
-                    <button
-                      type="button"
-                      data-action="activation.toggleRecap"
-                      aria-expanded={expanded}
-                      aria-controls="crm-activation-recap"
-                      aria-label={t(expanded ? "activation.recap.hide" : "activation.recap.show")}
-                      onClick={() => setExpanded((v) => !v)}
-                      className={cn(
-                        "inline-flex min-h-6 min-w-6 items-center justify-center gap-1.5 rounded-md border border-border bg-background px-2 py-1 text-xs font-medium outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring",
-                      )}
-                    >
-                      <toggle.icon className="size-3.5" aria-hidden="true" />
-                      <ToggleIcon className="size-3.5" aria-hidden="true" />
-                      {t(expanded ? "activation.recap.hide" : "activation.recap.show")}
-                    </button>
-                  </Tip>
                 </div>
-                {expanded && (
-                  <div id="crm-activation-recap">
-                    <ActivationRecap state={state} preview={preview} orgName={orgName} spaceName={spaceName} />
-                  </div>
-                )}
+                <ActivationRecap state={state} preview={preview} orgName={orgName} spaceName={spaceName} />
               </section>
-              {submitting && <ActivationProgress steps={steps} />}
-              {submitError && (
-                <p role="alert" className="text-xs text-red-700 dark:text-destructive">
-                  {submitError}
-                </p>
-              )}
             </>
           )}
         </div>
 
         <DialogFooter>
-          <CrmActionButton
-            actionId="cancelActivation"
-            label={t(getCrmAction("cancelActivation").labelKey)}
-            tip={t("activation.cancelTip")}
-            ariaLabel={t("activation.closeAria")}
-            onClick={close}
-            disabledReason={submitting ? t("activation.progress.closeBlocked") : switching ? t("activation.org.switching") : undefined}
-          />
-          {ready && (
-            <CrmActionButton
-              actionId="activation.confirm"
-              label={submitting ? t("activation.confirming") : t(getCrmAction("activation.confirm").labelKey)}
-              tip={t(getCrmAction("activation.confirm").tipKey as string)}
-              ariaLabel={t("activation.confirm")}
-              onClick={() => void confirm()}
-              disabledReason={submitting ? t("activation.confirming") : switching ? t("activation.org.switching") : confirmBlock}
-            />
+          {step === 1 ? (
+            <>
+              <CrmActionButton
+                actionId="cancelActivation"
+                label={t(getCrmAction("cancelActivation").labelKey)}
+                tip={t("activation.cancelTip")}
+                ariaLabel={t("activation.closeAria")}
+                onClick={close}
+                disabledReason={submitting ? t("activation.progress.closeBlocked") : switching ? t("activation.org.switching") : undefined}
+              />
+              <CrmActionButton
+                actionId="activation.next"
+                label={t(nextAction.labelKey)}
+                tip={t(nextAction.tipKey as string)}
+                ariaLabel={t(nextAction.labelKey)}
+                onClick={() => goTo(2)}
+                disabledReason={nextBlock}
+              />
+            </>
+          ) : (
+            <>
+              <CrmActionButton
+                actionId="activation.back"
+                label={t(backAction.labelKey)}
+                tip={t(backAction.tipKey as string)}
+                ariaLabel={t(backAction.labelKey)}
+                onClick={() => goTo(1)}
+                disabledReason={submitting ? t("activation.progress.backBlocked") : switching ? t("activation.org.switching") : undefined}
+              />
+              <CrmActionButton
+                actionId="activation.confirm"
+                label={
+                  submitting
+                    ? t("activation.confirming")
+                    : submitError
+                      ? t("activation.errors.retry")
+                      : t(getCrmAction("activation.confirm").labelKey)
+                }
+                tip={submitError ? t("activation.errors.retryTip") : t(getCrmAction("activation.confirm").tipKey as string)}
+                ariaLabel={submitError && !submitting ? t("activation.errors.retry") : t("activation.confirm")}
+                onClick={() => void confirm()}
+                disabledReason={submitting ? t("activation.confirming") : switching ? t("activation.org.switching") : confirmBlock}
+              />
+            </>
           )}
         </DialogFooter>
       </DialogContent>

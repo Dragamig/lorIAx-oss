@@ -36,6 +36,19 @@ export function useBatchToast(queue: UploadQueue, onMutated?: () => void, onUndo
     const reported = reportedRef.current
     const unsubscribe = queue.subscribe(() => {
       const items = queue.snapshot()
+      // Envoi par parts interrompu ou refusé : un toast d'erreur, une seule fois.
+      for (const i of items) {
+        if (i.large && i.status === "error" && i.error && !reported.has(`err:${i.id}`)) {
+          reported.add(`err:${i.id}`)
+          toast.error(
+            i.error.kind === "interrupted"
+              ? t("upload.large.toastInterrupted", { name: i.name })
+              : i.error.kind === "too_large"
+                ? t("upload.errors.too_large", { limit: String(i.error.limitMb ?? 200) })
+                : t(`upload.errors.${i.error.kind}`, { ext: i.error.ext ?? "" }),
+          )
+        } else if (i.status !== "error") reported.delete(`err:${i.id}`)
+      }
       const busy = items.some((i) => BUSY.has(i.status))
       if (!busy) {
         const added = items.filter((i) => i.status === "done" && i.mediaId && !reported.has(i.id))

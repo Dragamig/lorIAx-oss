@@ -98,4 +98,17 @@ describe("useLibraryFilters", () => {
     expect(last).toContain("kind=pdf")
     expect(last).toContain("sort=filename")
   })
+
+  it("applyQuery remplace les filtres par ceux de la vue et écrit l'URL", () => {
+    search = "kind=pdf&q=ancien"
+    const { result } = renderHook(() => useLibraryFilters())
+    act(() => result.current.applyQuery("kind=image&sort=filename"))
+    expect(replace).toHaveBeenCalledWith("/mediatheque?kind=image&sort=filename")
+  })
+
+  it("applyQuery tolère un paramètre périmé", () => {
+    const { result } = renderHook(() => useLibraryFilters())
+    act(() => result.current.applyQuery("kind=image&sort=nimportequoi&cursor=zzz"))
+    expect(replace).toHaveBeenCalledWith("/mediatheque?kind=image")
+  })
 })

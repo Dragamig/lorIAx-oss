@@ -1,6 +1,6 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { media, type Media, type NewMedia } from "@/lib/db/schema";
+import { media, mediaVersions, type Media, type NewMedia } from "@/lib/db/schema";
 import { checkUploadQuota, type DbTx, type QuotaVerdict } from "./quota";
 
 export type ReserveInput = {
@@ -13,6 +13,10 @@ export type ReserveInput = {
    * ligne à jour au lieu d'insérer. Le quota compte alors la différence de taille.
    */
   replaceExisting?: boolean;
+  /** Envoi multipart en finalisation : sa réservation ne compte pas deux fois. */
+  excludeUploadId?: string;
+  /** Appelé dans la transaction, après l'insertion (ex. clore l'envoi multipart). */
+  afterInsert?: (tx: DbTx, row: Media) => Promise<void>;
 };
 
 export type ReserveResult =
@@ -25,7 +29,7 @@ export type ReserveResult =
     }
   | { ok: false; status: 507; error: string; quota: QuotaVerdict };
 
-function lockOrgQuota(tx: DbTx, orgId: string) {
+export function lockOrgQuota(tx: DbTx, orgId: string) {
   return tx.execute(sql`select pg_advisory_xact_lock(hashtext(${"media-quota:" + orgId}))`);
 }
 
@@ -44,6 +48,10 @@ export async function restoreMediaRow(previous: Media): Promise<void> {
         updatedAt: previous.updatedAt,
       })
       .where(eq(media.id, previous.id));
+    await tx
+      .update(mediaVersions)
+      .set({ sizeBytes: previous.sizeBytes, checksumSha256: previous.checksumSha256 })
+      .where(and(eq(mediaVersions.mediaId, previous.id), eq(mediaVersions.version, previous.currentVersion)));
   });
 }
 
@@ -68,9 +76,34 @@ export async function reserveMediaRow(input: ReserveInput): Promise<ReserveResul
       }
     }
 
+    // La clé n'est plus celle d'un média courant : ancienne version d'un média remplacé.
+    // On réécrit alors cet objet (ligne de version seule), sans heurter uq_media_versions_storage_key.
+    if (input.replaceExisting && !existing) {
+      const [oldVersion] = await tx
+        .select()
+        .from(mediaVersions)
+        .where(eq(mediaVersions.storageKey, values.storageKey))
+        .for("update");
+      if (oldVersion) {
+        const [parent] = await tx.select().from(media).where(eq(media.id, oldVersion.mediaId)).for("update");
+        if (!parent || parent.deletedAt) throw new Error("Clé de stockage occupée par un média en corbeille");
+        if (parent.organizationId !== orgId) {
+          throw new Error("Clé de stockage déjà utilisée par une autre organisation");
+        }
+        const delta = Math.max(sizeBytes - oldVersion.sizeBytes, 0);
+        const verdict = await checkUploadQuota(orgId, delta, tx);
+        if (!verdict.allowed) return { quota: verdict, row: null, previous: null };
+        await tx
+          .update(mediaVersions)
+          .set({ sizeBytes, checksumSha256: values.checksumSha256 ?? null })
+          .where(eq(mediaVersions.id, oldVersion.id));
+        return { quota: verdict, row: parent, previous: parent };
+      }
+    }
+
     // Réécriture : seul le surplus compte, une réduction passe toujours.
     const incoming = existing ? Math.max(sizeBytes - existing.sizeBytes, 0) : sizeBytes;
-    const quota = await checkUploadQuota(orgId, incoming, tx);
+    const quota = await checkUploadQuota(orgId, incoming, tx, { excludeUploadId: input.excludeUploadId });
     if (!quota.allowed) return { quota, row: null, previous: null };
 
     if (existing) {
@@ -79,6 +112,11 @@ export async function reserveMediaRow(input: ReserveInput): Promise<ReserveResul
         .set({ sizeBytes, checksumSha256: values.checksumSha256 ?? null, updatedAt: new Date() })
         .where(eq(media.id, existing.id))
         .returning();
+      // La version courante redécrit le même objet réécrit.
+      await tx
+        .update(mediaVersions)
+        .set({ sizeBytes, checksumSha256: values.checksumSha256 ?? null })
+        .where(and(eq(mediaVersions.mediaId, existing.id), eq(mediaVersions.version, existing.currentVersion)));
       return { quota, row, previous: existing };
     }
 
@@ -86,6 +124,22 @@ export async function reserveMediaRow(input: ReserveInput): Promise<ReserveResul
       .insert(media)
       .values({ ...values, organizationId: orgId, sizeBytes })
       .returning();
+    // Version 1, dans la même transaction que la ligne `media`.
+    await tx.insert(mediaVersions).values({
+      mediaId: row.id,
+      version: 1,
+      storageKey: row.storageKey,
+      thumbnailKey: row.thumbnailKey,
+      filename: row.filename,
+      mimeType: row.mimeType,
+      sizeBytes: row.sizeBytes,
+      checksumSha256: row.checksumSha256,
+      width: row.width,
+      height: row.height,
+      pageCount: row.pageCount,
+      createdBy: row.uploadedBy,
+    });
+    if (input.afterInsert) await input.afterInsert(tx, row);
     return { quota, row, previous: null };
   });
 

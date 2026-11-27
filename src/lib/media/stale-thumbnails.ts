@@ -6,9 +6,9 @@ import { auditLog } from "@/lib/audit/log";
 import logger from "@/lib/logger";
 import { getSweepHealth } from "./usage-sweep";
 
-export const DESIGN_THUMBNAIL_NAME = "Miniature de design";
-/** Chemin de clé propre aux miniatures de design (posé à l'envoi, non modifiable ensuite). */
-export const DESIGN_THUMBNAIL_KEY_PATTERN = "studio/%/design-thumbnails/%";
+import { DESIGN_THUMBNAIL_NAME, DESIGN_THUMBNAIL_KEY_PATTERN } from "./design-thumbnail-key";
+
+export { DESIGN_THUMBNAIL_NAME, DESIGN_THUMBNAIL_KEY_PATTERN };
 export const STALE_THUMBNAIL_DAYS = 7;
 /** Retard toléré du balayage des usages avant de suspendre le ramassage. */
 export const SWEEP_GRACE_MS = 6 * 3_600_000;

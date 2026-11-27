@@ -40,6 +40,8 @@ vi.mock("@/lib/media/image-processing", () => ({
 vi.mock("@/lib/media/quota", () => ({
   checkUploadQuota: vi.fn().mockResolvedValue({ allowed: false, usedBytes: 99, limitBytes: 100 }),
 }));
+vi.mock("@/lib/org/resolve-request-org", () => ({ isOrgMember: vi.fn().mockResolvedValue(true) }));
+vi.mock("@/lib/media/folders", () => ({ canWriteLibrary: vi.fn().mockResolvedValue(true) }));
 vi.mock("@/lib/activity", () => ({ logActivity: vi.fn() }));
 vi.mock("@/lib/db", () => ({
   db: {

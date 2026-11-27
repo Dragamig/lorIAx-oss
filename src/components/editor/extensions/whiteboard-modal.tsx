@@ -6,6 +6,8 @@ import { X, PenLine } from "lucide-react";
 import { useWhiteboardSync } from "@/hooks/use-whiteboard-sync";
 import { useWhiteboardLibrary } from "@/hooks/use-whiteboard-library";
 import { useTheme } from "@/contexts/theme-context";
+import { WhiteboardLibraryButton } from "./whiteboard-library";
+import { uploadDesignThumbnail } from "./design-thumbnail";
 import "@excalidraw/excalidraw/index.css";
 
 // Excalidraw ne supporte pas le SSR — chargement côté client uniquement
@@ -20,6 +22,11 @@ interface WhiteboardModalProps {
   documentId?: string;
   title: string;
   onClose: (thumbnailUrl?: string) => void;
+}
+
+function readSpaceId(): string | null {
+  if (typeof window === "undefined") return null;
+  return (window as typeof window & { __loriax_spaceId?: string }).__loriax_spaceId ?? null;
 }
 
 export function WhiteboardModal({ canvasId, documentId, title, onClose }: WhiteboardModalProps) {
@@ -71,7 +78,9 @@ export function WhiteboardModal({ canvasId, documentId, title, onClose }: Whiteb
         reader.readAsDataURL(blob);
       });
 
-      onClose(dataUrl);
+      // Miniature enregistrée comme média (`/api/media/<id>`) ; le data URL reste le repli si l'envoi échoue.
+      const stored = await uploadDesignThumbnail(dataUrl, readSpaceId());
+      onClose(stored ?? dataUrl);
     } catch {
       onClose();
     }
@@ -89,6 +98,9 @@ export function WhiteboardModal({ canvasId, documentId, title, onClose }: Whiteb
   const libraryReturnUrl =
     typeof window !== "undefined" ? window.location.href : "";
 
+  const getApi = useCallback(() => excalidrawAPIRef.current, []);
+  const spaceId = readSpaceId();
+
   const isReady = isSynced && isLoaded && initialElements !== null;
 
   return (
@@ -101,6 +113,8 @@ export function WhiteboardModal({ canvasId, documentId, title, onClose }: Whiteb
           <span className="text-xs text-muted-foreground">—</span>
           <span className="text-sm text-foreground truncate">{title || "Tableau blanc"}</span>
         </div>
+        <div className="flex items-center gap-1">
+        <WhiteboardLibraryButton getApi={getApi} spaceId={spaceId} disabled={!isReady} />
         <button
           onClick={handleClose}
           className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
@@ -109,6 +123,7 @@ export function WhiteboardModal({ canvasId, documentId, title, onClose }: Whiteb
         >
           <X className="h-4 w-4" />
         </button>
+        </div>
       </div>
 
       {/* Canvas Excalidraw */}

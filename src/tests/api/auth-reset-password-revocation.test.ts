@@ -27,6 +27,9 @@ vi.mock("@/lib/db", () => {
       dbState.updates.push(values);
       return self;
     }),
+    // La réinitialisation s'exécute dans une transaction (AZ-27).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    transaction: vi.fn(async (fn: (tx: any) => Promise<unknown>) => fn(self)),
   };
   return { db: self };
 });

@@ -161,3 +161,89 @@ describe("createUploadQueue", () => {
     expect(q.snapshot().filter((i) => i.status === "done")).toHaveLength(20)
   })
 })
+
+describe("envoi par parts dans la file", () => {
+  const big = (name = "v.mp4", size = 300 * 1024 * 1024) => ({ name, size, type: "video/mp4", lastModified: 1 }) as unknown as File
+  const cfg = { enabled: true, thresholdBytes: 200 * 1024 * 1024, partSize: 16 * 1024 * 1024, maxBytes: 5 * 1024 ** 3 }
+  const never = () => Promise.resolve({ status: 500, body: {} })
+
+  it("les tags du dialogue sont transmis à l'envoi par parts", async () => {
+    const largeUpload = vi.fn(async (..._a: unknown[]) => ({ ok: true as const, mediaId: "m9" }))
+    const q = createUploadQueue({ send: never, largeUpload: largeUpload as never, getConfig: async () => cfg })
+    q.add([big()], { ...target, tags: ["pub", "été"] })
+    await settle(q, idle)
+    expect(largeUpload.mock.calls[0][1]).toMatchObject({ tags: ["pub", "été"] })
+  })
+
+  it("route une vidéo au-delà du seuil vers l'envoi par parts", async () => {
+    const largeUpload = vi.fn(async () => ({ ok: true as const, mediaId: "m9" }))
+    const q = createUploadQueue({ send: never, largeUpload, getConfig: async () => cfg })
+    q.add([big()], target)
+    await settle(q, idle)
+    expect(q.snapshot()[0]).toMatchObject({ status: "done", mediaId: "m9", large: true })
+    expect(largeUpload).toHaveBeenCalledTimes(1)
+  })
+
+  it("fonction désactivée : trop lourd (200 Mo), aucun envoi", async () => {
+    const largeUpload = vi.fn()
+    const q = createUploadQueue({ send: never, largeUpload, getConfig: async () => ({ ...cfg, enabled: false }) })
+    q.add([big()], target)
+    await settle(q, idle)
+    expect(q.snapshot()[0].error).toEqual({ kind: "too_large", limitMb: 200 })
+    expect(largeUpload).not.toHaveBeenCalled()
+  })
+
+  it("pause, reprise, puis annulation d'un envoi en pause supprime côté serveur", async () => {
+    let calls = 0
+    const largeUpload = vi.fn(
+      (_f: File, _t: unknown, h: { signal: AbortSignal }) =>
+        new Promise<{ ok: false; reason: "aborted" } | { ok: true; mediaId: string }>((resolve) => {
+          calls++
+          if (calls === 2) return resolve({ ok: true, mediaId: "m2" })
+          h.signal.addEventListener("abort", () => resolve({ ok: false, reason: "aborted" }))
+        }),
+    )
+    const discardLarge = vi.fn(async () => {})
+    const q = createUploadQueue({ send: never, largeUpload, getConfig: async () => cfg, discardLarge })
+    q.add([big()], target)
+    await settle(q, (s) => s[0]?.status === "uploading")
+    const id = q.snapshot()[0].id
+    q.pause(id)
+    await new Promise((r) => setTimeout(r, 5))
+    expect(q.snapshot()[0].status).toBe("paused")
+    q.resume(id)
+    await settle(q, idle)
+    expect(q.snapshot()[0].status).toBe("done")
+
+    q.add([big("w.mp4")], target)
+    await settle(q, (s) => s[1]?.status === "uploading")
+    // calls === 3 : attend l'abandon
+    const id2 = q.snapshot()[1].id
+    q.pause(id2)
+    await new Promise((r) => setTimeout(r, 5))
+    q.cancel(id2)
+    expect(q.snapshot()[1].status).toBe("cancelled")
+    expect(discardLarge).toHaveBeenCalledTimes(1)
+  })
+
+  it("coupure réseau : interrompu, puis nouvel essai relance", async () => {
+    const largeUpload = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, reason: "network" })
+      .mockResolvedValueOnce({ ok: true, mediaId: "m3" })
+    const q = createUploadQueue({ send: never, largeUpload, getConfig: async () => cfg })
+    q.add([big()], target)
+    await settle(q, idle)
+    expect(q.snapshot()[0].error?.kind).toBe("interrupted")
+    q.retry(q.snapshot()[0].id)
+    await settle(q, idle)
+    expect(q.snapshot()[0].status).toBe("done")
+  })
+
+  it("quota refusé : erreur de quota", async () => {
+    const q = createUploadQueue({ send: never, largeUpload: async () => ({ ok: false, reason: "quota" }), getConfig: async () => cfg })
+    q.add([big()], target)
+    await settle(q, idle)
+    expect(q.snapshot()[0].error?.kind).toBe("quota")
+  })
+})

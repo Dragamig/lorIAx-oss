@@ -21,9 +21,9 @@ export interface RegistrationRefusal {
  * - reglage `system_settings.auth.allowRegistration` : seul un `true` explicite
  *   ouvre la route. Absent, il vaut `false` (decision 2.0.0 : fermee par defaut).
  *
- * Edition commerciale : parcours d'avant l'edition oss. Sans reglage explicite,
- * l'inscription reste ouverte (lien « Creer un compte », /register, 409 needsOrg
- * vers la creation d'organisation). Un `false` explicite de l'administrateur ferme la route.
+ * Edition commerciale : comme main (AZ-27), fermee par defaut. Seul un `true`
+ * explicite de l'administrateur ouvre la route (lien « Creer un compte »,
+ * /register, 409 needsOrg vers la creation d'organisation).
  */
 export async function getRegistrationRefusal(
   includedModuleIds: readonly ModuleId[] = INCLUDED_MODULE_IDS,
@@ -41,7 +41,7 @@ export async function getRegistrationRefusal(
     | undefined;
 
   if (commercial) {
-    if (!resolveAllowRegistration(auth?.allowRegistration, includedModuleIds)) {
+    if (!resolveAllowRegistration(auth?.allowRegistration)) {
       return { status: 403, error: "L'inscription est fermée sur cette instance." };
     }
     return null;
@@ -58,7 +58,7 @@ export async function getRegistrationRefusal(
       error: "L'instance n'est pas encore configurée. L'inscription est fermée.",
     };
   }
-  if (!resolveAllowRegistration(auth?.allowRegistration, includedModuleIds)) {
+  if (!resolveAllowRegistration(auth?.allowRegistration)) {
     return { status: 403, error: "L'inscription est fermée sur cette instance." };
   }
   return null;

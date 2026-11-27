@@ -9,6 +9,7 @@ const toastError = vi.hoisted(() => vi.fn())
 
 vi.mock("next-intl", async () => (await import("./test-fixtures")).intlMock())
 vi.mock("@/i18n/routing", () => ({ Link: ({ href, children, ...r }: { href: string; children: React.ReactNode }) => <a href={href} {...r}>{children}</a> }))
+vi.mock("@/hooks/use-session", () => ({ useCurrentUser: () => ({ globalRole: "member" }) }))
 vi.mock("sonner", () => ({ toast: { success: toastSuccess, error: toastError, dismiss: vi.fn(), info: vi.fn() } }))
 
 import { PropertiesPanel } from "./properties-panel"
@@ -57,6 +58,7 @@ beforeEach(() => {
       }
       if (url === "/api/media/m0/meta") return json({ media: detail })
       if (url === "/api/media/folders") return json({ folders: [{ id: "f1", parentId: null, name: "Direction", mediaCount: 1 }] })
+      if (url.startsWith("/api/media/m0/text")) return json({ status: "unsupported" })
       if (url === "/api/media/tags") return json({ tags: [] })
       if (url === "/api/media/usages-summary") return json({ perMedia: { m0: { total: 0, visible: 0, hidden: 0 } }, trashRetentionDays: 30 })
       if (url === "/api/media/m0/usages") return json({ entries: [], hiddenCount: 0 })
@@ -79,6 +81,7 @@ const open = async () => {
   await act(async () => undefined)
   return props
 }
+const tipOf = (name: string) => document.getElementById(screen.getByRole("button", { name }).getAttribute("aria-describedby")!)!.textContent
 const blur = (el: HTMLElement, value: string) => {
   fireEvent.change(el, { target: { value } })
   fireEvent.blur(el)
@@ -215,6 +218,7 @@ describe("PropertiesPanel", () => {
       vi.fn(async (url: string) => {
         if (url === "/api/media/mA/meta") return a
         if (url === "/api/media/mB/meta") return json({ media: makeDetail({ id: "mB", title: "Titre B", filename: "b.png" }) })
+        if (url.includes("/text")) return json({ status: "unsupported" })
         if (url === "/api/media/folders") return json({ folders: [] })
         return json({ entries: [], hiddenCount: 0 })
       }),
@@ -251,5 +255,83 @@ describe("PropertiesPanel", () => {
     })
     await waitFor(() => expect(patchCalls.at(-1)).toEqual({ title: "Logo" }))
     expect(stack.canUndo()).toBe(false)
+  })
+})
+
+describe("PropertiesPanel : retoucheur et liens de retouche", () => {
+  const openWith = async (over: Record<string, unknown>, extra: Record<string, unknown> = {}) => {
+    detail = makeDetail(over)
+    const props = { mediaId: "m0", onClose: vi.fn(), onMutated: vi.fn(), ...extra }
+    render(<PropertiesPanel {...props} />)
+    await screen.findByLabelText("Titre")
+    await act(async () => undefined)
+    return props
+  }
+
+  it("Retoucher ouvre le retoucheur avec le média courant", async () => {
+    const onRetouch = vi.fn()
+    await openWith({}, { onRetouch })
+    fireEvent.click(screen.getByRole("button", { name: "Retoucher" }))
+    expect(onRetouch).toHaveBeenCalledWith(expect.objectContaining({ id: "m0" }))
+  })
+
+  it("SVG, non-image et droit manquant : bouton désactivé avec la raison", async () => {
+    await openWith({ mimeType: "image/svg+xml" }, { onRetouch: vi.fn() })
+    const b = screen.getByRole("button", { name: "Retoucher" })
+    expect(b.hasAttribute("disabled")).toBe(true)
+    expect(tipOf("Retoucher")).toMatch(/SVG/)
+    cleanup()
+    await openWith({ kind: "video", mimeType: "video/mp4" }, { onRetouch: vi.fn() })
+    expect(tipOf("Retoucher")).toBe("Seules les images se retouchent.")
+    cleanup()
+    await openWith({ canWrite: false }, { onRetouch: vi.fn(), canWriteSpace: false })
+    expect(screen.getByRole("button", { name: "Retoucher" }).hasAttribute("disabled")).toBe(true)
+    expect(tipOf("Retoucher")).toMatch(/aucun espace/)
+  })
+
+  it("pas de bouton sans gestionnaire", async () => {
+    await openWith({})
+    expect(screen.queryByRole("button", { name: "Retoucher" })).toBeNull()
+  })
+
+  it("dérivé : « Retouché depuis » avec lien vers l'original lisible", async () => {
+    const onOpenMedia = vi.fn()
+    await openWith({ retouchedFrom: { readable: true, id: "o1", name: "original.png", version: 3 }, retouches: [] }, { onOpenMedia })
+    expect(screen.getByText("Retouché depuis")).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Ouvrir original.png" }))
+    expect(onOpenMedia).toHaveBeenCalledWith("o1")
+  })
+
+  it("dérivé dont l'original n'est pas lisible : mention neutre, sans nom ni lien", async () => {
+    await openWith({ retouchedFrom: { readable: false }, retouches: [] }, { onOpenMedia: vi.fn() })
+    expect(screen.getByText(/Retouche d'un média que vous ne pouvez pas consulter/)).toBeTruthy()
+    expect(screen.queryByRole("button", { name: /^Ouvrir/ })).toBeNull()
+  })
+
+  it("original : « Retouches (n) » ne liste que les retouches lisibles reçues", async () => {
+    await openWith({ retouchedFrom: null, retouches: [{ id: "d1", name: "a.png", thumbnailUrl: null }, { id: "d2", name: "b.png", thumbnailUrl: null }] }, { onOpenMedia: vi.fn() })
+    expect(screen.getByRole("heading", { name: "Retouches (2)" })).toBeTruthy()
+    expect(screen.getAllByRole("button", { name: /^Ouvrir/ })).toHaveLength(2)
+  })
+
+  it("original supprimé ou sans retouche : aucune ligne", async () => {
+    await openWith({ retouchedFrom: null, retouches: [] })
+    expect(screen.queryByText("Retouché depuis")).toBeNull()
+    expect(screen.queryByRole("heading", { name: /^Retouches/ })).toBeNull()
+  })
+})
+
+describe("PropertiesPanel : rechargement après une retouche", () => {
+  it("un nouveau reloadKey recharge la fiche sans changer de média", async () => {
+    detail = makeDetail({ retouches: [] })
+    const props = { mediaId: "m0", onClose: vi.fn(), onMutated: vi.fn() }
+    const { rerender } = render(<PropertiesPanel {...props} reloadKey={0} />)
+    await screen.findByLabelText("Titre")
+    const metaCalls = () => (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter((c) => c[0] === "/api/media/m0/meta").length
+    const before = metaCalls()
+    detail = makeDetail({ retouches: [{ id: "d1", name: "retouche.png", thumbnailUrl: null }] })
+    rerender(<PropertiesPanel {...props} reloadKey={1} />)
+    await waitFor(() => expect(metaCalls()).toBe(before + 1))
+    expect(await screen.findByRole("heading", { name: "Retouches (1)" })).toBeTruthy()
   })
 })

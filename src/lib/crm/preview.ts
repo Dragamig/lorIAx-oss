@@ -3,6 +3,8 @@ import { spaces, userDatabases } from "@/lib/db/schema";
 import { CRM_ROLES, type CrmRole } from "./fields";
 import { defaultCrmDeps, type Candidate, type CrmDeps } from "./connection";
 import { normalizeName } from "./plan";
+import { planSampleAutomations } from "./sample-automations-write";
+import type { TemplateMessages } from "./template-messages";
 
 export interface PreviewSpace {
   id: string;
@@ -21,6 +23,17 @@ export interface ActivationPreview {
   suggestedSpaceId: string | null;
   collisions: Record<CrmRole, PreviewCollision[]>;
   orgs: { slug: string; name: string }[];
+  /** Automatismes d'exemple de la base Dossiers que l'activation créerait, d'après le raccordement actuel. */
+  sampleAutomations: SampleAutomationsPreview;
+}
+
+export interface SampleAutomationsPreview {
+  /** Exemples qui seraient créés (désactivés), noms localisés. */
+  toCreate: { key: string; name: string }[];
+  /** Exemples non créables faute de prérequis, avec les prérequis manquants. */
+  skipped: { key: string; name: string; missing: string[] }[];
+  /** Options ajoutées à la colonne Statut, pour les seuls exemples à créer. */
+  statusOptionsToAdd: string[];
 }
 
 /**
@@ -78,4 +91,26 @@ export async function findCollisions(
     out[role] = rows.filter((r) => normalizeName(r.name) === wanted);
   }
   return out;
+}
+
+/**
+ * Aperçu des automatismes d'exemple : même règle que l'insertion (clés déjà mémorisées exclues, options de
+ * Statut sur les seuls exemples à créer), en lecture seule. Sans raccordement, tout est sauté.
+ */
+export async function previewSampleAutomations(
+  orgId: string,
+  userId: string,
+  messages: TemplateMessages,
+  deps: CrmDeps = defaultCrmDeps(),
+): Promise<SampleAutomationsPreview> {
+  const plan = await planSampleAutomations(
+    deps.executor,
+    { orgId, userId, permissionOf: deps.permissionOf },
+    orgId,
+    messages,
+  );
+  const nameOf = (key: string) => messages.automations[key as keyof TemplateMessages["automations"]].name;
+  const toCreate = plan.todo.map((a) => ({ key: a.key as string, name: a.name }));
+  const skipped = plan.skipped.map((s) => ({ key: s.key as string, name: nameOf(s.key), missing: s.missing }));
+  return { toCreate, skipped, statusOptionsToAdd: plan.statusOptionsToAdd };
 }

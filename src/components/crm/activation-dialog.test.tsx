@@ -139,6 +139,12 @@ async function ready() {
   await screen.findByRole("group", { name: "Mode pour Contacts" });
 }
 
+const nextBtn = () => screen.getByRole("button", { name: "Suivant" });
+async function toRecap() {
+  fireEvent.click(nextBtn());
+  await screen.findByRole("button", { name: "Retour" });
+}
+
 describe("ActivationDialog", () => {
   it("chargement : squelettes de tuiles, puis trois tuiles de largeur et de hauteur identiques (même classe)", async () => {
     mount();
@@ -195,7 +201,7 @@ describe("ActivationDialog", () => {
     mount();
     await ready();
     fireEvent.change(screen.getByLabelText("Organisation"), { target: { value: "dra" } });
-    const confirm = screen.getByRole("button", { name: "Activer le module" });
+    const confirm = nextBtn();
     const close = screen.getByRole("button", { name: "Fermer la fenêtre d'activation" });
     expect(confirm.getAttribute("aria-disabled")).toBe("true");
     expect(close.getAttribute("aria-disabled")).toBe("true");
@@ -218,7 +224,7 @@ describe("ActivationDialog", () => {
     expect(create.getAttribute("aria-disabled")).toBe("true");
     expect(create.getAttribute("aria-label")).toContain("Une base « Dossiers » existe déjà dans cet espace");
     expect(screen.getByText(/Une base « Dossiers » existe déjà dans l'espace « CRM »/)).toBeTruthy();
-    const confirm = screen.getByRole("button", { name: "Activer le module" });
+    const confirm = nextBtn();
     expect(confirm.getAttribute("aria-disabled")).toBe("true");
     fireEvent.focus(confirm);
     expect(await screen.findByText("Mode indisponible pour : Dossiers")).toBeTruthy();
@@ -227,7 +233,7 @@ describe("ActivationDialog", () => {
   it("base prise par un autre rôle : option désactivée avec raison", async () => {
     mount();
     await ready();
-    const taken = screen.getByRole("button", { name: /Contacts, espace CRM, score .* indisponible : déjà utilisée pour Contacts/ });
+    const taken = screen.getByRole("radio", { name: /Contacts, espace CRM, score .* indisponible : déjà utilisée pour Contacts/ });
     expect(taken.getAttribute("aria-disabled")).toBe("true");
     fireEvent.focus(taken);
     expect(await screen.findByText("Déjà utilisée pour le rôle Contacts : une base ne sert qu'à un rôle")).toBeTruthy();
@@ -236,7 +242,8 @@ describe("ActivationDialog", () => {
   it("choisir une base et un mode met à jour l'état puis POST avec le corps V2", async () => {
     const { onOpenChange } = mount();
     await ready();
-    fireEvent.click(screen.getByRole("button", { name: /^Demandes, espace CRM/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /^Demandes, espace CRM/ }));
+    await toRecap();
     fireEvent.click(screen.getByRole("button", { name: "Activer le module" }));
     await waitFor(() => expect(h.success).toHaveBeenCalled());
     const post = calls.find((c) => c.url === "/api/crm/activate");
@@ -293,17 +300,19 @@ describe("ActivationDialog", () => {
       await waitFor(() => expect(popups().length, name).toBe(0));
     }
     expect(buttons.some((b) => b.getAttribute("data-action") === "activation.adopt")).toBe(true);
+    expect(buttons.some((b) => b.getAttribute("data-action") === "activation.next")).toBe(true);
   });
 
-  it("Confirmer sans base choisie : désactivé, la raison s'affiche au focus", async () => {
+  it("Suivant sans base choisie : désactivé, la raison s'affiche au focus", async () => {
     h.forceMissing = true;
     mount();
     await ready();
-    const confirm = screen.getByRole("button", { name: "Activer le module" });
+    const confirm = nextBtn();
     expect(confirm.getAttribute("aria-disabled")).toBe("true");
     fireEvent.focus(confirm);
     expect(await screen.findByText("Choisissez une base pour : Dossiers")).toBeTruthy();
     fireEvent.click(confirm);
+    expect(screen.queryByRole("button", { name: "Retour" })).toBeNull();
     expect(calls.some((c) => c.url === "/api/crm/activate")).toBe(false);
   });
 
@@ -317,26 +326,82 @@ describe("ActivationDialog", () => {
     await ready();
   });
 
-  it("récapitulatif replié puis déplié au clavier", async () => {
+  it("étape 1 : Suivant actif une fois l'analyse prête, récapitulatif absent, pas de bouton Afficher le détail", async () => {
+    mount();
+    expect(nextBtn().getAttribute("aria-disabled")).toBe("true");
+    await ready();
+    expect(nextBtn().getAttribute("aria-disabled")).toBeNull();
+    expect(screen.queryByLabelText("Récapitulatif Dossiers")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Afficher le détail" })).toBeNull();
+    expect(document.querySelector('[aria-current="step"]')?.textContent).toContain("Analyse");
+  });
+
+  it("étape 2 : récapitulatif déplié, organisation et espace verrouillés avec leur raison, Retour revient", async () => {
     mount();
     await ready();
-    expect(screen.queryByLabelText("Récapitulatif Dossiers")).toBeNull();
-    const toggle = screen.getByRole("button", { name: "Afficher le détail" });
-    expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    toggle.focus();
-    expect(document.activeElement).toBe(toggle);
-    fireEvent.click(toggle);
-    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    await toRecap();
+    expect(document.querySelector('[aria-current="step"]')?.textContent).toContain("Récapitulatif");
     const recap = screen.getByLabelText("Récapitulatif Dossiers");
     expect(within(recap).getByText("Aucune colonne existante n'est modifiée.")).toBeTruthy();
     expect(within(recap).getByText(/: à côté de « Montant » \(Texte, conservée\)/)).toBeTruthy();
     expect(screen.queryByText(/\{(role|name|field)\}/)).toBeNull();
+    const org = screen.getByLabelText("Organisation") as HTMLSelectElement;
+    const space = screen.getByLabelText("Espace des bases à créer") as HTMLSelectElement;
+    expect(org.disabled).toBe(true);
+    expect(space.disabled).toBe(true);
+    fireEvent.focus(org.parentElement as HTMLElement);
+    expect((await screen.findAllByText("Revenir à l'analyse pour changer d'organisation")).length).toBeGreaterThan(0);
+    fireEvent.blur(org.parentElement as HTMLElement);
+    fireEvent.focus(space.parentElement as HTMLElement);
+    expect((await screen.findAllByText("Modifiable à l'étape Analyse")).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Retour" }));
+    await ready();
+    expect(screen.queryByLabelText("Récapitulatif Dossiers")).toBeNull();
+  });
+
+  it("choix de la base : radiogroup, roving tabindex, flèches qui déplacent et sélectionnent, Home et End", async () => {
+    const p = mixed();
+    p.roles.dossiers = {
+      candidates: [
+        { ...cand(D1, "Demandes", "almost", 3), missing: [] },
+        { ...cand(X1, "Dossiers", "almost", 3), missing: [] },
+        { ...cand(C1, "Contacts", "almost", 3), missing: [] },
+      ],
+      preselected: null,
+    } as never;
+    preview = p;
+    mount();
+    await ready();
+    const group = screen.getByRole("radiogroup", { name: "Base à compléter pour Dossiers" });
+    const radios = () => within(group).getAllByRole("radio");
+    expect(radios().length).toBe(3);
+    // Option cochée par défaut : D1 (première libre) ; C1 est prise par Contacts.
+    expect(radios()[0].getAttribute("aria-checked")).toBe("true");
+    expect(radios().map((r) => r.tabIndex)).toEqual([0, -1, -1]);
+    expect(radios()[2].getAttribute("aria-disabled")).toBe("true");
+    radios()[0].focus();
+    fireEvent.keyDown(radios()[0], { key: "ArrowDown" });
+    expect(radios()[1].getAttribute("aria-checked")).toBe("true");
+    expect(radios()[0].getAttribute("aria-checked")).toBe("false");
+    expect(document.activeElement).toBe(radios()[1]);
+    expect(radios().map((r) => r.tabIndex)).toEqual([-1, 0, -1]);
+    // Saute l'option indisponible et boucle.
+    fireEvent.keyDown(radios()[1], { key: "ArrowRight" });
+    expect(radios()[0].getAttribute("aria-checked")).toBe("true");
+    fireEvent.keyDown(radios()[0], { key: "ArrowUp" });
+    expect(radios()[1].getAttribute("aria-checked")).toBe("true");
+    fireEvent.keyDown(radios()[1], { key: "Home" });
+    expect(radios()[0].getAttribute("aria-checked")).toBe("true");
+    fireEvent.keyDown(radios()[0], { key: "End" });
+    expect(radios()[1].getAttribute("aria-checked")).toBe("true");
+    expect(radios()[2].getAttribute("aria-checked")).toBe("false");
   });
 
   it("échec 404 : message d'erreur, pas de fermeture", async () => {
     activateStatus = 404;
     const { onOpenChange } = mount();
     await ready();
+    await toRecap();
     fireEvent.click(screen.getByRole("button", { name: "Activer le module" }));
     expect((await screen.findByRole("alert")).textContent).toContain("Introuvable");
     expect(onOpenChange).not.toHaveBeenCalledWith(false);

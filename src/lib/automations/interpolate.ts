@@ -13,6 +13,7 @@
  *                          la clé présente dans le payload)
  *   - `{{space.id}}`     → id de l'espace (contexte workflow autonome)
  *   - `{{doc.id}}`       → id du document déclencheur (bouton)
+ *   - `{{media.filename}}`, `{{media.url}}`, `{{media.spaceId}}`, `{{media.id}}` → média déclencheur
  *   - `{{user.id}}`      → id de l'utilisateur déclencheur
  *   - `{{user.email}}`   → email de l'utilisateur déclencheur
  *   - `{{user.name}}`    → nom de l'utilisateur déclencheur
@@ -77,6 +78,8 @@ export interface InterpolationPayload {
   // précédentes, stockés via `storeAs`). Accès par chemin pointé :
   // `{{variables.<nom>.<sous.champ>}}`.
   variables?: Record<string, unknown>;
+  // Contexte déclencheur « média ajouté ».
+  media?: { id: string; filename: string; spaceId: string; url: string };
 }
 
 /** Résout un chemin pointé (`a.b.c`) dans un objet. Renvoie undefined si absent. */
@@ -101,6 +104,10 @@ export function interpolate(
     if (path === "event") return payload.event ?? "";
     if (path === "space.id") return payload.spaceId ?? "";
     if (path === "doc.id") return payload.documentId ?? "";
+    if (path === "media.filename") return payload.media?.filename ?? "";
+    if (path === "media.url") return payload.media?.url ?? "";
+    if (path === "media.spaceId") return payload.media?.spaceId ?? "";
+    if (path === "media.id") return payload.media?.id ?? "";
     if (path === "user.id") return payload.user?.id ?? "";
     if (path === "user.email") return payload.user?.email ?? "";
     if (path === "user.name") return payload.user?.name ?? "";

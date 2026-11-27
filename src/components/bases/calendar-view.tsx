@@ -20,6 +20,7 @@ interface CalendarViewProps {
   /** view.config.titleColumnId — colonne servant de libellé d'évènement */
   titleColumnId?: string;
   readOnly?: boolean;
+  onRefresh?: () => void;
   onConfigChange?: (cfg: { dateColumnId?: string; titleColumnId?: string }) => void;
 }
 
@@ -38,6 +39,7 @@ export function CalendarView({
   dateColumnId,
   titleColumnId,
   readOnly = false,
+  onRefresh,
   onConfigChange,
 }: CalendarViewProps) {
   const [month, setMonth] = useState(() => {
@@ -251,6 +253,7 @@ export function CalendarView({
         nav={nav}
         onNavigate={navigate}
         onClose={closeRecord}
+        deletion={onRefresh ? { onChanged: onRefresh, readOnly } : undefined}
       />
     </div>
   );

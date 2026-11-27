@@ -348,6 +348,18 @@ export const RATE_LIMITS = {
   mediaImport: { maxRequests: 20, windowMs: 60 * 1000 },
   /** Téléversement par l'API v1 médias: 10 requests per minute par clé */
   mediaUploadApi: { maxRequests: 10, windowMs: 60 * 1000 },
+  /** Téléchargement groupé en zip : 3 archives par 10 minutes et par utilisateur */
+  mediaZip: { maxRequests: 3, windowMs: 10 * 60 * 1000 },
+  /** Sondes de téléchargement groupé (probe=1) : 20 par minute et par utilisateur */
+  mediaZipProbe: { maxRequests: 20, windowMs: 60 * 1000 },
+  /** Réindexation IA d'un média : 10 par minute et par utilisateur */
+  mediaReindex: { maxRequests: 10, windowMs: 60 * 1000 },
+  /** Enregistrement d'une retouche d'image : 20 par minute et par utilisateur */
+  mediaRetouch: { maxRequests: 20, windowMs: 60 * 1000 },
+  /** Ouverture d'un envoi multipart médiathèque : 10 par heure et par utilisateur */
+  mediaMultipartOpen: { maxRequests: 10, windowMs: 60 * 60 * 1000 },
+  /** Signature de parts multipart : 120 appels (20 parts chacun) par minute et par utilisateur */
+  mediaMultipartSign: { maxRequests: 120, windowMs: 60 * 1000 },
   /** Meet: 20 requests per minute */
   meet: { maxRequests: 20, windowMs: 60 * 1000 },
 } as const;

@@ -2,6 +2,7 @@
 
 import { Link } from "@/i18n/routing";
 import { signOut } from "next-auth/react";
+import { purgeMailDrafts } from "@/components/mailing/use-compose-draft";
 import { Settings, LogOut, Moon, Sun, Users, MessageSquare, GraduationCap, Award } from "lucide-react";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { NotificationsDropdown } from "@/components/notifications/notifications-dropdown";
@@ -109,7 +110,10 @@ export function SidebarFooter({ user }: SidebarFooterProps) {
             <DropdownMenuSeparator />
             <DropdownMenuItem
               className="text-destructive focus:text-destructive"
-              onClick={() => signOut({ callbackUrl: "/login" })}
+              onClick={() => {
+                purgeMailDrafts();
+                void signOut({ callbackUrl: "/login" });
+              }}
             >
               <LogOut className="h-4 w-4" />
               {t("signOut")}

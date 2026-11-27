@@ -7,6 +7,8 @@ import { canManageAutomations } from "@/lib/auth/rbac";
 import { getSetting } from "@/lib/settings/system-settings";
 import { validateActionConfig } from "@/lib/automations/actions/registry";
 import { sanitizeWebhookTriggerConfig, redactWebhookTriggerConfig } from "@/lib/automations/webhook-inbound";
+import { activationRequiresTallyForm } from "@/lib/automations/tally-activation-guard";
+import { tallyFormRequiredResponse } from "@/lib/automations/tally-activation-response";
 import { validateValueChangedConfig } from "@/lib/automations/value-changed";
 import { z } from "zod";
 
@@ -111,6 +113,10 @@ export async function POST(request: Request, { params }: RouteParams) {
   // Webhook entrant : jeton/secret toujours générés côté serveur.
   if (parsed.data.triggerType === "webhook_inbound") {
     triggerConfig = sanitizeWebhookTriggerConfig(triggerConfig);
+  }
+
+  if (activationRequiresTallyForm(null, { enabled: parsed.data.enabled ?? true, triggerType: parsed.data.triggerType, triggerConfig })) {
+    return tallyFormRequiredResponse();
   }
 
   const [created] = await db

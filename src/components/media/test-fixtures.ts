@@ -38,6 +38,7 @@ export function makeItems(n: number, nameOf: (i: number) => string = (i) => `med
     purgeAt: null,
     url: `/api/media/m${i}`,
     thumbnailUrl: null,
+    currentVersion: 1,
     usageCount: i,
     tags: [],
     canWrite: true,

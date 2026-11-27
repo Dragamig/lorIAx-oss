@@ -13,6 +13,7 @@ import { rerankCandidates, fetchLimitForRerank } from "@/lib/ai/rerank";
 import {
   getActiveEmbeddingDimension,
   resolveActiveEmbeddingModel,
+  requestedEmbeddingDimensions,
 } from "@/lib/ai/embedding-dimensions";
 
 const CHUNK_SIZE = 1000;
@@ -42,6 +43,8 @@ export interface EmbeddingOptions {
   /** Force un modèle (sinon résolution admin → EMBEDDING_MODEL). */
   model?: string;
 }
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small";
 
@@ -130,12 +133,15 @@ export async function generateEmbedding(
   options?: EmbeddingOptions
 ): Promise<number[]> {
   const config = await resolveEmbeddingConfig(options);
-  const { kind, model, providerId } = config;
+  const { kind, model } = config;
+  // `ai_usage_logs.provider_id` est un uuid : un fournisseur issu de l'env ("openai"...) devient null.
+  const providerId = UUID_RE.test(config.providerId) ? config.providerId : null;
   const userId = options?.userId;
   const startTime = Date.now();
 
   if (kind === "openai") {
     if (!config.apiKey) throw new Error("OPENAI_API_KEY requis pour les embeddings");
+    const requestedDimensions = requestedEmbeddingDimensions(model);
 
     const res = await fetch(openAiCompatEmbeddingsUrl(config.baseUrl, "https://api.openai.com"), {
       method: "POST",
@@ -143,7 +149,11 @@ export async function generateEmbedding(
         "Content-Type": "application/json",
         Authorization: `Bearer ${config.apiKey}`,
       },
-      body: JSON.stringify({ input: text, model }),
+      body: JSON.stringify({
+        input: text,
+        model,
+        ...(requestedDimensions ? { dimensions: requestedDimensions } : {}),
+      }),
     });
 
     if (!res.ok) {

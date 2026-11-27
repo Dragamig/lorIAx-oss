@@ -35,6 +35,7 @@ function preview(over: Partial<ActivationPreview> = {}): ActivationPreview {
     suggestedSpaceId: SP,
     collisions: { contacts: [], dossiers: [], interactions: [] },
     orgs: [],
+    sampleAutomations: { toCreate: [], skipped: [], statusOptionsToAdd: [] },
     ...over,
   };
 }

@@ -8,6 +8,7 @@ import {
   X,
   Save,
   LayoutTemplate,
+  LibraryBig,
   MoreHorizontal,
   AlignStartVertical,
   AlignCenterVertical,
@@ -24,6 +25,7 @@ import {
 } from "lucide-react";
 import type { FabricObject, IText as FabricIText } from "fabric";
 import { cn } from "@/lib/utils";
+import { useTranslations } from "next-intl";
 import { StudioTopbar } from "@/components/editor/studio-shell";
 import { useDesignContext } from "./context";
 import { applyAlignment, type AlignAction } from "../design-align";
@@ -64,9 +66,10 @@ export function TopbarIconBtn({
 // ─── DesignTopbar ─────────────────────────────────────────────────────────────
 
 export function DesignTopbar() {
+  const tLib = useTranslations("designCanvas");
   const {
     title, setTitle,
-    handleUndo, handleRedo, triggerSave, handleSaveAsTemplate, handleExport, onClose,
+    handleUndo, handleRedo, triggerSave, handleSaveAsTemplate, handleExport, handleSaveToLibrary, onClose,
     fabricCanvas, canUndo, canRedo,
     bgColor, handleBgColorChange, pageSize,
   } = useDesignContext();
@@ -566,6 +569,17 @@ export function DesignTopbar() {
                   <input type="checkbox" checked={exportTransparent} onChange={(e) => setExportTransparent(e.target.checked)} />
                   Fond transparent (PNG)
                 </label>
+                {/* Enregistrer l'export PNG dans la médiathèque */}
+                <button
+                  onClick={() => { setShowMenu(false); void handleSaveToLibrary(exportDpi, { transparent: exportTransparent }); }}
+                  title={tLib("saveToLibrary")}
+                  aria-label={tLib("saveToLibrary")}
+                  style={{ gap: 8, padding: "9px 14px", fontSize: 12 }}
+                  className="flex items-center w-full border-0 bg-transparent text-foreground cursor-pointer text-left transition-colors hover:bg-muted"
+                >
+                  <LibraryBig size={14} className="text-primary" />
+                  {tLib("saveToLibrary")}
+                </button>
                 {/* Exports */}
                 {(["png", "jpeg", "svg", "pdf"] as const).map((fmt) => {
                   const labels: Record<string, string> = {

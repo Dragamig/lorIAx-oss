@@ -33,5 +33,6 @@ describe("POST /api/auth/register et politique d'inscription", () => {
       }),
     );
     expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: "registration_closed" });
   });
 });

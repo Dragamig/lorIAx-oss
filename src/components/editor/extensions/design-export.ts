@@ -32,9 +32,11 @@ export interface RasterOptions {
   zoomPercent: number;
   transparent: boolean;
   title: string;
+  /** Qualité JPEG entre 0 et 1 (0,92 par défaut). */
+  quality?: number;
 }
 
-export function exportRaster(canvas: FabricCanvas, opts: RasterOptions): void {
+export function rasterDataUrl(canvas: FabricCanvas, opts: RasterOptions): string {
   const multiplier = exportMultiplier(opts.dpi, opts.zoomPercent);
   const prevBg = canvas.backgroundColor;
   if (opts.transparent && opts.format === "png") {
@@ -46,7 +48,7 @@ export function exportRaster(canvas: FabricCanvas, opts: RasterOptions): void {
   const dataUrl = runWithoutGuidelines(canvas, () =>
     canvas.toDataURL({
       format: opts.format,
-      quality: opts.format === "jpeg" ? 0.92 : undefined,
+      quality: opts.format === "jpeg" ? (opts.quality ?? 0.92) : undefined,
       multiplier,
     }),
   );
@@ -54,7 +56,21 @@ export function exportRaster(canvas: FabricCanvas, opts: RasterOptions): void {
     canvas.backgroundColor = prevBg;
     canvas.renderAll();
   }
-  download(dataUrl, `${slugify(opts.title)}.${opts.format === "jpeg" ? "jpg" : "png"}`);
+  return dataUrl;
+}
+
+/** Décode une data URL base64 en Blob, sans fetch (la CSP `connect-src 'self'` bloque `data:`). */
+export function dataUrlToBlob(dataUrl: string): Blob {
+  const m = /^data:([^;,]+);base64,([\s\S]*)$/.exec(dataUrl);
+  if (!m) throw new Error("data URL base64 attendue");
+  const bin = atob(m[2]);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: m[1] });
+}
+
+export function exportRaster(canvas: FabricCanvas, opts: RasterOptions): void {
+  download(rasterDataUrl(canvas, opts), `${slugify(opts.title)}.${opts.format === "jpeg" ? "jpg" : "png"}`);
 }
 
 export function exportSvg(canvas: FabricCanvas, page: PageDimensions, title: string): void {

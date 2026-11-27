@@ -10,13 +10,14 @@
 import { db } from "@/lib/db";
 import { documents, spaces } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { writeDocument } from "@/lib/storage/filesystem";
+import { writeDocument, deleteDocument } from "@/lib/storage/filesystem";
 import { commitFile } from "@/lib/git/repository";
 import { seedCollabState } from "@/lib/collab/seed-state";
 import { logActivity } from "@/lib/activity";
 import logger from "@/lib/logger";
 import slugify from "slugify";
 import { randomUUID } from "crypto";
+import { enforceClassificationFloor } from "@/lib/auth/classification";
 import type { ClassificationLevel } from "@/types";
 
 /** Levée quand l'espace cible n'existe pas. La route la traduit en 404. */
@@ -71,44 +72,74 @@ export async function createDocument(input: CreateDocumentInput) {
 
   if (!space) throw new SpaceNotFoundError(spaceId);
 
-  if (!title || !title.trim()) throw new Error('Title required');
+  if (!title || !title.trim()) throw new Error("Title required");
 
   const slug = slugify(title, { lower: true, strict: true });
   const filePath = `${slug}.md`;
   const id = randomUUID();
 
-  if (parentId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(parentId)) throw new Error('Invalid parentId UUID');
+  if (
+    parentId &&
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      parentId,
+    )
+  )
+    throw new Error("Invalid parentId UUID");
 
   // Écrit le markdown + commit git uniquement si un contenu est fourni.
   if (content) {
     await writeDocument(space.gitRepoPath, filePath, content);
-    await commitFile(space.gitRepoPath, filePath, `Création : ${title}`, authorName, authorEmail);
+    await commitFile(
+      space.gitRepoPath,
+      filePath,
+      `Création : ${title}`,
+      authorName,
+      authorEmail,
+    );
   }
 
-  const [created] = await db
-    .insert(documents)
-    .values({
-      id,
-      spaceId,
-      parentId: parentId || null,
-      title,
-      slug,
-      filePath,
-      visibility: visibility || "team",
-      classification: (classification || space.classification || "internal") as ClassificationLevel,
-      isFolder: false,
-      createdBy,
-      icon: icon || null,
-      contentText: content || null,
-    })
-    .returning();
+  let created;
+  try {
+    [created] = await db
+      .insert(documents)
+      .values({
+        id,
+        spaceId,
+        parentId: parentId || null,
+        title,
+        slug,
+        filePath,
+        visibility: visibility || "team",
+        // Plancher de l'espace : un appelant (automatisme compris) ne crée pas un
+        // document moins classé que son espace, comme les routes REST.
+        classification: enforceClassificationFloor(
+          (classification ||
+            space.classification ||
+            "internal") as ClassificationLevel,
+          (space.classification || "internal") as ClassificationLevel,
+        ),
+        isFolder: false,
+        createdBy,
+        icon: icon || null,
+        contentText: content || null,
+      })
+      .returning();
+  } catch (err) {
+    // L'insertion échoue après l'écriture git : retirer le fichier pour ne pas laisser d'orphelin.
+    if (content)
+      await deleteDocument(space.gitRepoPath, filePath).catch(() => {});
+    throw err;
+  }
 
   // Seed the collaborative state so the editor does not open an empty document.
   if (content) {
     try {
       await seedCollabState(created.id, content);
     } catch (err) {
-      logger.error({ error: String(err), documentId: created.id }, "Failed to seed Yjs state");
+      logger.error(
+        { error: String(err), documentId: created.id },
+        "Failed to seed Yjs state",
+      );
     }
   }
 

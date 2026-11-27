@@ -22,6 +22,14 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 const WEBHOOK_EVENTS = [
   { value: "document.created", label: "Document créé", group: "Documents" },
@@ -76,6 +84,7 @@ export function WebhooksTab() {
   const [spaces, setSpaces] = useState<Space[]>([]);
   const [testing, setTesting] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<WebhookData | null>(null);
   const [toggling, setToggling] = useState<string | null>(null);
   const urlRef = useRef<HTMLInputElement>(null);
 
@@ -223,6 +232,7 @@ export function WebhooksTab() {
   }
 
   async function deleteWebhook(webhookId: string) {
+    setPendingDelete(null);
     setDeleting(webhookId);
     try {
       const res = await fetch(`/api/v1/webhooks/${webhookId}`, {
@@ -570,7 +580,7 @@ export function WebhooksTab() {
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
-                        onClick={() => deleteWebhook(webhook.id)}
+                        onClick={() => setPendingDelete(webhook)}
                         disabled={deleting === webhook.id}
                         title="Supprimer"
                       >
@@ -647,6 +657,39 @@ export function WebhooksTab() {
           </div>
         )}
       </div>
+
+      <Dialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null);
+        }}
+      >
+        <DialogContent showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>Supprimer ce webhook ?</DialogTitle>
+            <DialogDescription>
+              Les événements ne seront plus envoyés à{" "}
+              <span className="font-mono break-all">{pendingDelete?.url}</span>.
+              L&apos;historique des livraisons sera perdu. Cette action est
+              irréversible.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendingDelete(null)}>
+              Annuler
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (pendingDelete) deleteWebhook(pendingDelete.id);
+              }}
+            >
+              <Trash2 aria-hidden="true" />
+              Supprimer le webhook
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -28,6 +28,7 @@ import {
   RenameFolderDialog,
 } from "./folder-dialogs"
 import { QuotaGauge } from "./quota-gauge"
+import { ZipDownloadButton } from "./zip-download-button"
 
 type Props = {
   folders: FolderNode[]
@@ -278,6 +279,9 @@ export function FolderTree({
 
   const writeReason = canWrite ? undefined : t("folders.readOnly")
   const noFolderSelected = activeFolder ? undefined : t("tree.selectFolder")
+  const subtreeCount = (id: string): number =>
+    (folders.find((f) => f.id === id)?.mediaCount ?? 0) +
+    folders.filter((f) => f.parentId === id).reduce((n, f) => n + subtreeCount(f.id), 0)
 
   return (
     <div className="flex h-full flex-col">
@@ -297,6 +301,13 @@ export function FolderTree({
           id="deleteFolder"
           disabledReason={writeReason ?? noFolderSelected}
           onAction={() => setDialog("delete")}
+        />
+        <ZipDownloadButton
+          variant="tree"
+          source={{ folderId: activeFolder?.id ?? "" }}
+          folderName={activeFolder?.name}
+          fileCount={activeFolder ? subtreeCount(activeFolder.id) : 0}
+          disabledReason={noFolderSelected ?? (activeFolder && subtreeCount(activeFolder.id) === 0 ? t("zip.emptyFolder") : undefined)}
         />
       </div>
 

@@ -11,6 +11,7 @@ import {
   AI_USAGE_BADGE_CLASSES,
   AI_USAGE_TYPES_ASSIGNABLE,
   AI_USAGE_TYPES_NOT_ASSIGNABLE,
+  AI_USAGE_DESCRIPTIONS,
   aiUsageLabel,
   aiUsageShortLabel,
   aiUsageOptions,
@@ -87,6 +88,21 @@ describe("complétude des usages IA", () => {
     // sans ligne d'affectation les automatisations tournaient sur le modèle par
     // défaut du fournisseur.
     expect(AI_USAGE_TYPES_ASSIGNABLE).toContain("automation_ai");
+  });
+
+  it("rend « Actions sur les bases » pilotable, libellé et description fixés", () => {
+    expect(aiUsageTypeEnum.enumValues).toContain("chat_database_actions");
+    expect(AI_USAGE_TYPES_ASSIGNABLE).toContain("chat_database_actions");
+    expect(AI_USAGE_LABELS.chat_database_actions).toBe("Actions sur les bases");
+    expect(AI_USAGE_DESCRIPTIONS.chat_database_actions).toBe(
+      "Modèle fiable utilisé quand l'assistant travaille sur les bases",
+    );
+  });
+
+  it("rend « Création » pilotable, libellé fixé", () => {
+    expect(aiUsageTypeEnum.enumValues).toContain("creation");
+    expect(AI_USAGE_TYPES_ASSIGNABLE).toContain("creation");
+    expect(AI_USAGE_LABELS.creation).toBe("Création");
   });
 
   it("restreint les usages de prompt à des usages connus", () => {

@@ -2,6 +2,10 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseClientProfile, resolveIncludedModules } from "./composition";
+import { getAllModuleManifests } from "./registry";
+
+// L'export de l'édition publique retire du registre les modules exclus : leurs gardes sont sans objet.
+const hasStudiovideo = getAllModuleManifests().some((m) => m.id === "studiovideo");
 
 describe("parseClientProfile", () => {
   it("accepte un profil valide", () => {
@@ -50,7 +54,7 @@ describe("resolveIncludedModules", () => {
 
 describe("exclude", () => {
   const base = { client: "x", plan: "enterprise" as const };
-  it("exclude_removes_core_module_after_closure", () => {
+  it.skipIf(!hasStudiovideo)("exclude_removes_core_module_after_closure", () => {
     const set = resolveIncludedModules(parseClientProfile({ ...base, modules: [], exclude: ["studiovideo"] }));
     expect(set.has("studiovideo")).toBe(false);
     for (const id of ["studio", "crm", "ai", "meeting-rooms"]) expect(set.has(id as never)).toBe(true);
@@ -70,7 +74,7 @@ describe("exclude", () => {
       resolveIncludedModules(parseClientProfile({ ...base, modules: ["studio"], exclude: ["studio"] }))
     ).toThrow(/studio/);
   });
-  it("exclude_removes_core_entitlement_module", () => {
+  it.skipIf(!hasStudiovideo)("exclude_removes_core_entitlement_module", () => {
     const set = resolveIncludedModules(parseClientProfile({ client: "x", plan: "free", modules: [], exclude: ["studiovideo"] }));
     expect(set.has("studiovideo")).toBe(false);
     expect(set.has("collab")).toBe(true);

@@ -5,7 +5,7 @@ import { useTranslations } from "next-intl";
 import useSWR from "swr";
 import { canAccessAdminArea } from "@/lib/auth/rbac";
 import { useCrmStatus } from "@/lib/crm/use-crm-status";
-import { Tip } from "@/components/editor/extensions/database-block/row-tip";
+import { CrmNav } from "@/components/crm/nav/crm-nav";
 import type { UserRole, UserCapability } from "@/types";
 import {
   Home,
@@ -21,7 +21,6 @@ import {
   BarChart3,
   Workflow,
   LibraryBig,
-  Briefcase,
   Presentation,
 } from "lucide-react";
 
@@ -48,7 +47,6 @@ export function QuickNav({ pathname, user }: QuickNavProps) {
   const libraryActive = Array.isArray(caps?.modules) && caps.modules.includes("library");
   const crmActive = Array.isArray(caps?.modules) && caps.modules.includes("crm");
   const crmStatus = useCrmStatus(crmActive);
-  const tCrm = useTranslations("crm.nav");
 
   const presentationsActive = caps?.modules?.includes("presentations") ?? false;
 
@@ -157,30 +155,7 @@ export function QuickNav({ pathname, user }: QuickNavProps) {
           {t("library")}
         </Link>
       )}
-      {crmActive && crmStatus?.enabled && (
-        <Link
-          href="/crm"
-          className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors ${
-            pathname.startsWith("/crm")
-              ? "bg-sidebar-accent font-medium"
-              : "hover:bg-sidebar-accent"
-          }`}
-        >
-          <Briefcase className="h-4 w-4" />
-          {tCrm("crm")}
-          {!crmStatus.complete && (
-            <Tip label={tCrm("notConnectedTip")}>
-              <span
-                role="img"
-                aria-label={tCrm("notConnectedAria")}
-                className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500/20 px-1 text-xs font-semibold leading-none text-amber-700 dark:text-amber-300"
-              >
-                !
-              </span>
-            </Tip>
-          )}
-        </Link>
-      )}
+      {crmActive && crmStatus?.enabled && <CrmNav pathname={pathname} status={crmStatus} />}
       <Link
         href="/dashboards"
         className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors ${

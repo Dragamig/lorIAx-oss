@@ -1,6 +1,6 @@
 import { and, count, eq, gt, isNotNull, lt, ne, or } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { media, mediaUsages } from "@/lib/db/schema";
+import { media, mediaUsages, mediaVersions } from "@/lib/db/schema";
 import type { Media } from "@/lib/db/schema";
 import { logActivity } from "@/lib/activity";
 import { auditLog } from "@/lib/audit/log";
@@ -17,6 +17,8 @@ const DEFAULT_BATCH = 50;
 
 export type PurgeReport = {
   purged: number;
+  /** Total des versions effacées avec les médias purgés. */
+  versions: number;
   skipped: number;
   failed: { id: string; error: string }[];
 };
@@ -31,9 +33,9 @@ export class PurgeError extends Error {
 }
 
 /**
- * Une autre ligne `media` (corbeille comprise : une ligne supprimée en douceur
- * référence encore l'objet) porte-t-elle déjà cette clé de stockage ou de
- * miniature ?
+ * Une ligne d'un AUTRE média (`media`, corbeille comprise : une ligne
+ * supprimée en douceur référence encore l'objet, ou `media_versions`) porte-t-elle
+ * déjà cette clé de stockage ou de miniature ?
  */
 async function isKeyShared(tx: DbTx, key: string, excludeId: string): Promise<boolean> {
   const [other] = await tx
@@ -41,7 +43,57 @@ async function isKeyShared(tx: DbTx, key: string, excludeId: string): Promise<bo
     .from(media)
     .where(and(ne(media.id, excludeId), or(eq(media.storageKey, key), eq(media.thumbnailKey, key))))
     .limit(1);
-  return !!other;
+  if (other) return true;
+  const [otherVersion] = await tx
+    .select({ id: mediaVersions.id })
+    .from(mediaVersions)
+    .where(
+      and(
+        ne(mediaVersions.mediaId, excludeId),
+        or(eq(mediaVersions.storageKey, key), eq(mediaVersions.thumbnailKey, key))
+      )
+    )
+    .limit(1);
+  return !!otherVersion;
+}
+
+/**
+ * Parmi ces clés (originaux et miniatures de versions déjà retirées de la
+ * base dans `tx`), celles qu'aucune ligne `media` ni `media_versions` ne
+ * référence plus : seules celles-là peuvent être supprimées de S3.
+ */
+export async function findOrphanVersionKeys(tx: DbTx, keys: string[]): Promise<string[]> {
+  const orphans: string[] = [];
+  for (const key of new Set(keys)) {
+    const [inMedia] = await tx
+      .select({ id: media.id })
+      .from(media)
+      .where(or(eq(media.storageKey, key), eq(media.thumbnailKey, key)))
+      .limit(1);
+    if (inMedia) continue;
+    const [inVersions] = await tx
+      .select({ id: mediaVersions.id })
+      .from(mediaVersions)
+      .where(or(eq(mediaVersions.storageKey, key), eq(mediaVersions.thumbnailKey, key)))
+      .limit(1);
+    if (!inVersions) orphans.push(key);
+  }
+  return orphans;
+}
+
+/**
+ * Suppression S3 APRÈS commit : un échec est journalisé et ignoré (orphelin
+ * plutôt que perte). Les clés viennent de `findOrphanVersionKeys` ou sont des
+ * objets fraîchement écrits par l'appelant.
+ */
+export async function removeVersionObjects(keys: string[], mediaId: string): Promise<void> {
+  for (const key of keys) {
+    try {
+      await deleteFile(key);
+    } catch (err) {
+      logger.warn({ err, mediaId, key }, "Objet S3 orphelin : suppression en échec");
+    }
+  }
 }
 
 async function countUsages(tx: DbTx, mediaId: string): Promise<number> {
@@ -52,7 +104,7 @@ async function countUsages(tx: DbTx, mediaId: string): Promise<number> {
   return Number(r?.n ?? 0);
 }
 
-type Removed = { row: Media; usages: number };
+type Removed = { row: Media; usages: number; versions: number };
 
 /**
  * Seul point de suppression d'objet S3 de la médiathèque. La ligne est
@@ -78,25 +130,30 @@ async function removeMedia(id: string, opts: { purgeCutoff?: Date }): Promise<Re
     if (cutoff && (!row.deletedAt || row.deletedAt.getTime() >= cutoff.getTime())) return null;
 
     const usages = await countUsages(tx, row.id);
-    const keys = [...new Set([row.storageKey, row.thumbnailKey].filter((k): k is string => !!k))];
+    // Les lignes de versions partent en cascade : leurs objets sont collectés avant.
+    const versions = await tx
+      .select({ storageKey: mediaVersions.storageKey, thumbnailKey: mediaVersions.thumbnailKey })
+      .from(mediaVersions)
+      .where(eq(mediaVersions.mediaId, row.id));
+    const keys = [
+      ...new Set(
+        [row.storageKey, row.thumbnailKey, ...versions.flatMap((v) => [v.storageKey, v.thumbnailKey])].filter(
+          (k): k is string => !!k
+        )
+      ),
+    ];
     const orphanKeys: string[] = [];
     for (const key of keys) {
       if (!(await isKeyShared(tx, key, row.id))) orphanKeys.push(key);
     }
     await tx.delete(media).where(eq(media.id, row.id));
-    return { row, usages, orphanKeys };
+    return { row, usages, versions: versions.length, orphanKeys };
   });
   if (!outcome) return null;
 
-  for (const key of outcome.orphanKeys) {
-    try {
-      await deleteFile(key);
-    } catch (err) {
-      logger.warn({ err, mediaId: outcome.row.id, key }, "Objet S3 orphelin : suppression en échec après purge");
-    }
-  }
+  await removeVersionObjects(outcome.orphanKeys, outcome.row.id);
   await refreshQuotaSentinel(outcome.row.organizationId);
-  return { row: outcome.row, usages: outcome.usages };
+  return { row: outcome.row, usages: outcome.usages, versions: outcome.versions };
 }
 
 /** Purge les médias dont le délai de corbeille est échu (par lots, sans jamais lire le contenu). */
@@ -105,7 +162,7 @@ export async function purgeExpiredTrash(opts?: { now?: Date; batch?: number }): 
   const batch = opts?.batch ?? DEFAULT_BATCH;
   const { effectiveDays } = await getTrashRetentionPolicy(now);
   const cutoff = new Date(now.getTime() - effectiveDays * DAY_MS);
-  const report: PurgeReport = { purged: 0, skipped: 0, failed: [] };
+  const report: PurgeReport = { purged: 0, versions: 0, skipped: 0, failed: [] };
 
   let lastId: string | null = null;
   for (;;) {
@@ -130,11 +187,13 @@ export async function purgeExpiredTrash(opts?: { now?: Date; batch?: number }): 
           continue;
         }
         report.purged += 1;
+        report.versions += removed.versions;
         auditLog("media.purge", null, {
           mediaId: removed.row.id,
           filename: removed.row.filename,
           sizeBytes: removed.row.sizeBytes,
           usages: removed.usages,
+          versions: removed.versions,
         });
       } catch (e) {
         report.failed.push({ id, error: e instanceof Error ? e.message : "purge failed" });
@@ -161,6 +220,7 @@ export async function eraseMediaForever(user: SessionUser, orgId: string, id: st
     filename: removed.row.filename,
     sizeBytes: removed.row.sizeBytes,
     usages,
+    versions: removed.versions,
     wasTrashed: removed.row.deletedAt !== null,
   });
   await logActivity({

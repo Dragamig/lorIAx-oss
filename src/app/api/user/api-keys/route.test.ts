@@ -26,7 +26,7 @@ vi.mock("@/lib/db", () => ({
 import { POST } from "./route";
 
 const body = JSON.stringify({ name: "n", scopes: ["search"] });
-const mk = () => new Request("http://x/api/user/api-keys", { method: "POST", body });
+const mk = (b: string = body) => new Request("http://x/api/user/api-keys", { method: "POST", body: b });
 
 describe("POST /api/user/api-keys", () => {
   beforeEach(() => vi.clearAllMocks());
@@ -37,5 +37,17 @@ describe("POST /api/user/api-keys", () => {
     expect(res.status).toBe(200);
     expect(insert).toHaveBeenCalled();
     expect(checkFeature).not.toHaveBeenCalled();
+  });
+
+  it("accepte les portées calendrier exigées par CalDAV", async () => {
+    const res = await POST(mk(JSON.stringify({ name: "n", scopes: ["calendars:read", "calendars:write"] })));
+    expect(res.status).toBe(200);
+    expect(insert).toHaveBeenCalled();
+  });
+
+  it("refuse une portée inconnue", async () => {
+    const res = await POST(mk(JSON.stringify({ name: "n", scopes: ["calendars:admin"] })));
+    expect(res.status).toBe(400);
+    expect(insert).not.toHaveBeenCalled();
   });
 });

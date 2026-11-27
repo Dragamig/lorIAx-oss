@@ -57,6 +57,7 @@ describe.skipIf(!URL)("cloisonnement de l'activation CRM (Postgres)", () => {
   beforeEach(async () => {
     permissionOf.mockClear();
     await fx.pool.query("DELETE FROM crm_connections");
+    await fx.pool.query("DELETE FROM automations");
   });
 
   const existingSpace = (spaceId: string) => ({ mode: "existing" as const, spaceId });
@@ -161,6 +162,32 @@ describe.skipIf(!URL)("cloisonnement de l'activation CRM (Postgres)", () => {
       expect(await snapshot()).toEqual(before);
     } finally {
       spy.mockRestore();
+    }
+  });
+  it("deux organisations : les automatismes d'exemple ne citent aucun id de l'autre", async () => {
+    const roles = { contacts: { mode: "create" as const }, dossiers: { mode: "create" as const }, interactions: { mode: "create" as const } };
+    const spaceB2 = await fx.seedSpace(orgB, { name: "B2", ownerUserId: user });
+    const a = await activateCrm(orgA, user, { v2: { space: existingSpace(spaceA), roles }, ...L }, deps);
+    const b = await activateCrm(orgB, user, { v2: { space: existingSpace(spaceB2), roles }, ...L }, deps);
+    expect(a).toMatchObject({ ok: true });
+    expect(b).toMatchObject({ ok: true });
+    const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
+    const idsOf = async (org: string) => {
+      const [conn] = (await fx.pool.query("SELECT * FROM crm_connections WHERE organization_id = $1", [org])).rows;
+      const dbs = [conn.contacts_database_id, conn.deals_database_id, conn.interactions_database_id];
+      const cols = (await fx.pool.query("SELECT id FROM user_database_columns WHERE database_id = ANY($1)", [dbs])).rows.map((r) => r.id as string);
+      const autos = (await fx.pool.query("SELECT * FROM automations WHERE database_id = $1", [conn.deals_database_id])).rows;
+      return { own: new Set<string>([...dbs, ...cols]), autos };
+    };
+    const A = await idsOf(orgA);
+    const B = await idsOf(orgB);
+    expect(A.autos).toHaveLength(6);
+    expect(B.autos).toHaveLength(6);
+    for (const [mine, other] of [[A, B], [B, A]] as const) {
+      for (const auto of mine.autos) {
+        const cited = JSON.stringify([auto.trigger_config, auto.action_config, auto.graph]).match(UUID_RE) ?? [];
+        expect(cited.every((id) => mine.own.has(id) && !other.own.has(id))).toBe(true);
+      }
     }
   });
 });

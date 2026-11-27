@@ -12,6 +12,7 @@ vi.mock("@/lib/media/usage-sweep", () => ({ runMediaUsageSweep: () => runSweep()
 const purgeExpired = vi.fn(async () => ({ purged: 0, skipped: 0, failed: [] }));
 vi.mock("@/lib/media/purge", () => ({ purgeExpiredTrash: () => purgeExpired() }));
 vi.mock("@/lib/media/notify", () => ({ notifyTrashNearPurge: vi.fn(async () => ({ notified: 0 })) }));
+vi.mock("@/lib/media/multipart", () => ({ abortStaleMultipartUploads: async () => ({ aborted: 0, orphans: 0 }) }));
 vi.mock("@/lib/media/stale-thumbnails", () => ({ trashStaleDesignThumbnails: async () => ({ trashed: 0 }) }));
 const purgeHistory = vi.fn(async () => ({ purged: 0 }));
 vi.mock("@/lib/databases/row-history-purge", () => ({ purgeDeletedRowHistory: () => purgeHistory() }));

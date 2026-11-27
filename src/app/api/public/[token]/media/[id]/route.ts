@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { resolvePublicMediaAccess } from "@/lib/media/access";
 import { serveMediaObject } from "@/lib/media/serve";
+import { contentEtagSeed } from "@/lib/media/etag";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -22,9 +23,11 @@ export async function GET(
     key: row.storageKey,
     mime: row.mimeType,
     filename: row.filename,
-    etagSeed: `${row.id}-${row.updatedAt.getTime()}`,
+    etagSeed: contentEtagSeed(row),
     inline: true,
-    maxAgeSeconds: 60,
+    maxAgeSeconds: 0,
+    revalidate: true,
     cacheScope: "public",
+    renderSvg: true,
   });
 }

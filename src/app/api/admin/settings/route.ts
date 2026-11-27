@@ -9,6 +9,7 @@ import {
 } from "@/lib/auth/rbac";
 import { resolveAllowRegistration } from "@/lib/auth/registration-default";
 import { encrypt } from "@/lib/crypto";
+import { isEmailConfigured } from "@/lib/email/email-configured";
 import { auditLog } from "@/lib/audit/log";
 import { getClientIp } from "@/lib/rate-limit";
 import { isPlainObject, mergeDepthForKey, mergeSettingValue } from "@/lib/settings/merge";
@@ -130,6 +131,27 @@ export async function PUT(request: NextRequest) {
   const existingByKey = new Map<string, unknown>(
     existingRows.map((row) => [row.key, row.value])
   );
+
+  // AZ-27 : l'ouverture de l'inscription exige un envoi d'email opérationnel
+  // (liens de vérification). Seule la transition fermé -> ouvert est refusée.
+  const requestedAuth = (body as { auth?: { allowRegistration?: unknown } }).auth;
+  const storedAuth = existingByKey.get("auth") as
+    | { allowRegistration?: unknown }
+    | null
+    | undefined;
+  if (
+    requestedAuth?.allowRegistration === true &&
+    storedAuth?.allowRegistration !== true &&
+    !(await isEmailConfigured())
+  ) {
+    return NextResponse.json(
+      {
+        error: "Configurez l'envoi d'email avant d'ouvrir l'inscription.",
+        code: "email_not_configured",
+      },
+      { status: 409 }
+    );
+  }
 
   const writtenKeys: string[] = [];
 

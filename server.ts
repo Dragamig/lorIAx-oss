@@ -93,9 +93,21 @@ async function main() {
   // (cron) et « date atteinte » (date_reached). Anti-doublon multi-pod garanti
   // par les verrous advisory de l'executor. Orchestration testée : scheduler-tick.ts.
   const { automationSchedulerTick } = await import("./src/lib/automations/scheduler-tick");
-  new Cron("* * * * *", async () => {
+  // protect : pas de chevauchement de ticks (un SMTP lent ne doit pas empiler les exécutions).
+  new Cron("* * * * *", { protect: true }, async () => {
     await automationSchedulerTick();
   });
+
+  // Mailing : outbox sur sa propre Cron, indépendante des étapes d'automatisme
+  // (une étape lente ne retarde plus les mails). Reprend les `scheduled` échus.
+  const { mailingSchedulerTick } = await import("./src/lib/automations/scheduler-tick");
+  new Cron("* * * * *", { protect: true }, async () => {
+    await mailingSchedulerTick();
+  });
+
+  // Mailing : réarme les minuteries d'envoi différé perdues au redémarrage.
+  const { armTimers: armMailTimers } = await import("./src/lib/mailing/tick");
+  await armMailTimers().catch((err) => console.error("[mailing-arm] Erreur:", err));
 
   // Indexation automatique de la KB d'aide : une passe différée après le boot
   // (fiches livrées par un déploiement), puis chaque nuit à 03:30. Idempotent
@@ -132,6 +144,15 @@ async function main() {
     console.log("[media-purge] Purge planifiée désactivée (MEDIA_PURGE_DISABLED / MEDIA_USAGE_SWEEP=off)");
   } else {
     new Cron("0 4 * * *", async () => { await runMediaPurgeJob(); }, { protect: true });
+  }
+
+  // Indexation IA des médias (extraction, transcription, embeddings) : file en base sur
+  // media_texts, prise toutes les 2 minutes, non réentrante. Coupe-circuit : MEDIA_INDEX_DISABLED=1.
+  const { runMediaIndexJob, isMediaIndexDisabled } = await import("./src/lib/media/ai/index-job");
+  if (isMediaIndexDisabled()) {
+    console.log("[media-index] Indexation IA des médias désactivée (MEDIA_INDEX_DISABLED=1)");
+  } else {
+    new Cron("*/2 * * * *", async () => { await runMediaIndexJob(); }, { protect: true });
   }
 
   // Purge à 30 jours de l'historique des lignes supprimées, chaque nuit à 03:15.

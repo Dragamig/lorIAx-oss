@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { media } from "@/lib/db/schema";
 import { ingestMedia } from "@/lib/media/ingest";
+import { findDuplicates } from "@/lib/media/duplicates";
+import { sha256Hex } from "@/lib/media/image-processing";
 import { studioImageScope, toStudioImage } from "@/lib/media/studio-image";
 import { eq, or, isNull, and } from "drizzle-orm";
 import { requireOrgScoped, OrgScopeError } from "@/lib/auth/require-org-scoped";
@@ -31,7 +33,7 @@ import { validateImageUpload } from "@/lib/images/validate-upload";
  * d'images de l'admin (`src/app/api/admin/images/**`, qui écrit dans la même
  * table). Le SVG reste accepté parce que le logo de marque en SVG est un
  * usage réel du panneau « Marque » et du studio design ; sa neutralisation
- * est posée à la restitution, dans `[id]/route.ts`.
+ * est posée à la restitution, dans `src/lib/media/serve.ts`.
  */
 
 // GET /api/studio/images?spaceId=xxx
@@ -69,7 +71,7 @@ export async function GET(req: NextRequest) {
 
   const images = rows.map((img) => ({
     ...toStudioImage(img),
-    url: `/api/studio/images/${img.id}`,
+    url: `/api/media/${img.id}`,
   }));
 
   return NextResponse.json(images);
@@ -117,6 +119,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: validation.error }, { status: validation.status });
   const { buffer, contentType: declaredType, ext } = validation;
 
+  // Export de design : un contenu identique déjà présent n'est pas recréé (SHA-256).
+  const isExport = formData.get("kind") === "design-export";
+  if (isExport) {
+    const sum = sha256Hex(buffer);
+    const hit = (await findDuplicates(ctx.user, orgId, [sum]))[sum];
+    if (hit) {
+      return NextResponse.json({ id: hit.id, url: `/api/media/${hit.id}`, duplicate: true }, { status: 200 });
+    }
+  }
+
   const uid = randomUUID();
   // Les miniatures de bloc design ont un chemin de clé propre (`design-thumbnails`),
   // critère objectif du ramassage (`stale-thumbnails.ts`) : le nom, lui, se renomme.
@@ -134,7 +146,6 @@ export async function POST(req: NextRequest) {
     orgId,
     spaceId,
     origin: "studio",
-    allowOrgLevel: true,
     storageKey: s3Key,
     displayName: name,
     file: { name: `${uid}.${ext}`, size: file.size, type: declaredType },
@@ -144,7 +155,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: result.error }, { status: result.status });
 
   return NextResponse.json(
-    { ...toStudioImage(result.media), url: `/api/studio/images/${result.media.id}` },
+    {
+      ...toStudioImage(result.media),
+      url: `/api/media/${result.media.id}`,
+      ...(isExport ? { duplicate: false } : {}),
+    },
     { status: 201 }
   );
 }

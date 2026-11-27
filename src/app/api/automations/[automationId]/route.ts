@@ -8,6 +8,9 @@ import { getSetting } from "@/lib/settings/system-settings";
 import { validateActionConfig } from "@/lib/automations/actions/registry";
 import { validateGraph, type AutomationGraph } from "@/lib/automations/automation-graph";
 import { resolvePatchedTriggerConfig } from "@/lib/automations/webhook-inbound";
+import { activationRequiresTallyForm } from "@/lib/automations/tally-activation-guard";
+import { tallyFormRequiredResponse } from "@/lib/automations/tally-activation-response";
+import { validateMediaTriggerConfig } from "@/lib/media/events";
 import { z } from "zod";
 
 type RouteParams = { params: Promise<{ automationId: string }> };
@@ -17,7 +20,7 @@ type RouteParams = { params: Promise<{ automationId: string }> };
 // `triggerType` : manual/webhook_inbound seulement — cron reste hors scope
 // des workflows autonomes (cf. POST ci-dessus). Modifiable via le panneau
 // no-code du canevas (Task 8).
-const triggerSchema = z.enum(["manual", "webhook_inbound"]);
+const triggerSchema = z.enum(["manual", "webhook_inbound", "media_uploaded"]);
 const updateSchema = z.object({
   name: z.string().min(1).max(255).optional(),
   triggerType: triggerSchema.optional(),
@@ -80,6 +83,9 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
   }
 
+  // Activation d'un automatisme Tally sans formulaire choisi : refusée.
+  if (activationRequiresTallyForm(automation, parsed.data)) return tallyFormRequiredResponse();
+
   // Kill-switch global (cohérent avec POST/PATCH base-liés).
   const automationsCfg = await getSetting<{ enabled?: boolean }>("automations");
   if (automationsCfg && automationsCfg.enabled === false) {
@@ -137,6 +143,17 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     regenerate: regenerateWebhookToken,
   });
   if (patchedConfig !== undefined) updateData.triggerConfig = patchedConfig;
+
+  // Déclencheur « média ajouté » : portée validée contre l'organisation et l'accès de l'acteur.
+  const nextTriggerType = rest.triggerType ?? automation.triggerType;
+  if (nextTriggerType === "media_uploaded" && (rest.triggerType !== undefined || rest.triggerConfig !== undefined)) {
+    const checked = await validateMediaTriggerConfig(
+      rest.triggerConfig ?? (rest.triggerType !== automation.triggerType ? {} : automation.triggerConfig),
+      { userId: ctx.user.id, orgId: ctx.orgId }
+    );
+    if (!checked.ok) return NextResponse.json({ error: checked.error }, { status: 400 });
+    updateData.triggerConfig = checked.config;
+  }
 
   const [updated] = await db
     .update(userDatabaseAutomations)

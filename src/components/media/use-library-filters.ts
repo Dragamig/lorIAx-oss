@@ -37,6 +37,8 @@ export type UseLibraryFilters = {
   filters: MediaFilters
   setFilters: (patch: Partial<MediaFilters>) => void
   reset: () => void
+  /** Remplace les filtres courants par ceux d'une chaîne de requête (vue enregistrée) ; tolérant. */
+  applyQuery: (query: string) => void
   hasActiveFilters: boolean
 }
 
@@ -99,6 +101,15 @@ export function useLibraryFilters(): UseLibraryFilters {
     router.replace(pathname)
   }, [router, pathname])
 
+  const applyQuery = useCallback(
+    (query: string) => {
+      pendingQ.current = null
+      clearTimer()
+      write(parseLenient(new URLSearchParams(query.startsWith("?") ? query.slice(1) : query)))
+    },
+    [write]
+  )
+
   const hasActiveFilters =
     filters.view !== "all" ||
     !!filters.q ||
@@ -112,5 +123,5 @@ export function useLibraryFilters(): UseLibraryFilters {
     filters.minSize !== undefined ||
     filters.maxSize !== undefined
 
-  return { filters, setFilters, reset, hasActiveFilters }
+  return { filters, setFilters, reset, applyQuery, hasActiveFilters }
 }

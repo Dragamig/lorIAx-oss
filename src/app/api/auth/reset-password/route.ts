@@ -8,6 +8,7 @@ import { z } from "zod";
 import { createHash } from "crypto";
 import { revokeUserApiKeys, revokeUserSessions } from "@/lib/auth/revoke-sessions";
 import logger from "@/lib/logger";
+import { markVerifiedAfterPasswordReset } from "@/lib/auth/email-verification";
 
 const schema = z.object({
   token: z.string().min(1, "Token requis"),
@@ -82,28 +83,33 @@ export async function POST(request: Request) {
     // Hash new password and update user
     const passwordHash = await bcrypt.hash(password, 12);
 
-    await db
-      .update(users)
-      // AZ-05 : `tokenInvalidatedAt` révoque les sessions ouvertes avant le
-      // changement de mot de passe, comme le fait déjà `force-reset-password`.
-      // Sans lui, un cookie volé survivait 24 h à la réinitialisation.
-      .set({
-        passwordHash,
-        mustResetPassword: false,
-        tokenInvalidatedAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(eq(users.id, resetToken.userId));
+    // One transaction: password change, token consumption and proof of mailbox
+    // ownership succeed or fail together.
+    await db.transaction(async (tx) => {
+      await tx
+        .update(users)
+        // AZ-05 : `tokenInvalidatedAt` révoque les sessions ouvertes avant le
+        // changement de mot de passe, comme le fait déjà `force-reset-password`.
+        // Sans lui, un cookie volé survivait 24 h à la réinitialisation.
+        .set({
+          passwordHash,
+          mustResetPassword: false,
+          tokenInvalidatedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, resetToken.userId));
+
+      await tx
+        .update(passwordResetTokens)
+        .set({ usedAt: new Date() })
+        .where(eq(passwordResetTokens.id, resetToken.id));
+
+      await markVerifiedAfterPasswordReset(tx, resetToken.userId);
+    });
     await revokeUserSessions(resetToken.userId);
     // Un mot de passe réinitialisé suppose un compte potentiellement compromis :
     // les clés d'API lrx_ ne doivent pas lui survivre.
     await revokeUserApiKeys(resetToken.userId);
-
-    // Mark token as used
-    await db
-      .update(passwordResetTokens)
-      .set({ usedAt: new Date() })
-      .where(eq(passwordResetTokens.id, resetToken.id));
 
     return NextResponse.json({
       message: "Mot de passe réinitialisé avec succès.",

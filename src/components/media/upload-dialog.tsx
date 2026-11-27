@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label"
 import type { FolderNode } from "@/lib/media/folders"
 import type { LibraryStats } from "@/lib/media/list"
+import { fetchMultipartConfig } from "./multipart-upload"
 import { isQuotaFull, QuotaBanner } from "./quota-banner"
 import { TagField } from "./tag-field"
 import { UploadItemRow } from "./upload-item-row"
@@ -55,12 +56,22 @@ export function UploadDialog({
   const [folderId, setFolderId] = useState<string>(target.folderId ?? "")
   const [tags, setTags] = useState<string[]>([])
   const [over, setOver] = useState(false)
+  const [largeEnabled, setLargeEnabled] = useState(false)
 
   useEffect(() => {
     if (!open) return
     setSpaceId(target.spaceId ?? "")
     setFolderId(target.folderId ?? "")
   }, [open, target.spaceId, target.folderId])
+
+  useEffect(() => {
+    if (!open) return
+    let live = true
+    void fetchMultipartConfig().then((c) => live && setLargeEnabled(Boolean(c?.enabled)))
+    return () => {
+      live = false
+    }
+  }, [open])
 
   useEffect(() => {
     if (open && initialFiles?.length) setStaged((s) => [...s, ...initialFiles])
@@ -102,7 +113,7 @@ export function UploadDialog({
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>{t("title")}</DialogTitle>
-          <DialogDescription>{t("maxSize")}</DialogDescription>
+          <DialogDescription>{largeEnabled ? `${t("maxSize")}. ${t("largeHint")}` : t("maxSize")}</DialogDescription>
         </DialogHeader>
         <QuotaBanner stats={stats} />
 

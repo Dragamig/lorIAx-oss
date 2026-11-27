@@ -23,7 +23,9 @@ export type UsageType =
   | "help"
   | "voice_note_summary"
   | "voice_note_cleanup"
-  | "rerank";
+  | "rerank"
+  | "chat_database_actions"
+  | "creation";
 
 export interface ResolvedProvider {
   provider: ReturnType<typeof createAnthropic> | ReturnType<typeof createOpenAI> | ReturnType<typeof createMistral>;
@@ -581,6 +583,67 @@ export async function isAiConfiguredForAssistant(): Promise<boolean> {
     process.env.OPENAI_API_KEY ||
     process.env.MISTRAL_API_KEY
   );
+}
+
+async function isAssignmentUsableInOrg(
+  usageType: UsageType,
+  organizationId: ProviderOrgScope,
+): Promise<boolean> {
+  try {
+    const [assignment] = await db
+      .select()
+      .from(aiModelAssignments)
+      .where(eq(aiModelAssignments.usageType, usageType))
+      .limit(1);
+    if (!assignment) return false;
+    const primary = await loadProviderInScope(assignment.providerId, organizationId);
+    if (primary && primary.isEnabled) return true;
+    if (assignment.fallbackProviderId && assignment.fallbackModel) {
+      const fb = await loadProviderInScope(assignment.fallbackProviderId, organizationId);
+      return !!(fb && fb.isEnabled);
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Usage dédié avec repli sur un autre usage : si `usageType` a une assignation
+ * ACTIVE, on le résout ; sinon on résout `fallbackUsage` (même schéma que
+ * l'assistant d'aide qui retombe sur « chat »). Le cloisonnement par
+ * organisation est celui de `resolveProviderForUsageInOrg`. Rend aussi l'usage
+ * effectivement retenu, pour le journal d'utilisation.
+ */
+export async function getLanguageModelForUsageWithFallbackInOrg(
+  usageType: UsageType,
+  fallbackUsage: UsageType,
+  organizationId: ProviderOrgScope,
+): Promise<ResolvedLanguageModel & { usageType: UsageType }> {
+  let effective: UsageType = fallbackUsage;
+  try {
+    const [assignment] = await db
+      .select({ id: aiModelAssignments.id })
+      .from(aiModelAssignments)
+      .where(
+        and(
+          eq(aiModelAssignments.usageType, usageType),
+          eq(aiModelAssignments.isEnabled, true),
+        ),
+      )
+      .limit(1);
+    if (assignment) effective = usageType;
+  } catch (err) {
+    logger.warn({ err, usageType }, "Assignment lookup failed, using fallback usage");
+  }
+  // Assignation dédiée active mais inutilisable pour cette portée (primaire et
+  // repli absents, désactivés ou d'un autre tenant) : repli sur `fallbackUsage`
+  // plutôt que sur le défaut de l'organisation.
+  if (effective === usageType && !(await isAssignmentUsableInOrg(usageType, organizationId))) {
+    effective = fallbackUsage;
+  }
+  const resolved = await getLanguageModelForUsageInOrg(effective, organizationId);
+  return { ...resolved, usageType: effective };
 }
 
 /**

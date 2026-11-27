@@ -36,6 +36,10 @@ export const CLIENT_TABLES = [
   "favorites",
   "activity_log",
   "audit_logs",
+  // Mailing : `mail_accounts.password_enc` n'est jamais en clair (AES-256-GCM, ENCRYPTION_KEY de l'instance) ;
+  // la restauration sur une autre instance exige donc la même clé. Le contenu des mails suit le compte.
+  "mail_accounts",
+  "mail_messages",
 ] as const;
 
 /**

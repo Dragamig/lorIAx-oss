@@ -1,7 +1,17 @@
-import { MAX_UPLOAD_BYTES, maxUploadBytesFor } from "@/lib/media/upload-limits"
+import { MAX_UPLOAD_BYTES, VIDEO_MAX_UPLOAD_BYTES, maxUploadBytesFor } from "@/lib/media/upload-limits"
+import {
+  discardLargeUpload,
+  fetchMultipartConfig,
+  fingerprint,
+  uploadLargeFile,
+  type LargeHooks,
+  type LargeResult,
+  type LargeTarget,
+  type MultipartConfig,
+} from "./multipart-upload"
 
-export type UploadStatus = "queued" | "hashing" | "uploading" | "done" | "duplicate" | "error" | "cancelled"
-export type UploadErrorKind = "format" | "too_large" | "network" | "quota" | "forbidden" | "server"
+export type UploadStatus = "queued" | "hashing" | "uploading" | "paused" | "done" | "duplicate" | "error" | "cancelled"
+export type UploadErrorKind = "format" | "too_large" | "network" | "quota" | "forbidden" | "server" | "interrupted"
 
 export const DUPLICATE_BATCH = 20
 /** Au-delà, le fichier n'est pas haché (mémoire) : pas de test de doublon, envoi direct. */
@@ -22,6 +32,19 @@ export type UploadItem = {
   duplicateOf?: DuplicateInfo
   /** Vrai quand le média existant a été réutilisé sans envoi. */
   reused?: boolean
+  /** Envoi direct par parts (vidéo au-delà du seuil classique). */
+  large?: boolean
+  /** Empreinte de reprise (rapprochement avec un envoi mémorisé). */
+  resumeKey?: string
+  partsDone?: number
+  partsTotal?: number
+  /** Octets par seconde et secondes restantes, estimés sur l'envoi en cours. */
+  speed?: number
+  etaSec?: number
+  /** Instant (ms) du prochain nouvel essai après une coupure réseau. */
+  retryAt?: number
+  /** Assemblage et vérification côté serveur. */
+  verifying?: boolean
 }
 
 export type UploadTarget = { spaceId: string | null; folderId: string | null; tags: string[] }
@@ -34,7 +57,14 @@ export type SendFn = (
   signal: AbortSignal,
 ) => Promise<SendResult>
 
+export type LargeUploadFn = (file: File, target: LargeTarget, hooks: LargeHooks) => Promise<LargeResult>
+
 export type UploadQueueOptions = {
+  /** Identifiant utilisateur : sans lui, pas de reprise mémorisée après rechargement. */
+  userId?: string
+  largeUpload?: LargeUploadFn
+  getConfig?: () => Promise<MultipartConfig | null>
+  discardLarge?: (file: File) => Promise<void>
   concurrency?: number
   send?: SendFn
   hash?: (file: File) => Promise<string>
@@ -45,6 +75,8 @@ export type UploadQueue = {
   add(files: File[], target: UploadTarget): void
   cancel(id: string): void
   retry(id: string): void
+  pause(id: string): void
+  resume(id: string): void
   resolveDuplicate(id: string, choice: "reuse" | "upload"): void
   clearFinished(): void
   subscribe(listener: () => void): () => void
@@ -100,13 +132,34 @@ async function defaultFetchDuplicates(checksums: string[]): Promise<Record<strin
   return data.duplicates ?? {}
 }
 
-type Entry = { item: UploadItem; file: File; target: UploadTarget; controller?: AbortController }
+type Entry = {
+  item: UploadItem
+  file: File
+  target: UploadTarget
+  controller?: AbortController
+  /** Fichier qui dépasse le seuil classique : envoi par parts. */
+  large?: boolean
+}
+
+/** Message d'erreur du client multipart vers le type d'erreur de la file. */
+const LARGE_ERRORS: Record<string, UploadErrorKind> = {
+  quota: "quota",
+  too_large: "too_large",
+  disabled: "too_large",
+  invalid: "format",
+  network: "interrupted",
+}
 
 export function createUploadQueue(opts: UploadQueueOptions = {}): UploadQueue {
   const concurrency = opts.concurrency ?? 3
   const send = opts.send ?? sendWithXhr
   const hash = opts.hash ?? sha256Hex
   const fetchDuplicates = opts.fetchDuplicates ?? defaultFetchDuplicates
+  const largeDeps = { userId: opts.userId }
+  const largeUpload: LargeUploadFn = opts.largeUpload ?? ((f, t, h) => uploadLargeFile(f, t, h, largeDeps))
+  const discardLarge = opts.discardLarge ?? ((f: File) => discardLargeUpload(f, largeDeps))
+  let configPromise: Promise<MultipartConfig | null> | null = null
+  const getConfig = () => (configPromise ??= (opts.getConfig ?? (() => fetchMultipartConfig()))())
 
   const entries: Entry[] = []
   const listeners = new Set<() => void>()
@@ -134,8 +187,13 @@ export function createUploadQueue(opts: UploadQueueOptions = {}): UploadQueue {
     active++
     const controller = new AbortController()
     e.controller = controller
-    e.item = { ...e.item, status: "uploading", progress: 0, error: undefined }
+    // Envoi par parts repris : on garde la progression acquise (les parts reçues sont conservées).
+    e.item = { ...e.item, status: "uploading", progress: e.large ? e.item.progress : 0, error: undefined }
     notify()
+    if (e.large) {
+      await runLarge(e, controller)
+      return
+    }
     try {
       const res = await send(
         e.file,
@@ -163,10 +221,87 @@ export function createUploadQueue(opts: UploadQueueOptions = {}): UploadQueue {
       else fail(e, "network")
     } finally {
       active--
-      e.controller = undefined
+      if (e.controller === controller) e.controller = undefined
       notify()
       pump()
     }
+  }
+
+  const runLarge = async (e: Entry, controller: AbortController) => {
+    const t0 = Date.now()
+    let base: number | null = null
+    try {
+      const res = await largeUpload(
+        e.file,
+        { spaceId: e.target.spaceId, folderId: e.target.folderId, tags: e.target.tags },
+        {
+          signal: controller.signal,
+          onProgress: (sent, total) => {
+            if (e.item.status !== "uploading") return
+            base ??= sent
+            const secs = (Date.now() - t0) / 1000
+            const speed = secs >= 1 ? (sent - base) / secs : undefined
+            e.item = {
+              ...e.item,
+              progress: total > 0 ? sent / total : 0,
+              speed,
+              etaSec: speed && speed > 0 ? Math.ceil((total - sent) / speed) : undefined,
+            }
+            notify()
+          },
+          onPart: (done, total) => {
+            e.item = { ...e.item, partsDone: done, partsTotal: total }
+            notify()
+          },
+          onRetry: (info) => {
+            if (e.item.status !== "uploading") return
+            e.item = { ...e.item, retryAt: info ? Date.now() + info.delayMs : undefined }
+            notify()
+          },
+          onVerify: () => {
+            e.item = { ...e.item, verifying: true, speed: undefined, etaSec: undefined }
+            notify()
+          },
+        },
+      )
+      if (e.item.status === "cancelled" || e.item.status === "paused") return
+      if (res.ok) {
+        e.item = { ...e.item, status: "done", progress: 1, mediaId: res.mediaId }
+      } else if (res.reason === "aborted") {
+        e.item = { ...e.item, status: "cancelled" }
+      } else {
+        const kind = LARGE_ERRORS[res.reason] ?? "server"
+        fail(e, kind, kind === "too_large" ? { limitMb: Math.round(VIDEO_MAX_UPLOAD_BYTES / (1024 * 1024)) } : {})
+        if (res.reason === "quota") stopForQuota()
+      }
+    } catch {
+      if (e.item.status !== "cancelled" && e.item.status !== "paused") fail(e, "interrupted")
+    } finally {
+      e.item = { ...e.item, retryAt: undefined, verifying: undefined, speed: undefined, etaSec: undefined }
+      active--
+      if (e.controller === controller) e.controller = undefined
+      notify()
+      pump()
+    }
+  }
+
+  /** Fichier vidéo au-delà du seuil classique : décision d'après la config serveur. */
+  const classifyLarge = async (e: Entry) => {
+    const cfg = await getConfig()
+    if (e.item.status !== "hashing") return
+    if (cfg?.enabled && e.file.size <= cfg.maxBytes) {
+      e.large = true
+      e.item = {
+        ...e.item,
+        status: "queued",
+        large: true,
+        resumeKey: opts.userId ? fingerprint(opts.userId, e.file) : undefined,
+      }
+    } else {
+      fail(e, "too_large", { limitMb: Math.round((cfg?.enabled ? cfg.maxBytes : VIDEO_MAX_UPLOAD_BYTES) / (1024 * 1024)) })
+    }
+    notify()
+    pump()
   }
 
   const pump = () => {
@@ -229,7 +364,10 @@ export function createUploadQueue(opts: UploadQueueOptions = {}): UploadQueue {
           item: { id: `u${++seq}`, name: file.name, size: file.size, status: "hashing", progress: 0 },
         }
         entries.push(e)
-        if (file.size > maxUploadBytesFor(file)) fail(e, "too_large", { limitMb: limitMbOf(e) })
+        if (file.size > maxUploadBytesFor(file) && file.type.startsWith("video/")) {
+          e.item = { ...e.item, status: "hashing" }
+          void classifyLarge(e)
+        } else if (file.size > maxUploadBytesFor(file)) fail(e, "too_large", { limitMb: limitMbOf(e) })
         else if (file.size > HASH_MAX_BYTES) e.item = { ...e.item, status: "queued" }
         else batch.push(e)
       }
@@ -239,15 +377,33 @@ export function createUploadQueue(opts: UploadQueueOptions = {}): UploadQueue {
     },
     cancel(id) {
       const e = entries.find((x) => x.item.id === id)
-      if (!e || ["done", "error", "cancelled"].includes(e.item.status)) return
-      e.item = { ...e.item, status: "cancelled" }
-      e.controller?.abort()
+      if (!e || ["done", "cancelled"].includes(e.item.status)) return
+      if (e.item.status === "error" && !(e.large && e.item.error?.kind === "interrupted")) return
+      const wasIdle = !e.controller
+      e.item = { ...e.item, status: "cancelled", error: undefined }
+      e.controller?.abort("cancel")
+      // Envoi par parts en pause ou interrompu : rien ne tourne, on supprime côté serveur.
+      if (e.large && wasIdle) void discardLarge(e.file)
       notify()
     },
     retry(id) {
       const e = entries.find((x) => x.item.id === id)
-      if (!e || e.item.status !== "error" || e.item.error?.kind !== "network") return
-      e.item = { ...e.item, status: "queued", error: undefined, progress: 0 }
+      if (!e || e.item.status !== "error" || !["network", "interrupted"].includes(e.item.error?.kind ?? "")) return
+      e.item = { ...e.item, status: "queued", error: undefined, progress: e.large ? e.item.progress : 0 }
+      notify()
+      pump()
+    },
+    pause(id) {
+      const e = entries.find((x) => x.item.id === id)
+      if (!e || !e.large || e.item.status !== "uploading") return
+      e.item = { ...e.item, status: "paused", retryAt: undefined, speed: undefined, etaSec: undefined }
+      e.controller?.abort("pause")
+      notify()
+    },
+    resume(id) {
+      const e = entries.find((x) => x.item.id === id)
+      if (!e || e.item.status !== "paused") return
+      e.item = { ...e.item, status: "queued" }
       notify()
       pump()
     },

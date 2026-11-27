@@ -11,6 +11,7 @@ import type { MediaKind } from "@/lib/db/schema"
 import { serializeMediaFilters, type MediaFilters, type MediaSort } from "@/lib/media/filters"
 import type { FolderNode } from "@/lib/media/folders"
 import { ActionButton } from "./action-button"
+import { SavedViewsMenu } from "./saved-views-menu"
 
 export const MEDIA_KINDS: readonly MediaKind[] = ["image", "pdf", "document", "video", "audio", "archive", "other"]
 const SORTS: readonly MediaSort[] = ["createdAt", "filename", "sizeBytes", "kind", "usageCount"]
@@ -35,6 +36,8 @@ export type FilterBarProps = {
   lockedKinds?: MediaKind[]
   /** Espace imposé par le contexte : le filtre d'espace disparaît. */
   lockedSpace?: boolean
+  /** Fourni : affiche le menu des vues enregistrées (absent dans le sélecteur de médias). */
+  onApplyQuery?: (query: string) => void
 }
 
 const ALL = "__all__"
@@ -106,6 +109,7 @@ export function FilterBar({
   isAdmin = false,
   lockedKinds,
   lockedSpace,
+  onApplyQuery,
 }: FilterBarProps) {
   const t = useTranslations("library.filters")
   const ts = useTranslations("library.sort")
@@ -334,6 +338,10 @@ export function FilterBar({
         >
           {t("unused")}
         </Button>
+
+        {onApplyQuery ? (
+          <SavedViewsMenu filters={filters} folders={folders} tags={tags} isAdmin={isAdmin} onApplyQuery={onApplyQuery} />
+        ) : null}
 
         <div className="ml-auto flex items-center gap-2">
           <FilterSelect

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { serveMediaObject } from "@/lib/media/serve";
 import { guardMediaRead } from "@/lib/media/route-guard";
+import { thumbnailEtagSeed } from "@/lib/media/etag";
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -15,8 +16,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     key: row.thumbnailKey,
     mime: "image/webp",
     filename: `${row.id}.webp`,
-    etagSeed: `${row.id}-thumb-${row.updatedAt.getTime()}`,
+    etagSeed: thumbnailEtagSeed(row),
     inline: true,
-    maxAgeSeconds: 86400,
+    maxAgeSeconds: 0,
+    revalidate: true,
   });
 }

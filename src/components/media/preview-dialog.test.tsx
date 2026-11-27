@@ -11,6 +11,8 @@ import { PreviewDialog } from "./preview-dialog"
 
 afterEach(cleanup)
 
+const tipOf = (name: string) => document.getElementById(screen.getByRole("button", { name }).getAttribute("aria-describedby")!)!.textContent
+
 function Harness({ items, start = 0, onClose = vi.fn() }: { items: ReturnType<typeof makeItems>; start?: number; onClose?: () => void }) {
   const [index, setIndex] = useState<number | null>(start)
   return (
@@ -64,7 +66,7 @@ describe("PreviewDialog", () => {
 
   it("image : balise img sur l'URL du média", () => {
     render(<Harness items={makeItems(1)} />)
-    expect(document.querySelector("img")?.getAttribute("src")).toBe("/api/media/m0")
+    expect(document.querySelector("img")?.getAttribute("src")).toBe("/api/media/m0?v=1")
   })
 
   it("PDF : iframe sur /api/media/<id>", () => {
@@ -107,5 +109,31 @@ describe("PreviewDialog : flèches sur un lecteur", () => {
     expect(screen.getByText("1 sur 3")).toBeTruthy()
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "ArrowRight" })
     expect(screen.getByText("2 sur 3")).toBeTruthy()
+  })
+})
+
+describe("PreviewDialog : entrée Retoucher", () => {
+  const withRetouch = (items: ReturnType<typeof makeItems>, onRetouch = vi.fn(), canWriteSpace = true) =>
+    render(<PreviewDialog items={items} index={0} onIndexChange={vi.fn()} onClose={vi.fn()} onRetouch={onRetouch} canWriteSpace={canWriteSpace} />)
+
+  it("ouvre le retoucheur sur l'image affichée", () => {
+    const onRetouch = vi.fn()
+    withRetouch(makeItems(2), onRetouch)
+    fireEvent.click(screen.getByRole("button", { name: "Retoucher" }))
+    expect(onRetouch).toHaveBeenCalledWith(expect.objectContaining({ id: "m0" }))
+  })
+
+  it("désactivé avec info-bulle pour un SVG et pour un média non image", () => {
+    withRetouch(makeItems(1).map((i) => ({ ...i, mimeType: "image/svg+xml" })))
+    expect(screen.getByRole("button", { name: "Retoucher" }).hasAttribute("disabled")).toBe(true)
+    expect(tipOf("Retoucher")).toMatch(/SVG/)
+    cleanup()
+    withRetouch(makeItems(1).map((i) => ({ ...i, kind: "video" as const, mimeType: "video/mp4" })))
+    expect(tipOf("Retoucher")).toBe("Seules les images se retouchent.")
+  })
+
+  it("désactivé sans droit d'écriture ni espace inscriptible", () => {
+    withRetouch(makeItems(1).map((i) => ({ ...i, canWrite: false })), vi.fn(), false)
+    expect(screen.getByRole("button", { name: "Retoucher" }).hasAttribute("disabled")).toBe(true)
   })
 })

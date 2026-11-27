@@ -77,6 +77,23 @@ describe("validateRole", () => {
     expect(r.complete).toBe(false);
   });
 
+  it("a connection with contact and sens unmapped is still complete", () => {
+    const r = validateRole(
+      "interactions",
+      { date: "d", type: "s", dossier: "r" },
+      [
+        { id: "d", name: "Date", type: "date" },
+        { id: "s", name: "Type", type: "select" },
+        { id: "r", name: "Dossier", type: "relation", targetDatabaseId: "db-dossiers" },
+      ],
+      { dossiers: "db-dossiers", contacts: "db-contacts" },
+    );
+    expect(r.complete).toBe(true);
+    expect(r.fields.contact).toEqual({ state: "none" });
+    expect(r.fields.sens).toEqual({ state: "none" });
+    expect(r.total).toBe(8);
+  });
+
   it("fieldMap avec un champ inconnu : ignoré", () => {
     const r = validateRole("dossiers", { titre: "t", inconnu: "t" }, cols, {});
     expect(r.fields.inconnu).toBeUndefined();

@@ -1,18 +1,13 @@
-import { INCLUDED_MODULE_IDS } from "@/lib/modules/registry.generated";
-import type { ModuleId } from "@/lib/modules/types";
-
 /**
- * Valeur effective de `system_settings.auth.allowRegistration`, selon l'edition.
+ * Valeur effective de `system_settings.auth.allowRegistration`.
  * Source unique partagee par la politique serveur (`registration-policy.ts`) et
  * par la lecture des reglages de l'ecran d'administration.
  *
- * - commerciale (module `commercial` present) : ouverte sauf `false` explicite ;
- * - oss : fermee sauf `true` explicite.
+ * Fermee sauf `true` explicite, dans les deux editions : la fusion de main
+ * (AZ-27, 2026-11-20) a ferme l'inscription par defaut, y compris en
+ * commercial (echec ferme, `isRegistrationOpen`). L'edition oss ajoute en plus
+ * l'exigence d'un super administrateur (`registration-policy.ts`).
  */
-export function resolveAllowRegistration(
-  stored: unknown,
-  includedModuleIds: readonly ModuleId[] = INCLUDED_MODULE_IDS,
-): boolean {
-  const commercial = includedModuleIds.includes("commercial");
-  return commercial ? stored !== false : stored === true;
+export function resolveAllowRegistration(stored: unknown): boolean {
+  return stored === true;
 }

@@ -59,4 +59,18 @@ describe("palette : médiathèque", () => {
     fireEvent.click(item)
     expect(h.push).toHaveBeenCalledWith(mediaHref("m1"))
   })
+
+  it("résultat de contenu : groupe dédié, extrait affiché, ouvre la fiche", async () => {
+    h.search = {
+      results: [],
+      media: [],
+      mediaContent: [{ id: "m9", filename: "contrat.pdf", title: null, spaceName: "Contrats", snippet: "préavis de trois mois" }],
+    }
+    open()
+    fireEvent.change(screen.getByPlaceholderText("shell.commandPalette.placeholder"), { target: { value: "préavis" } })
+    const item = await waitFor(() => screen.getByText("préavis de trois mois"), { timeout: 2000 })
+    expect(screen.getByText("library.search.contentGroup")).toBeTruthy()
+    fireEvent.click(item)
+    expect(h.push).toHaveBeenCalledWith(mediaHref("m9"))
+  })
 })

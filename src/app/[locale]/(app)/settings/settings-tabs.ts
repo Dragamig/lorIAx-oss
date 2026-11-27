@@ -1,4 +1,4 @@
-import { Settings, Key, Webhook, CreditCard } from "lucide-react";
+import { Settings, Key, Webhook, CreditCard, Mail } from "lucide-react";
 import { getClientSlots } from "@/lib/modules/hooks.client";
 
 const ALL_SETTINGS_TABS = [
@@ -6,6 +6,7 @@ const ALL_SETTINGS_TABS = [
   { id: "api-keys", label: "Clés API", icon: Key },
   { id: "webhooks", label: "Webhooks", icon: Webhook },
   { id: "subscription", label: "Abonnement", icon: CreditCard },
+  { id: "mailbox", label: "Ma boîte mail", icon: Mail },
 ] as const;
 
 export type SettingsTabId = (typeof ALL_SETTINGS_TABS)[number]["id"];

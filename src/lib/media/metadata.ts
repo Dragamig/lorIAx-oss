@@ -12,7 +12,8 @@ import {
 import { logActivity } from "@/lib/activity";
 import { checkSpaceWriteAccess } from "@/lib/auth/check-access";
 import { getMediaFull, isOrgAdminOrOwner, resolveMediaAccess } from "@/lib/media/access";
-import { type MediaListItem } from "@/lib/media/list";
+import { getRetouchLinks, type MediaListItem, type RetouchLinks } from "@/lib/media/list";
+import { mediaThumbnailUrl } from "@/lib/media/urls";
 import { MEDIA_TAGS_MAX, ensureTags } from "@/lib/media/tags";
 import type { SessionUser } from "@/types";
 
@@ -29,7 +30,7 @@ export class MetadataError extends Error {
 
 export type MediaOrigin = Media["origin"];
 
-export type MediaDetail = MediaListItem & {
+export type MediaDetail = MediaListItem & RetouchLinks & {
   description: string | null;
   checksumSha256: string | null;
   pageCount: number | null;
@@ -94,7 +95,7 @@ function cleanText(raw: unknown, max: number, label: string): string | null {
 }
 
 async function loadDetail(user: SessionUser, orgId: string, row: Media): Promise<MediaDetail> {
-  const [[extra], tagRows, isAdmin, writeVerdict] = await Promise.all([
+  const [[extra], tagRows, isAdmin, writeVerdict, links] = await Promise.all([
     db
       .select({
         spaceName: spaces.name,
@@ -115,8 +116,10 @@ async function loadDetail(user: SessionUser, orgId: string, row: Media): Promise
       .orderBy(asc(mediaTags.label)),
     isOrgAdminOrOwner(user.id, orgId),
     resolveMediaAccess(user, row, "write", { orgId }),
+    getRetouchLinks(user, orgId, row),
   ]);
   return {
+    ...links,
     id: row.id,
     filename: row.filename,
     title: row.title,
@@ -135,7 +138,8 @@ async function loadDetail(user: SessionUser, orgId: string, row: Media): Promise
     deletedAt: row.deletedAt ? row.deletedAt.toISOString() : null,
     purgeAt: null,
     url: `/api/media/${row.id}`,
-    thumbnailUrl: row.thumbnailKey ? `/api/media/${row.id}/thumbnail` : null,
+    thumbnailUrl: row.thumbnailKey ? mediaThumbnailUrl(row) : null,
+    currentVersion: row.currentVersion,
     usageCount: Number(extra?.usageCount ?? 0),
     tags: tagRows,
     canWrite: writeVerdict.allowed,

@@ -5,6 +5,7 @@ const purge = vi.fn(async () => ({ purged: 2, skipped: 0, failed: [] }));
 const notify = vi.fn(async () => ({ notified: 1 }));
 vi.mock("@/lib/media/purge", () => ({ purgeExpiredTrash: () => purge() }));
 vi.mock("@/lib/media/notify", () => ({ notifyTrashNearPurge: () => notify() }));
+vi.mock("@/lib/media/multipart", () => ({ abortStaleMultipartUploads: async () => ({ aborted: 0, orphans: 0 }) }));
 vi.mock("@/lib/media/stale-thumbnails", () => ({ trashStaleDesignThumbnails: async () => ({ trashed: 0 }) }))
 
 import { POST } from "@/app/api/cron/media-purge/route";

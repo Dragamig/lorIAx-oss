@@ -3,6 +3,7 @@ import {
   dimensionForModel,
   KNOWN_EMBEDDING_DIMENSIONS,
   DEFAULT_EMBEDDING_DIMENSION,
+  requestedEmbeddingDimensions,
 } from "./embedding-dimensions";
 
 describe("dimensionForModel", () => {
@@ -17,8 +18,8 @@ describe("dimensionForModel", () => {
   });
 
   it("résout les modèles Infomaniak", () => {
-    expect(dimensionForModel("qwen3-embedding-8b")).toBe(4096);
-    expect(dimensionForModel("Qwen/Qwen3-Embedding-8B")).toBe(4096);
+    expect(dimensionForModel("qwen3-embedding-8b")).toBe(1024);
+    expect(dimensionForModel("Qwen/Qwen3-Embedding-8B")).toBe(1024);
     expect(dimensionForModel("bge_multilingual_gemma2")).toBe(3584);
     expect(dimensionForModel("mini_lm_l12_v2")).toBe(384);
   });
@@ -49,5 +50,19 @@ describe("dimensionForModel", () => {
   it("expose une table et un défaut cohérents", () => {
     expect(KNOWN_EMBEDDING_DIMENSIONS["mistral-embed"]).toBe(1024);
     expect(DEFAULT_EMBEDDING_DIMENSION).toBe(1024);
+  });
+});
+
+describe("requestedEmbeddingDimensions", () => {
+  it("demande 1024 pour qwen3-embedding-8b, casse et préfixe ignorés", () => {
+    expect(requestedEmbeddingDimensions("qwen3-embedding-8b")).toBe(1024);
+    expect(requestedEmbeddingDimensions("Qwen/Qwen3-Embedding-8B")).toBe(1024);
+  });
+
+  it("ne demande rien pour les autres modèles", () => {
+    expect(requestedEmbeddingDimensions("mistral-embed")).toBeUndefined();
+    expect(requestedEmbeddingDimensions("text-embedding-3-small")).toBeUndefined();
+    expect(requestedEmbeddingDimensions("bge_multilingual_gemma2")).toBeUndefined();
+    expect(requestedEmbeddingDimensions(null)).toBeUndefined();
   });
 });

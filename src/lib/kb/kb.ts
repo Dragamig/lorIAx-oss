@@ -336,9 +336,15 @@ export function formatKbSummary(summary: KbIndexSummary): string {
 /**
  * Indexe la base de connaissances depuis les fichiers Markdown du disque.
  * Indexation incrémentale par hash de contenu : les chunks inchangés sont
- * sautés, les obsolètes et les sources disparues sont supprimés.
+ * sautés (hash identique ET embedding présent), les obsolètes et les sources
+ * disparues sont supprimés. `force` recalcule tous les chunks quel que soit
+ * le hash (réindexation après changement de modèle d'embedding).
  */
-export async function indexKbFromDisk(kbDir?: string): Promise<KbIndexSummary> {
+export async function indexKbFromDisk(
+  kbDir?: string,
+  options: { force?: boolean } = {}
+): Promise<KbIndexSummary> {
+  const force = options.force === true;
   await ensureKbSchema();
 
   const dir =
@@ -373,18 +379,25 @@ export async function indexKbFromDisk(kbDir?: string): Promise<KbIndexSummary> {
     // Chunks existants pour cette source.
     const existingRows = (
       await db.execute(
-        sql`SELECT chunk_index, content_hash FROM kb_chunks WHERE source = ${source}`
+        sql`SELECT chunk_index, content_hash, (embedding IS NOT NULL) AS has_embedding FROM kb_chunks WHERE source = ${source}`
       )
-    ).rows as Array<{ chunk_index: number; content_hash: string }>;
+    ).rows as Array<{
+      chunk_index: number;
+      content_hash: string;
+      has_embedding?: boolean;
+    }>;
+    // Un chunk n'est réutilisable que s'il porte déjà un vecteur.
     const existing = new Map<number, string>(
-      existingRows.map((r) => [Number(r.chunk_index), r.content_hash])
+      existingRows
+        .filter((r) => r.has_embedding === true)
+        .map((r) => [Number(r.chunk_index), r.content_hash])
     );
 
     // Détermine les chunks à (ré)indexer.
     const toIndex: Array<{ index: number; text: string; hash: string }> = [];
     for (let i = 0; i < chunks.length; i++) {
       const hash = hashChunk(chunks[i]);
-      if (existing.get(i) === hash) {
+      if (!force && existing.get(i) === hash) {
         summary.chunksSkipped++;
       } else {
         toIndex.push({ index: i, text: chunks[i], hash });

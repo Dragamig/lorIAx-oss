@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import {
   AlertTriangle,
   Briefcase,
@@ -279,14 +280,45 @@ function BaseList({
 }) {
   const t = useTranslations("crm");
   const pickAction = getCrmAction("activation.pickBase");
-  const PickIcon = pickAction.icon;
+  const groupRef = useRef<HTMLDivElement>(null);
   const status = mode === "connect" ? "compatible" : "almost";
   const list = preview.roles[role].candidates.filter((c) => c.status === status);
   const roleLabel = t(`roles.${role}.label`);
   if (list.length === 0) return <p className="px-1 text-xs text-muted-foreground">{t("activation.tile.noCandidate")}</p>;
+
+  const enabled = list.map((c) => takenBy(c.databaseId, role, state) === null);
+  const checkedIndex = list.findIndex((c) => c.databaseId === state.roles[role].databaseId && enabled[list.indexOf(c)]);
+  // Roving tabindex : seule l'option cochée, à défaut la première utilisable, est atteignable à la tabulation.
+  const tabbable = checkedIndex >= 0 ? checkedIndex : enabled.indexOf(true);
+
+  function move(target: number) {
+    const el = groupRef.current?.querySelectorAll<HTMLElement>('[role="radio"]')[target];
+    onPick(list[target].databaseId);
+    el?.focus();
+  }
+
+  function onKeyDown(e: React.KeyboardEvent, index: number) {
+    const usable = list.map((_, i) => i).filter((i) => enabled[i]);
+    if (usable.length === 0) return;
+    const pos = usable.indexOf(index);
+    let target: number | undefined;
+    if (e.key === "ArrowDown" || e.key === "ArrowRight") target = usable[(pos + 1) % usable.length];
+    else if (e.key === "ArrowUp" || e.key === "ArrowLeft") target = usable[(pos - 1 + usable.length) % usable.length];
+    else if (e.key === "Home") target = usable[0];
+    else if (e.key === "End") target = usable[usable.length - 1];
+    if (target === undefined) return;
+    e.preventDefault();
+    move(target);
+  }
+
   return (
-    <div role="group" aria-label={t(`activation.tile.${mode}GroupAria`, { role: roleLabel })} className="flex flex-col gap-1">
-      {list.map((c) => {
+    <div
+      ref={groupRef}
+      role="radiogroup"
+      aria-label={t(`activation.tile.${mode}GroupAria`, { role: roleLabel })}
+      className="flex flex-col gap-1"
+    >
+      {list.map((c, index) => {
         const by = takenBy(c.databaseId, role, state);
         const on = state.roles[role].databaseId === c.databaseId;
         const score = String(Math.round((c.score / CRM_FIELDS[role].length) * 100));
@@ -298,25 +330,33 @@ function BaseList({
           >
             <button
               type="button"
+              role="radio"
               data-action="activation.pickBase"
-              aria-pressed={on}
+              aria-checked={on}
               aria-disabled={by ? true : undefined}
+              tabIndex={index === tabbable ? 0 : -1}
               aria-label={
                 by
                   ? t("activation.tile.candidateTakenAria", { name: c.name, space: c.spaceName, score, role: byLabel })
                   : t("activation.tile.candidateAria", { name: c.name, space: c.spaceName, score })
               }
               onClick={by ? undefined : () => onPick(c.databaseId)}
-              className="group flex h-[42px] w-full items-center gap-2 rounded-lg border border-border bg-background px-2 text-left text-[13px] outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring aria-pressed:border-ring aria-pressed:bg-accent aria-disabled:cursor-not-allowed aria-disabled:opacity-55 aria-disabled:hover:bg-background"
+              onKeyDown={(e) => onKeyDown(e, index)}
+              className="group flex h-[42px] w-full items-center gap-2 rounded-lg border border-border bg-background px-2 text-left text-[13px] outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring aria-checked:border-ring aria-checked:bg-accent aria-disabled:cursor-not-allowed aria-disabled:opacity-55 aria-disabled:hover:bg-background"
             >
-              {on ? <Check className="size-3.5 shrink-0" aria-hidden="true" /> : <PickIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />}
+              <span
+                aria-hidden="true"
+                className="flex size-4 shrink-0 items-center justify-center rounded-full border border-muted-foreground group-aria-checked:border-foreground"
+              >
+                {on && <span className="size-2 rounded-full bg-foreground" />}
+              </span>
               <span className="min-w-0 flex-1">
                 <b className="block truncate font-semibold">{c.name}</b>
-                <span className="block truncate text-[11px] text-muted-foreground group-aria-pressed:text-foreground">
+                <span className="block truncate text-[11px] text-muted-foreground group-aria-checked:text-foreground">
                   {by ? t("activation.tile.candidateSubTaken", { space: c.spaceName, role: byLabel }) : c.spaceName}
                 </span>
               </span>
-              <Tag tone={Number(score) >= 90 ? "ok" : "plain"} className="group-aria-pressed:text-foreground">{t("activation.tile.score", { score })}</Tag>
+              <Tag tone={Number(score) >= 90 ? "ok" : "plain"} className="group-aria-checked:text-foreground">{t("activation.tile.score", { score })}</Tag>
             </button>
           </Tip>
         );

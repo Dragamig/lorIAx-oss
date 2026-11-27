@@ -53,7 +53,7 @@ export async function GET() {
     .where(and(studioImageScope(orgId), isNull(media.spaceId)))
     .orderBy(media.createdAt);
 
-  const images = rows.map((img) => ({ ...toStudioImage(img), url: `/api/studio/images/${img.id}` }));
+  const images = rows.map((img) => ({ ...toStudioImage(img), url: `/api/media/${img.id}` }));
   return NextResponse.json(images);
 }
 
@@ -97,7 +97,6 @@ export async function POST(req: NextRequest) {
     orgId,
     spaceId: null,
     origin: "studio",
-    allowOrgLevel: true,
     storageKey: s3Key,
     displayName: name,
     file: { name: `${uid}.${ext}`, size: file.size, type: contentType },
@@ -107,7 +106,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: result.error }, { status: result.status });
 
   return NextResponse.json(
-    { ...toStudioImage(result.media), url: `/api/studio/images/${result.media.id}` },
+    { ...toStudioImage(result.media), url: `/api/media/${result.media.id}` },
     { status: 201 }
   );
 }

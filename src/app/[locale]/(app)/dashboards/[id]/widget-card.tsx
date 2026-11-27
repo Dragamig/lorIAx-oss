@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useTranslations, useFormatter } from "next-intl";
 import {
   BarChart,
@@ -12,7 +13,20 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+import { ArrowLeft, ArrowRight, Pencil, Trash2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Hint } from "@/components/ui/hint";
 import type { DashboardWidgetDef, WidgetResult } from "@/lib/dashboards/types";
+
+/** Actions d'édition d'un widget ; `null` pour un lecteur (aucun bouton). */
+export interface WidgetCardActions {
+  onEdit: () => void;
+  onDelete: () => void;
+  /** Absent pour le premier widget. */
+  onMoveBefore?: () => void;
+  /** Absent pour le dernier widget. */
+  onMoveAfter?: () => void;
+}
 
 const COLORS = [
   "#6366f1",
@@ -27,13 +41,11 @@ const COLORS = [
 export function WidgetCard({
   widget,
   result,
-  onEdit,
-  onDelete,
+  actions,
 }: {
   widget: DashboardWidgetDef;
   result: WidgetResult | undefined;
-  onEdit: () => void;
-  onDelete: () => void;
+  actions: WidgetCardActions | null;
 }) {
   const t = useTranslations("dashboards");
   const format = useFormatter();
@@ -43,15 +55,23 @@ export function WidgetCard({
       className={`border rounded-lg p-4 ${widget.size === "full" ? "col-span-2" : "col-span-1"}`}
     >
       <div className="flex items-center justify-between mb-3">
-        <span className="font-medium text-sm">{widget.title}</span>
-        <span className="flex gap-2 text-xs text-neutral-500">
-          <button onClick={onEdit} className="hover:text-foreground">
-            {t("widget.edit")}
-          </button>
-          <button onClick={onDelete} className="hover:text-red-500">
-            {t("widget.delete")}
-          </button>
-        </span>
+        <span className="font-medium text-sm truncate">{widget.title}</span>
+        {actions ? (
+          <span className="flex items-center gap-0.5">
+            <WidgetAction label={t("widget.moveBefore")} onClick={actions.onMoveBefore}>
+              <ArrowLeft aria-hidden="true" />
+            </WidgetAction>
+            <WidgetAction label={t("widget.moveAfter")} onClick={actions.onMoveAfter}>
+              <ArrowRight aria-hidden="true" />
+            </WidgetAction>
+            <WidgetAction label={t("widget.edit")} onClick={actions.onEdit}>
+              <Pencil aria-hidden="true" />
+            </WidgetAction>
+            <WidgetAction label={t("widget.delete")} onClick={actions.onDelete} destructive>
+              <Trash2 aria-hidden="true" />
+            </WidgetAction>
+          </span>
+        ) : null}
       </div>
       {!result ? (
         <div className="h-32 flex items-center justify-center text-sm text-neutral-400">
@@ -101,5 +121,33 @@ export function WidgetCard({
         </ResponsiveContainer>
       )}
     </div>
+  );
+}
+
+function WidgetAction({
+  label,
+  onClick,
+  destructive,
+  children,
+}: {
+  label: string;
+  onClick?: () => void;
+  destructive?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <Hint label={label} disabled={!onClick}>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        aria-label={label}
+        disabled={!onClick}
+        onClick={onClick}
+        className={destructive ? "hover:text-destructive" : undefined}
+      >
+        {children}
+      </Button>
+    </Hint>
   );
 }

@@ -69,10 +69,16 @@ describe("routes d'activation CRM", () => {
     expect((await status(new NextRequest("http://x/api/crm/status"))).status).toBe(404);
   });
   it("activate sans corps : réactive avec l'organisation de la requête", async () => {
-    h.activateResult = { ok: true, reactivated: true, created: [], completed: [], unlinkedRelations: [] };
+    h.activateResult = {
+      ok: true, reactivated: true, created: [], completed: [], unlinkedRelations: [],
+      automationsCreated: ["lostClose"], automationsSkipped: ["wonClose"], statusOptionsAdded: ["Sans suite"],
+    };
     const res = await activate(post());
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ enabled: true, reactivated: true, created: [], completed: [], unlinkedRelations: [] });
+    expect(await res.json()).toEqual({
+      enabled: true, reactivated: true, created: [], completed: [], unlinkedRelations: [],
+      automationsCreated: ["lostClose"], automationsSkipped: ["wonClose"], statusOptionsAdded: ["Sans suite"],
+    });
     expect(h.activateCalls[0].slice(0, 3)).toEqual(["org1", "u1", { bindings: {}, locale: "fr" }]);
   });
   it("activate avec bases : transmet les liaisons", async () => {

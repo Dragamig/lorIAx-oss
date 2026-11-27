@@ -168,6 +168,8 @@ export function RowActivity({ databaseId, rowId, revision, columns, relationData
   }
 
   function actorName(g: RowHistoryGroup): string {
+    // Une écriture de l'assistant porte l'acteur humain ET la source : « Nom via Assistant IA ».
+    if (g.source === "ai" && g.actor?.name) return t("sourceAiActor", { name: g.actor.name });
     if (g.actor?.name) return g.actor.name;
     switch (g.source) {
       case "public_form":
@@ -182,6 +184,8 @@ export function RowActivity({ databaseId, rowId, revision, columns, relationData
         return t("sourceImport");
       case "system":
         return t("sourceSystem");
+      case "ai":
+        return t("sourceAi");
       case "automation":
         return t("sourceAutomation", { name: g.actorLabel ?? "" });
       default:

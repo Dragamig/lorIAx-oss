@@ -49,10 +49,10 @@ beforeEach(() => {
 });
 
 describe("GET /api/admin/settings : inscription ouverte, reglage absent", () => {
-  it("edition commerciale : le formulaire recoit ouvert, et enregistrer sans toucher laisse l'inscription ouverte", async () => {
+  it("edition commerciale : le formulaire recoit ferme (AZ-27), et enregistrer sans toucher laisse l'inscription fermee", async () => {
     h.modules = ["commercial"];
     const body = await (await GET()).json();
-    expect(body.auth.allowRegistration).toBe(true);
+    expect(body.auth.allowRegistration).toBe(false);
 
     // Le formulaire renvoie ce qu'il a lu, interrupteur intact.
     await PUT(
@@ -65,8 +65,8 @@ describe("GET /api/admin/settings : inscription ouverte, reglage absent", () => 
     const stored = h.written.find((w) => w.key === "auth")?.value as {
       allowRegistration: boolean;
     };
-    expect(stored.allowRegistration).toBe(true);
-    expect(resolveAllowRegistration(stored.allowRegistration, ["commercial"])).toBe(true);
+    expect(stored.allowRegistration).toBe(false);
+    expect(resolveAllowRegistration(stored.allowRegistration)).toBe(false);
   });
 
   it("edition oss : le formulaire recoit ferme", async () => {

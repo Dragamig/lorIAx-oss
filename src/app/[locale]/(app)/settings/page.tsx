@@ -29,7 +29,11 @@ import {
   Users,
   Camera,
   ImageIcon,
+  Mail,
+  CalendarSync,
+  ChevronRight,
 } from "lucide-react";
+import { Link } from "@/i18n/routing";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { UserAvatar } from "@/components/ui/user-avatar";
@@ -39,6 +43,7 @@ import { ApiKeysTab } from "./api-keys-tab";
 import { WebhooksTab } from "./webhooks-tab";
 import { getClientSlots } from "@/lib/modules/hooks.client";
 import { getSettingsTabs, type SettingsTabId } from "./settings-tabs";
+import { MailboxSettings } from "@/components/mailing/mailbox-settings";
 import { useOrganization } from "@/lib/org/organization-context";
 
 
@@ -845,6 +850,12 @@ export default function SettingsPage() {
           </div>
         )}
 
+        {activeTab === "mailbox" && (
+          <div className="max-w-5xl mx-auto py-8 px-6">
+            <MailboxSettings />
+          </div>
+        )}
+
         {activeTab === "subscription" && SubscriptionTab && (
           <div className="max-w-2xl mx-auto py-8 px-6">
             <SubscriptionTab
@@ -1043,6 +1054,29 @@ export default function SettingsPage() {
             </p>
           </div>
         </div>
+      </section>
+
+      {/* Synchronisation du calendrier */}
+      <section className="mb-8">
+        <div className="flex items-center gap-2 mb-4">
+          <CalendarSync className="h-5 w-5 text-primary" />
+          <h2 className="text-lg font-semibold">Synchronisation du calendrier</h2>
+        </div>
+        <Link
+          href="/settings/calendar"
+          className="flex items-center gap-4 bg-card border border-border rounded-lg p-6 transition-colors hover:border-primary/40 hover:bg-muted/40"
+        >
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium">
+              Synchroniser avec un autre agenda
+            </p>
+            <p className="text-sm text-muted-foreground mt-1">
+              Retrouvez vos calendriers LorIAx dans Thunderbird, Apple Calendrier,
+              votre téléphone Android ou tout agenda compatible.
+            </p>
+          </div>
+          <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" aria-hidden="true" />
+        </Link>
       </section>
 
       {/* Apparence */}

@@ -112,6 +112,7 @@ describe.skipIf(!URL_)("media:rewrite-collab (base de test)", () => {
     disk: randomUUID(),
     designBare: randomUUID(),
     textUrl: randomUUID(),
+    studio: randomUUID(),
   };
   const repoOf = (spaceId: string) =>
     spaceId === SP_A ? "space-a" : spaceId === SP_B ? "space-b" : spaceId === SP_C ? "space-c" : spaceId === SP_D_NOREPO ? "space-norepo" : "space-d";
@@ -278,6 +279,10 @@ describe.skipIf(!URL_)("media:rewrite-collab (base de test)", () => {
       ydoc: docOf(para([`texte brut ${k("img1.png")} et clé absente ${k("absent2.png")}`])),
     });
     await seedDoc({
+      id: docs.studio, spaceId: SP_A, orgId: ORG_A,
+      ydoc: docOf(el("image", { src: `/api/studio/images/${M_IMG}`, alt: "s" })),
+    });
+    await seedDoc({
       id: docs.orgB, spaceId: SP_B, orgId: ORG_B,
       ydoc: docOf(el("image", { src: `/api/attachments/${SP_B}/secret.png` })),
     });
@@ -305,6 +310,7 @@ describe.skipIf(!URL_)("media:rewrite-collab (base de test)", () => {
     expect(statusOf(res, docs.design)).toBe("rewritten");
     expect(statusOf(res, docs.designBare)).toBe("rewritten");
     expect(statusOf(res, docs.textUrl)).toBe("skip_clean");
+    expect(statusOf(res, docs.studio)).toBe("rewritten");
     expect(statusOf(res, docs.active)).toBe("skip_active");
     expect(statusOf(res, docs.clean)).toBe("skip_clean");
     expect(statusOf(res, docs.guard)).toBe("skipped_guard");

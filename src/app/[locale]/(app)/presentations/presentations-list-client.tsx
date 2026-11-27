@@ -23,6 +23,7 @@ import {
 import { Hint } from "@/components/ui/hint";
 import { ConfirmTemplateDialog } from "@/components/presentations/templates/confirm-template-dialog";
 import { TemplatesExperience } from "@/components/presentations/templates/templates-experience";
+import { SpaceSwitcher } from "@/components/spaces/space-switcher";
 
 interface PresentationRow {
   id: string;
@@ -33,12 +34,15 @@ interface PresentationRow {
 
 export function PresentationsListClient({
   spaceId,
+  spaces = [],
   isAdmin,
   canDelete = true,
 }: {
   spaceId: string;
+  /** Espaces accessibles, pour le sélecteur d'espace (ordre alphabétique). */
+  spaces?: { id: string; name: string }[];
   isAdmin: boolean;
-  /** Droit d'éditeur sur l'espace : sans lui la corbeille est masquée (le DELETE serait refusé). */
+  /** Droit d'éditeur sur l'espace : sans lui la corbeille est masquée et la création désactivée (l'API refuserait). */
   canDelete?: boolean;
 }) {
   const t = useTranslations("presentations");
@@ -123,29 +127,42 @@ export function PresentationsListClient({
 
   return (
     <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <h1 className="text-2xl font-semibold flex items-center gap-2">
           <Presentation className="w-6 h-6" />
           {t("title")}
         </h1>
-        <Hint label={t("newButton")} disabled={creating}>
-          <Button
-            onClick={() => setGalleryOpen(true)}
-            disabled={creating}
-            aria-label={t("newButton")}
-            data-tour="presentations-create"
+        <div className="flex items-center gap-2">
+          {spaces.length > 0 ? (
+            <SpaceSwitcher
+              spaces={spaces}
+              currentSpaceId={spaceId}
+              basePath="/presentations"
+              label={t("spaceLabel")}
+            />
+          ) : null}
+          <Hint
+            label={canDelete ? t("newButton") : t("readOnlyCreate")}
+            disabled={creating || !canDelete}
           >
-            {creating ? (
-              <Loader2
-                className="w-4 h-4 animate-spin mr-2"
-                aria-hidden="true"
-              />
-            ) : (
-              <Plus className="w-4 h-4 mr-2" aria-hidden="true" />
-            )}
-            {t("newButton")}
-          </Button>
-        </Hint>
+            <Button
+              onClick={() => setGalleryOpen(true)}
+              disabled={creating || !canDelete}
+              aria-label={t("newButton")}
+              data-tour="presentations-create"
+            >
+              {creating ? (
+                <Loader2
+                  className="w-4 h-4 animate-spin mr-2"
+                  aria-hidden="true"
+                />
+              ) : (
+                <Plus className="w-4 h-4 mr-2" aria-hidden="true" />
+              )}
+              {t("newButton")}
+            </Button>
+          </Hint>
+        </div>
       </div>
 
       {error && (

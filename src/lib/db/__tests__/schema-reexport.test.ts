@@ -15,4 +15,9 @@ describe("schema reexports", () => {
       .filter((n) => !schemaText.includes(`export * from "./${n}"`));
     expect(missing).toEqual([]);
   });
+
+  it("la table ai_creation_proposals est exposée par schema.ts", async () => {
+    const schema = await import("@/lib/db/schema");
+    expect(schema.aiCreationProposals).toBeDefined();
+  });
 });

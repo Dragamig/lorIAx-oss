@@ -16,7 +16,7 @@ export const step06: StepDef = {
         statut en cliquant sur son étiquette. Les échéances s’affichent à côté du titre.
       </p>
       <p className="mt-2">
-        Le petit compteur à droite de « Tâches », dans la barre latérale, indique en permanence
+        Le petit compteur à droite de « Mes tâches », dans la barre latérale, indique en permanence
         combien de tâches restent ouvertes.
       </p>
     </>

@@ -7,7 +7,10 @@ import { readdirSync, existsSync } from "node:fs";
 import path from "node:path";
 
 vi.mock("@/lib/logger", () => ({
-  default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+  default: (() => {
+    const l = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
+    return { ...l, child: () => l };
+  })(),
 }));
 const work = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/kb/kb-scheduler", () => ({

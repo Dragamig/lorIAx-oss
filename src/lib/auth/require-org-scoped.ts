@@ -172,12 +172,15 @@ async function resolveCurrentOrg(
  */
 export async function requireOrgScoped(
   options: OrgScopeOptions = {},
-  req?: NextRequest
+  req?: NextRequest,
+  identity?: { user: SessionUser; orgId: string }
 ): Promise<OrgScopedContext> {
-  const user = await getSessionUser();
+  // `identity` : session et organisation déjà résolues par l'appelant (ex. outils du chat exécutés pendant
+  // le streaming, où cookies et en-têtes de la requête ne sont plus lisibles). Aucune relecture de session.
+  const user = identity?.user ?? (await getSessionUser());
   if (!user) throw new OrgScopeError(unauthenticated(), "unauthenticated");
 
-  const org = await resolveCurrentOrg(user, req);
+  const org = identity ? { orgId: identity.orgId, orgSlug: "" } : await resolveCurrentOrg(user, req);
   if (!org) throw new OrgScopeError(notFound(), "no-org");
 
   if (!options.resource) {

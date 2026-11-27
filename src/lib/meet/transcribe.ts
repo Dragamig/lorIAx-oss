@@ -59,6 +59,11 @@ export interface TranscriptSegment {
   speaker?: string;
 }
 
+export interface TranscribeOptions {
+  /** Force la diarisation (défaut : valeur de la configuration). */
+  diarize?: boolean;
+}
+
 export interface TranscriptResult {
   text: string;
   segments: TranscriptSegment[];
@@ -71,9 +76,11 @@ export interface TranscriptResult {
  * Uses the OpenAI-compatible endpoint POST /v1/audio/transcriptions.
  */
 export async function transcribeAudio(
-  filePath: string
+  filePath: string,
+  opts: TranscribeOptions = {}
 ): Promise<TranscriptResult> {
   const config = await getWhisperConfig();
+  if (opts.diarize !== undefined) config.diarize = opts.diarize;
   const { apiUrl, model, language } = config;
 
   log.info({ filePath, apiUrl, model, language }, "Starting Faster-Whisper transcription");
@@ -314,7 +321,8 @@ export async function isTranscriptionEnabled(): Promise<boolean> {
  * If Whisper is selected but fails, tries Voxtral as fallback.
  */
 export async function transcribeWithEngine(
-  filePath: string
+  filePath: string,
+  opts: TranscribeOptions = {}
 ): Promise<TranscriptResult> {
   const engine = await getTranscriptionEngine();
   log.info({ engine, filePath }, "Starting transcription with configured engine");
@@ -333,7 +341,7 @@ export async function transcribeWithEngine(
     }
     // Fallback: Whisper
     try {
-      return await transcribeAudio(filePath);
+      return await transcribeAudio(filePath, opts);
     } catch (err) {
       log.error({error: String(err)}, 'Whisper fallback failed');
       throw err;
@@ -342,7 +350,7 @@ export async function transcribeWithEngine(
 
   // Default engine: Whisper
   try {
-    return await transcribeAudio(filePath);
+    return await transcribeAudio(filePath, opts);
   } catch (err) {
     log.warn({ error: String(err), engine: "whisper" }, "Whisper transcription failed, trying Voxtral as fallback");
     // Fallback: try Voxtral if available

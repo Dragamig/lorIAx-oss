@@ -13,6 +13,8 @@ import {
   DEFAULT_EMBEDDING_DIMENSION,
   type EmbeddingActive,
 } from "@/lib/ai/embedding-dimensions";
+import { enqueueMediaIndex } from "@/lib/media/ai/enqueue";
+import { ensureMediaEmbeddingSchema } from "@/lib/media/ai/embedding-schema";
 import { indexDocument } from "@/lib/ai/embeddings";
 import { indexKbFromDisk } from "@/lib/kb/kb";
 import logger from "@/lib/logger";
@@ -29,7 +31,7 @@ import logger from "@/lib/logger";
 const STATUS_KEY = "embedding_reindex_status";
 const PROGRESS_TICK = 5; // persiste la progression tous les N documents
 
-export type ReindexPhase = "idle" | "kb" | "documents" | "done" | "error";
+export type ReindexPhase = "idle" | "kb" | "documents" | "media" | "done" | "error";
 
 export interface ReindexStatus {
   running: boolean;
@@ -41,6 +43,8 @@ export interface ReindexStatus {
   model?: string;
   dimensions?: number;
   error?: string;
+  /** Index actuel (`embedding_active`), absent ou null si aucun index. */
+  current?: EmbeddingActive | null;
 }
 
 export const IDLE_STATUS: ReindexStatus = {
@@ -55,6 +59,11 @@ export const IDLE_STATUS: ReindexStatus = {
 export async function getReindexStatus(): Promise<ReindexStatus> {
   const status = await getSetting<ReindexStatus>(STATUS_KEY);
   return status ?? IDLE_STATUS;
+}
+
+/** Modèle de l'index vectoriel actuel (instance entière), null si aucun. */
+export async function getCurrentEmbeddingIndex(): Promise<EmbeddingActive | null> {
+  return (await getSetting<EmbeddingActive>("embedding_active")) ?? null;
 }
 
 async function setReindexStatus(status: ReindexStatus): Promise<void> {
@@ -147,8 +156,23 @@ async function resolveTarget(): Promise<{
 }
 
 /**
+ * Vide les vecteurs médias de toutes les organisations (invalides après un changement de modèle ou
+ * de dimension). Les organisations désactivées n'ont pas de remise en file ensuite : leurs textes
+ * `done` (sans vecteurs désormais) repassent en `pending` pour être revectorisés à la réactivation.
+ */
+export async function resetMediaEmbeddings(): Promise<void> {
+  await db.execute(sql`DELETE FROM media_embeddings`);
+  await db.execute(
+    sql`UPDATE media_texts SET status = 'pending', attempts = 0, next_attempt_at = now(), locked_at = NULL, updated_at = now()
+        WHERE status = 'done'
+          AND NOT EXISTS (SELECT 1 FROM media_ai_settings s
+                          WHERE s.organization_id = media_texts.organization_id AND s.index_enabled = true)`
+  );
+}
+
+/**
  * Lance la ré-indexation complète (migration colonnes si nécessaire + KB +
- * documents) en suivant la progression dans `system_settings`. Conçue pour être
+ * documents + médias) en suivant la progression dans `system_settings`. Conçue pour être
  * appelée en fire-and-forget par la route admin. Ne lève jamais : toute erreur
  * est consignée dans le statut (`phase: "error"`).
  */
@@ -184,6 +208,13 @@ export async function runEmbeddingReindex(): Promise<void> {
       );
     }
 
+    // Index IA des médias : pose la colonne si absente, puis l'aligne sur la cible.
+    await ensureMediaEmbeddingSchema();
+    const mediaDim = await getColumnVectorDimension("media_embeddings");
+    if (mediaDim !== dimension) {
+      await rebuildEmbeddingColumn("media_embeddings", "idx_media_embeddings_vector", dimension);
+    }
+
     // On fige la dimension active AVANT la ré-indexation pour que les ensure*
     // appelés par indexKbFromDisk/indexDocument utilisent la bonne dimension.
     await setSetting<EmbeddingActive>("embedding_active", {
@@ -193,7 +224,7 @@ export async function runEmbeddingReindex(): Promise<void> {
     });
 
     // 2. Ré-indexation de la base de connaissances.
-    await indexKbFromDisk();
+    await indexKbFromDisk(undefined, { force: true });
 
     // 3. Ré-indexation de tous les documents.
     const rows = await db.select({ id: documents.id }).from(documents);
@@ -232,11 +263,51 @@ export async function runEmbeddingReindex(): Promise<void> {
       }
     }
 
+    // 4. Médias : les vecteurs de l'ancien modèle ou de l'ancienne dimension sont vidés pour toutes
+    //    les organisations (ils sont invalides), puis les médias des organisations dont l'indexation
+    //    est active repassent en file (le texte déjà extrait reste servi jusqu'au succès).
+    await resetMediaEmbeddings();
+    const mediaRows = (
+      await db.execute(
+        sql`SELECT mt.media_id AS id FROM media_texts mt
+            INNER JOIN media_ai_settings s ON s.organization_id = mt.organization_id
+            WHERE s.index_enabled = true`
+      )
+    ).rows as Array<{ id: string }>;
+    const mediaTotal = mediaRows.length;
+    await setReindexStatus({
+      running: true,
+      phase: "media",
+      total: mediaTotal,
+      done: 0,
+      startedAt,
+      finishedAt: null,
+      model: model ?? undefined,
+      dimensions: dimension,
+    });
+    let mediaDone = 0;
+    for (const row of mediaRows) {
+      await enqueueMediaIndex(row.id, "manual");
+      mediaDone++;
+      if (mediaDone % PROGRESS_TICK === 0 || mediaDone === mediaTotal) {
+        await setReindexStatus({
+          running: true,
+          phase: "media",
+          total: mediaTotal,
+          done: mediaDone,
+          startedAt,
+          finishedAt: null,
+          model: model ?? undefined,
+          dimensions: dimension,
+        });
+      }
+    }
+
     await setReindexStatus({
       running: false,
       phase: "done",
-      total,
-      done,
+      total: total + mediaTotal,
+      done: done + mediaDone,
       startedAt,
       finishedAt: new Date().toISOString(),
       model: model ?? undefined,

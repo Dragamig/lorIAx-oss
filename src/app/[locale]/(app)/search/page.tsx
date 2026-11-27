@@ -26,6 +26,14 @@ type MediaHit = {
   matchedOn: "name" | "title" | "alt" | "tag" | "description";
 };
 
+type MediaContentHit = {
+  id: string;
+  filename: string;
+  title: string | null;
+  spaceName: string | null;
+  snippet: string;
+};
+
 type SearchMode = "text" | "ai";
 type SearchScope = "all" | "title" | "content";
 
@@ -35,6 +43,7 @@ export default function SearchPage() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [mediaHits, setMediaHits] = useState<MediaHit[]>([]);
+  const [mediaContentHits, setMediaContentHits] = useState<MediaContentHit[]>([]);
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<SearchMode>("text");
   const [scope, setScope] = useState<SearchScope>("all");
@@ -68,6 +77,7 @@ export default function SearchPage() {
       if (q.length < 2) {
         setResults([]);
         setMediaHits([]);
+        setMediaContentHits([]);
         return;
       }
       abortRef.current?.abort();
@@ -81,10 +91,12 @@ export default function SearchPage() {
         const data = await res.json();
         setResults(data.results || []);
         setMediaHits(Array.isArray(data.media) ? data.media : []);
+        setMediaContentHits(Array.isArray(data.mediaContent) ? data.mediaContent : []);
       } catch {
         if (!controller.signal.aborted) {
           setResults([]);
           setMediaHits([]);
+          setMediaContentHits([]);
         }
       }
       if (!controller.signal.aborted) setLoading(false);
@@ -289,7 +301,7 @@ export default function SearchPage() {
             </div>
           )}
 
-          {!loading && query.length >= 2 && results.length === 0 && mediaHits.length === 0 && (
+          {!loading && query.length >= 2 && results.length === 0 && mediaHits.length === 0 && mediaContentHits.length === 0 && (
             <EmptyState
               icon={SearchIcon}
               title={t("noResults", { query })}
@@ -334,6 +346,40 @@ export default function SearchPage() {
                     </div>
                   </Link>
                 ))}
+              </div>
+            </section>
+          )}
+
+          {mediaContentHits.length > 0 && (
+            <section className="mb-6" aria-label={tLib("search.contentGroup")}>
+              <h2 className="mb-2 text-sm font-medium text-muted-foreground">
+                {tLib("search.contentGroup")}
+              </h2>
+              <div className="space-y-2">
+                {mediaContentHits.map((m) => {
+                  const name = m.title || m.filename;
+                  const label = tLib("search.contentOpen", { name });
+                  return (
+                    <Link
+                      key={m.id}
+                      href={`/mediatheque?id=${encodeURIComponent(m.id)}`}
+                      aria-label={label}
+                      title={label}
+                      className="flex items-start gap-3 p-3 rounded-lg border border-border hover:border-primary/30 hover:bg-muted/50 transition-all"
+                    >
+                      <FileText className="h-5 w-5 text-primary flex-shrink-0 mt-0.5" aria-hidden="true" />
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium truncate">{name}</p>
+                        <p className="text-sm text-muted-foreground line-clamp-2">
+                          <Highlight text={m.snippet} term={query} />
+                        </p>
+                        {m.spaceName && (
+                          <p className="text-xs text-muted-foreground truncate">{m.spaceName}</p>
+                        )}
+                      </div>
+                    </Link>
+                  );
+                })}
               </div>
             </section>
           )}

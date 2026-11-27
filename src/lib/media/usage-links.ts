@@ -8,6 +8,7 @@ import {
   spaces,
   userDatabaseRows,
   userDatabases,
+  whiteboardSnapshots,
   type MediaUsageSource,
   type MediaUsageTarget,
 } from "@/lib/db/schema";
@@ -107,6 +108,25 @@ async function classifyUsages(
     for (const k of found) kits.add(k.id);
   }
 
+  // Le tableau blanc est identifié par son canvasId (texte) ; il se lit comme le document qui le porte.
+  const boardIds = [...new Set(rows.filter((r) => r.targetType === "whiteboard").map((r) => r.targetId))];
+  const boards = new Map<string, { documentId: string; spaceId: string; spaceSlug: string; orgId: string }>();
+  if (boardIds.length > 0) {
+    const found = await db
+      .select({
+        canvasId: whiteboardSnapshots.canvasId,
+        documentId: documents.id,
+        spaceId: documents.spaceId,
+        spaceSlug: spaces.slug,
+        orgId: spaces.organizationId,
+      })
+      .from(whiteboardSnapshots)
+      .innerJoin(documents, eq(documents.id, whiteboardSnapshots.documentId))
+      .innerJoin(spaces, eq(spaces.id, documents.spaceId))
+      .where(inArray(whiteboardSnapshots.canvasId, boardIds));
+    for (const b of found) boards.set(b.canvasId, b);
+  }
+
   const spaceCache = new Map<string, Promise<boolean>>();
   const canReadSpace = (spaceId: string | null): Promise<boolean> => {
     if (!spaceId) return Promise.resolve(false);
@@ -157,6 +177,17 @@ async function classifyUsages(
           return (await canReadSpace(r.spaceId))
             ? { ...base, title: "Projet vidéo", href: `/video-editor/${r.targetId}` }
             : null;
+        case "whiteboard": {
+          const b = boards.get(r.targetId);
+          if (!b || b.orgId !== orgId) return null;
+          let p = docCache.get(b.documentId);
+          if (!p) {
+            p = checkDocumentViewAccess(user, b.spaceId, b.documentId);
+            docCache.set(b.documentId, p);
+          }
+          if (!(await p)) return null;
+          return { ...base, title: "Tableau blanc", href: `/s/${b.spaceSlug}/${b.documentId}` };
+        }
         case "presentation":
           return (await canReadSpace(r.spaceId))
             ? { ...base, title: "Présentation", href: "/s" }

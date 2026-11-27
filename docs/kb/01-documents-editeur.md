@@ -44,7 +44,6 @@ Blocs avancés également accessibles via `/` :
 - **Tableur** : feuilles de calcul avec formules et graphiques.
 - **Tableau blanc** : canvas infini (formes, flèches, texte).
 - **Studio** : maquette de design (canvas type Canva).
-- **Montage vidéo** : éditeur vidéo intégré.
 - **Mind map** : carte mentale interactive.
 - **Carte** : carte géographique avec marqueurs et itinéraires.
 - **Calendrier**, **Événement**, **Réunion** (visio) et **Réunion présentielle** (dictaphone avec transcription).

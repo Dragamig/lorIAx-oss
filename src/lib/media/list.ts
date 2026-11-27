@@ -8,6 +8,7 @@ import {
 } from "@/lib/auth/check-access";
 import { getHooks } from "@/lib/modules/hooks";
 import { isOrgAdminOrOwner } from "@/lib/media/access";
+import { notDesignThumbnail } from "@/lib/media/design-thumbnail-key";
 import { getLibrarySettings } from "@/lib/media/library-settings";
 import { getOrgStorageUsedBytes } from "@/lib/media/quota";
 import {
@@ -17,6 +18,7 @@ import {
   type MediaFilters,
   type MediaSort,
 } from "@/lib/media/filters";
+import { mediaThumbnailUrl } from "@/lib/media/urls";
 import type { SessionUser } from "@/types";
 
 export type MediaListItem = {
@@ -42,12 +44,28 @@ export type MediaListItem = {
   affectedCount?: number;
   url: string;
   thumbnailUrl: string | null;
+  /** Version courante : clé de rafraîchissement des vignettes et de l'aperçu. */
+  currentVersion: number;
   usageCount: number;
   tags: { id: string; label: string }[];
   canWrite: boolean;
   /** Utilisé dans un document dont un lien public est actif. */
   publicShared: boolean;
 };
+
+/** Lien d'un dérivé vers son original : le nom n'est jamais divulgué si l'original n'est pas lisible. */
+export type RetouchSource =
+  | { readable: true; id: string; name: string; version: number }
+  | { readable: false };
+
+export type RetouchLinks = {
+  /** Nul : pas un dérivé, ou original supprimé (aucune ligne à afficher). */
+  retouchedFrom: RetouchSource | null;
+  /** Retouches lisibles de l'original seulement (jamais un décompte incluant des médias invisibles). */
+  retouches: { id: string; name: string; thumbnailUrl: string | null }[];
+};
+
+export const RETOUCHES_LISTED_MAX = 50;
 
 export type LibraryStats = {
   total: number;
@@ -104,6 +122,15 @@ export async function visibleMediaCondition(
 
   const branch = scope === "live" ? live : scope === "trash" ? trash : or(live, trash)!;
   return and(eq(media.organizationId, orgId), branch)!;
+}
+
+/** Visibilité + exclusion des miniatures techniques de design (liste, compteurs, recherche, sélecteur). */
+export async function listableMediaCondition(
+  user: SessionUser,
+  orgId: string,
+  scope: VisibilityScope = "any"
+): Promise<SQL> {
+  return and(await visibleMediaCondition(user, orgId, scope), notDesignThumbnail())!;
 }
 
 /** Valeur de tri : horodatage en millisecondes entières (le curseur est exact). */
@@ -189,7 +216,7 @@ export async function listMedia(
 ): Promise<{ items: MediaListItem[]; nextCursor: string | null }> {
   const spec = sortSpec(f.sort);
   const cursor = cursorCondition(f, spec);
-  const visible = await visibleMediaCondition(user, orgId, f.view === "trash" ? "trash" : "live");
+  const visible = await listableMediaCondition(user, orgId, f.view === "trash" ? "trash" : "live");
   const where = and(visible, ...filterConditions(user, f), cursor ?? undefined);
   const dirFn = f.dir === "asc" ? asc : desc;
 
@@ -212,6 +239,7 @@ export async function listMedia(
       createdAt: media.createdAt,
       deletedAt: media.deletedAt,
       thumbnailKey: media.thumbnailKey,
+      currentVersion: media.currentVersion,
       usageCount: USAGE_COUNT,
       publicShared: PUBLIC_SHARED,
       sortValue: spec.expr,
@@ -273,7 +301,8 @@ export async function listMedia(
     purgeAt: inTrash && r.deletedAt ? new Date(r.deletedAt.getTime() + retentionMs).toISOString() : null,
     ...(inTrash ? { affectedCount: Number(r.usageCount) } : {}),
     url: `/api/media/${r.id}`,
-    thumbnailUrl: r.thumbnailKey ? `/api/media/${r.id}/thumbnail` : null,
+    thumbnailUrl: r.thumbnailKey ? mediaThumbnailUrl({ id: r.id, currentVersion: r.currentVersion }) : null,
+    currentVersion: r.currentVersion,
     usageCount: Number(r.usageCount),
     tags: tagsByMedia.get(r.id) ?? [],
     publicShared: !!r.publicShared,
@@ -288,8 +317,8 @@ export async function listMedia(
 
 export async function getLibraryStats(user: SessionUser, orgId: string): Promise<LibraryStats> {
   const [live, trash] = await Promise.all([
-    visibleMediaCondition(user, orgId, "live"),
-    visibleMediaCondition(user, orgId, "trash"),
+    listableMediaCondition(user, orgId, "live"),
+    listableMediaCondition(user, orgId, "trash"),
   ]);
 
   const [counts] = await db
@@ -343,5 +372,58 @@ export async function getLibraryStats(user: SessionUser, orgId: string): Promise
     usedBytes,
     limitBytes,
     percent,
+  };
+}
+
+
+/** « Retouché depuis » et « Retouches » d'un média, filtrés par ce que `user` peut lire. */
+export async function getRetouchLinks(
+  user: SessionUser,
+  orgId: string,
+  row: { id: string; sourceMediaId: string | null },
+): Promise<RetouchLinks> {
+  const visible = await listableMediaCondition(user, orgId, "live");
+  const [source, derived] = await Promise.all([
+    row.sourceMediaId
+      ? db
+          .select({
+            id: media.id,
+            name: sql<string>`coalesce(${media.title}, ${media.filename})`,
+            version: media.currentVersion,
+            deletedAt: media.deletedAt,
+            organizationId: media.organizationId,
+            readable: sql<boolean>`(${visible})`,
+          })
+          .from(media)
+          .where(eq(media.id, row.sourceMediaId))
+          .limit(1)
+      : Promise.resolve([]),
+    db
+      .select({
+        id: media.id,
+        name: sql<string>`coalesce(${media.title}, ${media.filename})`,
+        thumbnailKey: media.thumbnailKey,
+        currentVersion: media.currentVersion,
+        filename: media.filename,
+      })
+      .from(media)
+      .where(and(eq(media.sourceMediaId, row.id), eq(media.organizationId, orgId), visible))
+      .orderBy(desc(media.createdAt))
+      .limit(RETOUCHES_LISTED_MAX),
+  ]);
+  const src = source[0];
+  let retouchedFrom: RetouchSource | null = null;
+  if (src && !src.deletedAt && src.organizationId === orgId) {
+    retouchedFrom = src.readable
+      ? { readable: true, id: src.id, name: src.name, version: src.version }
+      : { readable: false };
+  }
+  return {
+    retouchedFrom,
+    retouches: derived.map((d) => ({
+      id: d.id,
+      name: d.name,
+      thumbnailUrl: d.thumbnailKey ? mediaThumbnailUrl({ id: d.id, currentVersion: d.currentVersion }) : null,
+    })),
   };
 }

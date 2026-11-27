@@ -4,6 +4,7 @@ import { asc, eq } from "drizzle-orm";
 import { dashboards, dashboardWidgets, userDatabases } from "@/lib/db/schema";
 import { getSessionUser } from "@/lib/auth/get-user";
 import { getAccessibleSpaceIds } from "@/lib/auth/check-access";
+import { canEditSpace } from "@/lib/auth/can-edit-space";
 import { DashboardClient } from "./dashboard-client";
 import type { DashboardWidgetDef } from "@/lib/dashboards/types";
 
@@ -31,17 +32,25 @@ export default async function DashboardPage({
     .where(eq(dashboardWidgets.dashboardId, id))
     .orderBy(asc(dashboardWidgets.position));
 
-  const bases = await db
-    .select({ id: userDatabases.id, name: userDatabases.name })
-    .from(userDatabases)
-    .where(eq(userDatabases.spaceId, d.spaceId))
-    .orderBy(asc(userDatabases.name));
+  // Même juge que les écritures de l'API (éditeur sur l'espace du tableau de
+  // bord) : un lecteur consulte, sans bouton qui échouerait.
+  const canEdit = await canEditSpace(d.spaceId);
+
+  // Bases proposées comme source de widget : utiles au seul éditeur.
+  const bases = canEdit
+    ? await db
+        .select({ id: userDatabases.id, name: userDatabases.name })
+        .from(userDatabases)
+        .where(eq(userDatabases.spaceId, d.spaceId))
+        .orderBy(asc(userDatabases.name))
+    : [];
 
   return (
     <DashboardClient
       dashboard={d}
       initialWidgets={widgets as DashboardWidgetDef[]}
       bases={bases}
+      canEdit={canEdit}
     />
   );
 }

@@ -63,7 +63,7 @@ describe("GET /api/media/[id]", () => {
     const { GET } = await import("@/app/api/media/[id]/route");
     expect((await GET(req(), params)).status).toBe(200);
     expect(h.serve).toHaveBeenCalledWith(
-      expect.objectContaining({ key: "s/a.png", inline: true, maxAgeSeconds: 300 })
+      expect.objectContaining({ key: "s/a.png", inline: true, maxAgeSeconds: 0, revalidate: true })
     );
   });
 });
@@ -79,7 +79,7 @@ describe("GET /api/media/[id]/thumbnail", () => {
     const { GET } = await import("@/app/api/media/[id]/thumbnail/route");
     await GET(req(), params);
     expect(h.serve).toHaveBeenCalledWith(
-      expect.objectContaining({ key: row.thumbnailKey, mime: "image/webp", maxAgeSeconds: 86400 })
+      expect.objectContaining({ key: row.thumbnailKey, mime: "image/webp", maxAgeSeconds: 0, revalidate: true })
     );
   });
 });

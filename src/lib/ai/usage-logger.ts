@@ -5,7 +5,7 @@ import logger from "@/lib/logger";
 interface LogAIUsageParams {
   userId: string;
   teamId?: string;
-  providerId: string;
+  providerId: string | null;
   model: string;
   usageType:
     | "chat"
@@ -19,7 +19,9 @@ interface LogAIUsageParams {
     | "help"
     | "voice_note_summary"
     | "voice_note_cleanup"
-    | "rerank";
+    | "chat_database_actions"
+    | "rerank"
+    | "creation";
   tokensIn?: number;
   tokensOut?: number;
   latencyMs?: number;
@@ -42,7 +44,7 @@ export function logAIUsage(params: LogAIUsageParams): void {
     .values({
       userId: params.userId,
       teamId: params.teamId,
-      providerId: params.providerId,
+      providerId: params.providerId ?? undefined,
       model: params.model,
       usageType: params.usageType,
       tokensIn: params.tokensIn,

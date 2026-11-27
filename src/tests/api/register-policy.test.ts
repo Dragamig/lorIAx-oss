@@ -86,9 +86,11 @@ describe("getRegistrationRefusal, edition oss", () => {
 });
 
 describe("getRegistrationRefusal, edition commerciale", () => {
-  it("parcours d'avant l'edition oss : ouverte sans reglage, sans super admin, assistant non termine", async () => {
-    expect(await getRegistrationRefusal(COMMERCIAL)).toBeNull();
+  it("fermee sans reglage explicite (AZ-27 de main), mais sans exigence de super admin ni d'assistant termine", async () => {
+    expect((await getRegistrationRefusal(COMMERCIAL))?.status).toBe(403);
     h.settings = [{ key: "auth", value: { defaultRole: "editor" } }];
+    expect((await getRegistrationRefusal(COMMERCIAL))?.status).toBe(403);
+    h.settings = [{ key: "auth", value: { allowRegistration: true } }];
     expect(await getRegistrationRefusal(COMMERCIAL)).toBeNull();
   });
 

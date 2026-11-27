@@ -1,0 +1,9 @@
+export const QUERY_DEFAULT_LIMIT = 50;
+export const QUERY_MAX_LIMIT = 200;
+export const DUPLICATE_SCAN_MAX_ROWS = 20000;
+export const PROPOSAL_MAX_ROWS = 100;
+export const PROPOSAL_TTL_MS = 86_400_000;
+export const CLOSED_RETENTION_DAYS = 30;
+export const CHAT_MAX_STEPS = 6;
+export const CELL_MAX_CHARS = 2000;
+export const QUERY_MAX_RESULT_CHARS = 60_000;

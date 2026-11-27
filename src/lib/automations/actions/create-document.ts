@@ -20,6 +20,9 @@ import {
   createSpreadsheetDocument,
   ParentDocumentNotFoundError,
 } from "@/lib/documents/create-spreadsheet-document";
+import { extractDemandLinesFromBody } from "@/lib/crm/demand-lines-ai";
+import { isTallyBody } from "@/lib/crm/demand-lines";
+import type { DemandLine } from "@/lib/spreadsheet/demand-workbook";
 import { db } from "@/lib/db";
 import { spaces } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
@@ -30,6 +33,8 @@ const configSchema = z.object({
   // Mode : document classique (défaut) ou tableur de demande (classeur Lignes +
   // Exigences vide, créé depuis le gabarit). Le mode tableur ignore templateId.
   kind: z.enum(["document", "demand_workbook"]).optional(),
+  // Mode tableur : remplit les lignes depuis la réponse Tally reçue (défaut : oui, si le corps est Tally).
+  extractLines: z.boolean().optional(),
   // Override de l'espace cible (interpolable). Défaut : espace du contexte.
   spaceId: z.string().optional(),
   // Template source (builtin_ ou id BDD). Si absent : document vide.
@@ -101,6 +106,18 @@ export const createDocumentAction: ActionDefinition = {
     if (cfg.kind === "demand_workbook") {
       const authorName = ctx.user?.name ?? "LorIAx Workflow";
       const authorEmail = ctx.user?.email ?? "workflow@loriax.local";
+      let lines: DemandLine[] = [];
+      const warnings: string[] = [];
+      const body = ctx.variables?.body;
+      if (cfg.extractLines !== false && isTallyBody(body)) {
+        try {
+          const ex = await extractDemandLinesFromBody(body, automation);
+          lines = ex.lines;
+          warnings.push(...ex.warnings);
+        } catch (err) {
+          warnings.push(`Extraction des lignes impossible : ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
       let result;
       try {
         result = await createSpreadsheetDocument({
@@ -112,6 +129,7 @@ export const createDocumentAction: ActionDefinition = {
           authorName,
           authorEmail,
           activitySource: "automation",
+          ...(lines.length ? { workbook: { lines } } : {}),
         });
       } catch (err) {
         if (err instanceof ParentDocumentNotFoundError) {
@@ -127,6 +145,7 @@ export const createDocumentAction: ActionDefinition = {
         .limit(1);
       return {
         createdDocument: demandDocumentOutput(document.id, document.title, space?.slug ?? ""),
+        ...(warnings.length ? { warnings } : {}),
       };
     }
     let content: string | undefined;

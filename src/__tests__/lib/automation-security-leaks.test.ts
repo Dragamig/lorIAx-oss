@@ -33,6 +33,7 @@ vi.mock("@/lib/auth/require-org-scoped", () => ({
 vi.mock("@/lib/auth/rbac", () => ({ canManageAutomations: (...a: unknown[]) => canManage(...(a as [])) }));
 vi.mock("@/lib/settings/system-settings", () => ({ getSetting: vi.fn(async () => null) }));
 vi.mock("@/lib/automations/actions/registry", () => ({ validateActionConfig: vi.fn() }));
+vi.mock("@/lib/media/events", () => ({ validateMediaTriggerConfig: vi.fn(async (c: unknown) => ({ ok: true, config: c })) }));
 
 vi.mock("@/lib/rate-limit", () => ({ checkRateLimitAsync: (...a: unknown[]) => rate(...(a as [])) }));
 vi.mock("@/lib/automations/executor", () => ({

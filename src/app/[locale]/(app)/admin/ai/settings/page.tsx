@@ -26,6 +26,8 @@ import { Label } from "@/components/ui/label";
 import { Link } from "@/i18n/routing";
 import { ModuleActivationNotice } from "@/components/admin/module-activation-notice";
 import { AdminSaveBar } from "@/components/admin/floating-save-button";
+import { DEFAULT_CHAT_ACTIONS, type ChatActionsSettings } from "@/lib/ai/chat-actions-settings-shared";
+import { ChatActionsSection } from "./chat-actions-section";
 
 // --- Types ---
 
@@ -239,6 +241,25 @@ function HealthBadge({ result }: { result?: HealthResult }) {
   );
 }
 
+/** Remplace la part « actions du chat » d'un snapshot sérialisé (l'ordre des clés est conservé). */
+function withChatActions(snapshot: string, value: ChatActionsSettings | null): string {
+  const parsed = JSON.parse(snapshot) as Record<string, unknown>;
+  parsed.chatActions = value;
+  return JSON.stringify(parsed);
+}
+
+async function putChatActions(value: ChatActionsSettings): Promise<void> {
+  const res = await fetch("/api/admin/ai/chat-actions", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(value),
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(data.error || "Erreur lors de l'enregistrement des actions de l'assistant IA");
+  }
+}
+
 // --- Main component ---
 
 /**
@@ -293,6 +314,12 @@ export default function AdminAISettingsPage() {
   // Un modèle est-il assigné à l'usage « rerank » ? Détermine l'avertissement
   // sous le bloc Reclassement. `true` par défaut pour éviter un flash.
   const [rerankAssigned, setRerankAssigned] = useState(true);
+  // Actions de l'assistant IA du chat (réglage de l'organisation, route dédiée).
+  // `null` = non lu : l'écran n'offre alors rien à l'édition et ne l'enregistre pas.
+  const [chatActions, setChatActions] = useState<ChatActionsSettings | null>(null);
+  const [chatActionsError, setChatActionsError] = useState<string | null>(null);
+  // Lecture du réglage terminée (réussie ou non) : le snapshot de référence l'attend.
+  const [chatActionsSettled, setChatActionsSettled] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -313,6 +340,7 @@ export default function AdminAISettingsPage() {
         retention,
         helpAssistantEnabled,
         rerank,
+        chatActions,
       }),
     [
       rolePermissions,
@@ -324,6 +352,7 @@ export default function AdminAISettingsPage() {
       retention,
       helpAssistantEnabled,
       rerank,
+      chatActions,
     ]
   );
   const isDirty = pristine !== null && pristine !== currentSnapshot;
@@ -387,15 +416,34 @@ export default function AdminAISettingsPage() {
     }
   }, []);
 
+  const loadChatActions = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/ai/chat-actions");
+      if (!res.ok) throw new Error(String(res.status));
+      const data = (await res.json()) as Partial<ChatActionsSettings>;
+      const loaded = { ...DEFAULT_CHAT_ACTIONS, ...data };
+      setChatActions(loaded);
+      setChatActionsError(null);
+      // Relecture après un échec : la valeur lue devient la référence, pas une modification.
+      setPristine((prev) => (prev === null ? prev : withChatActions(prev, loaded)));
+    } catch {
+      setChatActions(null);
+      setChatActionsError("Le réglage n'a pas pu être lu pour cette organisation : il ne peut ni être modifié ni enregistré depuis cet écran.");
+    } finally {
+      setChatActionsSettled(true);
+    }
+  }, []);
+
   // Capturer le snapshot pristine une fois le chargement initial terminé
   useEffect(() => {
-    if (loading || pristine !== null) return;
+    if (loading || !chatActionsSettled || pristine !== null) return;
     setPristine(currentSnapshot);
-  }, [loading, pristine, currentSnapshot]);
+  }, [loading, chatActionsSettled, pristine, currentSnapshot]);
 
   useEffect(() => {
     loadSettings();
-  }, [loadSettings]);
+    loadChatActions();
+  }, [loadSettings, loadChatActions]);
 
   // État de configuration IA (pour l'avertissement de l'assistant d'aide).
   useEffect(() => {
@@ -461,6 +509,33 @@ export default function AdminAISettingsPage() {
       });
       const data = await res.json();
       if (res.ok) {
+        // Actions de l'assistant IA : route propre à l'organisation, écrite
+        // seulement si l'administrateur les a modifiées.
+        const savedChat: ChatActionsSettings | null =
+          pristine !== null
+            ? ((JSON.parse(pristine) as { chatActions?: ChatActionsSettings | null }).chatActions ?? null)
+            : null;
+        const chatChanged =
+          chatActions !== null && JSON.stringify(chatActions) !== JSON.stringify(savedChat);
+        if (chatChanged && chatActions) await putChatActions(chatActions);
+        const undoChat =
+          chatChanged && savedChat
+            ? {
+                action: {
+                  label: "Annuler les actions de l'assistant",
+                  onClick: async () => {
+                    try {
+                      await putChatActions(savedChat);
+                      setChatActions(savedChat);
+                      setPristine((prev) => (prev === null ? prev : withChatActions(prev, savedChat)));
+                      toast.success("Actions de l'assistant IA rétablies");
+                    } catch (e) {
+                      toast.error(e instanceof Error ? e.message : "Annulation impossible");
+                    }
+                  },
+                },
+              }
+            : undefined;
         // Filet de sécurité : si l'API a tout de même écarté des clés, on le
         // dit au lieu d'annoncer un succès complet.
         if (Array.isArray(data.ignored) && data.ignored.length > 0) {
@@ -469,7 +544,7 @@ export default function AdminAISettingsPage() {
               "Une partie des réglages n'a pas été enregistrée : elle relève de l'administration d'instance."
           );
         } else {
-          toast.success("Réglages IA enregistrés");
+          toast.success("Réglages IA enregistrés", undoChat);
         }
         setPristine(currentSnapshot);
       } else {
@@ -668,6 +743,13 @@ export default function AdminAISettingsPage() {
           </div>
         </div>
       </div>
+
+      {/* Actions de l'assistant IA du chat */}
+      {chatActions ? (
+        <ChatActionsSection status="ready" value={chatActions} onChange={setChatActions} />
+      ) : chatActionsError ? (
+        <ChatActionsSection status="error" message={chatActionsError} onRetry={loadChatActions} />
+      ) : null}
 
       {/* Assistant d'aide produit */}
       <div className="rounded-lg border bg-card p-6 space-y-6">

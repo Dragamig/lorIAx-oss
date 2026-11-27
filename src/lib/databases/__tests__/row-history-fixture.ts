@@ -28,7 +28,7 @@ export async function setupRowHistoryFixture(
   await pool.query(`
     CREATE TYPE row_change_kind AS ENUM ('created', 'updated', 'deleted');
     CREATE TYPE row_change_source AS ENUM
-      ('ui', 'automation', 'import', 'public_form', 'sync', 'relation_sync', 'restore', 'system');
+      ('ui', 'automation', 'import', 'public_form', 'sync', 'relation_sync', 'restore', 'system', 'ai');
     CREATE TABLE users (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
       name varchar(255) NOT NULL DEFAULT '');
     CREATE TABLE organization_members (

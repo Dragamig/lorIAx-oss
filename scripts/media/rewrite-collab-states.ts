@@ -1,6 +1,6 @@
 /**
  * B123 : réécrit les références `/api/attachments/<clé>` des états Yjs (document_collab_states)
- * en `/api/media/<id>`, puis régénère le Markdown disque et `content_text` depuis l'état réécrit
+ * en `/api/media/<id>` (et `/api/studio/images/<uuid>` en `/api/media/<uuid>`, même identifiant), puis régénère le Markdown disque et `content_text` depuis l'état réécrit
  * (syncYjsToStorage), donc sans divergence possible entre état, base et fichier.
  * Simulation par défaut ; --apply écrit après sauvegarde, par mise à jour conditionnelle sur l'état lu.
  * --apply exige --confirm-db=<nom de la base cible> ; une base nommée `loriax` exige --confirm-db=loriax
@@ -23,7 +23,7 @@ import { pathToFileURL } from "node:url";
 import { Pool } from "pg";
 import * as Y from "yjs";
 import { extractTextFromYDoc, syncYjsToStorage } from "@/lib/collab/markdown-sync";
-import { collectLegacyKeys, rewriteYDocMediaRefs } from "@/lib/collab/rewrite-media-refs";
+import { collectLegacyKeys, countStudioRefs, rewriteYDocMediaRefs } from "@/lib/collab/rewrite-media-refs";
 import { createOrgKeyLookup } from "@/lib/media/attachment-key-lookup";
 import { UUID_RE, type LookupResult } from "@/lib/media/rewrite-document-refs";
 import { extractMediaRefs, syncDocumentUsages, type MediaRef } from "@/lib/media/usages";
@@ -139,6 +139,8 @@ async function processDocument(
   const idOf = new Map<string, string>();
   for (const [key, r] of found) if (r.status === "found" && UUID_RE.test(r.id)) idOf.set(key, r.id.toLowerCase());
   const resolvableInState = stateKeys.filter((k) => idOf.has(k));
+  // Anciennes URL studio : même identifiant que le média, aucune résolution nécessaire.
+  const studioInState = countStudioRefs(ydoc);
   const unresolved = stateKeys.length - resolvableInState.length;
 
   const regenOld = normalizeMarkdown(extractTextFromYDoc(ydoc));
@@ -147,7 +149,7 @@ async function processDocument(
   const contentInSync =
     normalizeMarkdown(diskText) === regenOld && normalizeMarkdown(row.content_text ?? "") === regenOld;
   const action = classifyDocument({
-    stateHasResolvable: resolvableInState.length > 0,
+    stateHasResolvable: resolvableInState.length > 0 || studioInState > 0,
     contentInSync,
     idleMinutes: Number(row.idle_minutes),
     minIdle,

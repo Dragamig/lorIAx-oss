@@ -1,20 +1,22 @@
 import { randomUUID } from "crypto";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { media, mediaFolders, mediaTagLinks, type Media } from "@/lib/db/schema";
+import { media, mediaFolders, mediaTagLinks, mediaVersions, type Media } from "@/lib/db/schema";
 import logger from "@/lib/logger";
 import { checkSpaceWriteAccess } from "@/lib/auth/check-access";
 import { uploadFile } from "@/lib/storage/s3";
 import { logActivity } from "@/lib/activity";
 import type { SessionUser } from "@/types";
-import { validateUpload, type ValidationProfile } from "./validate-upload";
-import { processImage, sha256Hex } from "./image-processing";
-import { kindFromMime } from "./kind";
-import type { QuotaVerdict } from "./quota";
+import type { ValidationProfile } from "./validate-upload";
+import { prepareMediaFile } from "./prepare-file";
+import { checkUploadQuota, type QuotaVerdict } from "./quota";
 import { reserveMediaRow } from "./reserve";
-import { isOrgAdminOrOwner } from "./access";
+import { canWriteLibrary } from "./folders";
 import { ensureTags } from "./tags";
 import { notifyQuotaThreshold } from "./notify";
+import { emitMediaUploaded } from "./events";
+import { enqueueMediaIndex } from "./ai/enqueue";
+import { getMediaForAccess, resolveMediaAccess } from "./access";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -30,10 +32,14 @@ export type IngestInput = {
   /** Libellés de tags liés après l'insertion ; un échec n'annule pas l'upload. */
   tags?: string[];
   origin?: MediaOrigin;
+  /**
+   * Média dont celui-ci est dérivé (retouche). Doit être de la même organisation,
+   * hors corbeille et lisible par l'appelant ; sinon 400 (refus fermé, sans
+   * distinguer absent et interdit).
+   */
+  sourceMediaId?: string | null;
   /** Profil de validation : "default" (médiathèque) ou "video" (banc de montage). */
   validation?: ValidationProfile;
-  /** Serveur seulement : un média sans espace n'exige pas un admin d'organisation. */
-  allowOrgLevel?: boolean;
   /** Clé de stockage imposée (images du studio sous `studio/`). */
   storageKey?: string;
   /** Nom affiché stocké à la place du nom de fichier nettoyé. */
@@ -44,31 +50,33 @@ export type IngestInput = {
 
 export type IngestResult =
   | { ok: true; media: Media; quota: QuotaVerdict; hasLocationExif: boolean }
-  | { ok: false; status: 400 | 403 | 413 | 415 | 500 | 507; error: string; quota?: QuotaVerdict };
+  | { ok: false; status: 400 | 403 | 409 | 413 | 415 | 500 | 507; error: string; quota?: QuotaVerdict };
+
+export type IngestTargetResult =
+  | { ok: true; folderId: string | null }
+  | { ok: false; status: 400 | 403; error: string };
 
 /**
- * Ingestion d'un fichier : validation, droit d'écriture, quota sous verrou
- * consultatif par organisation, ligne `media` insérée AVANT l'envoi S3, puis
- * envoi. Aucune suppression d'objet : en cas d'échec S3, seule la ligne part.
+ * Droit d'écriture sur l'espace (ou droit d'écriture sur la médiathèque hors espace : un viewer membre est refusé)
+ * puis dossier de la même organisation. Aucune ligne créée. Partagé avec
+ * l'envoi multipart.
  */
-export async function ingestMedia(input: IngestInput): Promise<IngestResult> {
-  const { user, orgId, spaceId, file, buffer } = input;
-
-  // 1. Validation
-  const valid = await validateUpload(file, buffer, input.validation ?? "default");
-  if (!valid.ok) return { ok: false, status: valid.status, error: valid.error };
-
-  // 2. Droit d'écriture
+export async function assertIngestTarget(
+  user: SessionUser,
+  orgId: string,
+  spaceId: string | null,
+  rawFolderId?: string | null,
+): Promise<IngestTargetResult> {
   if (spaceId) {
     if (!(await checkSpaceWriteAccess(user, spaceId, { orgId }))) {
       return { ok: false, status: 403, error: "Accès refusé à cet espace" };
     }
-  } else if (!input.allowOrgLevel && !(await isOrgAdminOrOwner(user.id, orgId))) {
+  } else if (!(await canWriteLibrary(user, orgId))) {
     return { ok: false, status: 403, error: "Accès refusé" };
   }
 
-  // 2 bis. Dossier : de la même organisation, sinon 400 (aucune ligne créée)
-  const folderId = input.folderId || null;
+  // Dossier : de la même organisation, sinon 400
+  const folderId = rawFolderId || null;
   if (folderId) {
     let found = false;
     if (UUID_RE.test(folderId)) {
@@ -80,26 +88,47 @@ export async function ingestMedia(input: IngestInput): Promise<IngestResult> {
     }
     if (!found) return { ok: false, status: 400, error: "Dossier introuvable" };
   }
+  return { ok: true, folderId };
+}
 
-  const kind = kindFromMime(valid.mime, valid.safeName);
+/**
+ * Ingestion d'un fichier : validation, droit d'écriture, quota sous verrou
+ * consultatif par organisation, ligne `media` insérée AVANT l'envoi S3, puis
+ * envoi. Aucune suppression d'objet : en cas d'échec S3, seule la ligne part.
+ */
+export async function ingestMedia(input: IngestInput): Promise<IngestResult> {
+  const { user, orgId, spaceId, file, buffer } = input;
 
-  let hasLocationExif = false;
-  let width: number | null = null;
-  let height: number | null = null;
-  let thumbnail: Buffer | null = null;
-  if (kind === "image") {
-    try {
-      const processed = await processImage(buffer, valid.mime);
-      width = processed.width;
-      height = processed.height;
-      thumbnail = processed.thumbnail;
-      hasLocationExif = processed.hasLocationExif;
-    } catch {
-      // Image illisible par sharp : l'envoi continue sans miniature.
-    }
+  // 1. Droit d'écriture et dossier, avant tout calcul coûteux
+  const target = await assertIngestTarget(user, orgId, spaceId, input.folderId);
+  if (!target.ok) return target;
+  const folderId = target.folderId;
+
+  // 1 bis. Média source : même organisation, hors corbeille, lisible par l'appelant
+  let sourceMediaId: string | null = null;
+  if (input.sourceMediaId) {
+    const refused = { ok: false, status: 400, error: "Média source introuvable" } as const;
+    if (!UUID_RE.test(input.sourceMediaId)) return refused;
+    const source = await getMediaForAccess(input.sourceMediaId);
+    if (!source || source.organizationId !== orgId || source.deletedAt) return refused;
+    const verdict = await resolveMediaAccess(user, source, "read", { orgId });
+    if (!verdict.allowed) return refused;
+    sourceMediaId = source.id;
   }
 
-  const key = input.storageKey ?? `${spaceId ?? "org-" + orgId}/${randomUUID()}.${valid.ext}`;
+  // 1 ter. Quota : pré-contrôle sans verrou sur la taille déclarée. Le contrôle
+  // qui fait foi reste celui de la réservation, sous verrou.
+  const precheck = await checkUploadQuota(orgId, file.size);
+  if (!precheck.allowed) {
+    return { ok: false, status: 507, error: "Quota de stockage atteint", quota: precheck };
+  }
+
+  // 2. Validation, type, miniature et empreinte
+  const prepared = await prepareMediaFile(file, buffer, input.validation ?? "default");
+  if (!prepared.ok) return { ok: false, status: prepared.status, error: prepared.error };
+  const { kind, width, height, thumbnail, pageCount, hasLocationExif } = prepared;
+
+  const key = input.storageKey ?? `${spaceId ?? "org-" + orgId}/${randomUUID()}.${prepared.ext}`;
   const thumbnailKey = thumbnail ? `${key}.thumb.webp` : null;
 
   // 3. Quota et insertion sous verrou consultatif (section critique partagée)
@@ -110,15 +139,17 @@ export async function ingestMedia(input: IngestInput): Promise<IngestResult> {
       spaceId,
       folderId,
       documentId: input.documentId || null,
-      filename: input.displayName ? input.displayName.slice(0, 255) : valid.safeName,
-      mimeType: valid.mime,
+      filename: input.displayName ? input.displayName.slice(0, 255) : prepared.safeName,
+      mimeType: prepared.mime,
       kind,
       origin: input.origin ?? "upload",
+      sourceMediaId,
       storageKey: key,
-      checksumSha256: sha256Hex(buffer),
+      checksumSha256: prepared.checksum,
       width,
       height,
       thumbnailKey,
+      pageCount,
       uploadedBy: user.id,
     },
   });
@@ -130,7 +161,7 @@ export async function ingestMedia(input: IngestInput): Promise<IngestResult> {
 
   // 4. Envoi S3 : l'original d'abord, la miniature ensuite
   try {
-    await uploadFile(key, buffer, valid.mime);
+    await uploadFile(key, buffer, prepared.mime);
   } catch {
     await db.delete(media).where(eq(media.id, row.id));
     return { ok: false, status: 500, error: "Échec de l'envoi du fichier" };
@@ -141,6 +172,10 @@ export async function ingestMedia(input: IngestInput): Promise<IngestResult> {
     } catch {
       // La miniature est secondaire : le média reste utilisable sans.
       await db.update(media).set({ thumbnailKey: null }).where(eq(media.id, row.id));
+      await db
+        .update(mediaVersions)
+        .set({ thumbnailKey: null })
+        .where(and(eq(mediaVersions.mediaId, row.id), eq(mediaVersions.version, row.currentVersion)));
       row = { ...row, thumbnailKey: null };
     }
   }
@@ -174,6 +209,12 @@ export async function ingestMedia(input: IngestInput): Promise<IngestResult> {
     entityId: row.id,
     metadata: { filename: row.filename, sizeBytes: row.sizeBytes, kind },
   });
+
+  // 6. Déclencheur d'automatisme « média ajouté » : jamais bloquant, jamais en échec.
+  void emitMediaUploaded(row).catch(() => undefined);
+
+  // 7. File d'indexation IA : ne lève jamais, n'annule jamais l'ingestion.
+  await enqueueMediaIndex(row.id, "ingest").catch(() => undefined);
 
   return { ok: true, media: row, quota: outcome.quota, hasLocationExif };
 }

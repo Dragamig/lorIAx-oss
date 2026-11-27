@@ -103,18 +103,39 @@ async function open() {
       <ActivationDialog open onOpenChange={onOpenChange} onDone={onDone} />
     </OrganizationProvider>,
   );
-  await screen.findByRole("button", { name: "Activer le module" });
+  await screen.findByRole("group", { name: "Mode pour Dossiers" });
   return { onDone, onOpenChange };
 }
-const confirmBtn = () => screen.getByRole("button", { name: "Activer le module" });
+const nextBtn = () => screen.getByRole("button", { name: "Suivant" });
+const confirmBtn = () => screen.getByRole("button", { name: /^(Activer le module|Réessayer)$/ });
+/** Passe de l'étape Analyse au récapitulatif. */
+async function toRecap() {
+  fireEvent.click(nextBtn());
+  await screen.findByRole("button", { name: "Retour" });
+}
 const dossiersMode = (name: RegExp) =>
   within(screen.getByRole("group", { name: "Mode pour Dossiers" })).getByRole("button", { name });
 const toastOf = () => render(<>{(h.custom.mock.calls[0][0] as (id: string) => React.ReactNode)("t1")}</>);
 const posts = () => calls.filter((c) => c.url === "/api/crm/activate");
 
 describe("soumission de la modale d'activation", () => {
+  it("succès : transmet le résultat des automatismes d'exemple à l'écran Raccordement", async () => {
+    sessionStorage.clear();
+    activate.body = { ...activate.body as object, automationsCreated: ["wonClose"], automationsSkipped: ["receptionTally"], statusOptionsAdded: ["Devis envoyé"] };
+    await open();
+    await toRecap();
+    fireEvent.click(confirmBtn());
+    await waitFor(() => expect(h.custom).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(sessionStorage.getItem("crm.activation.handoff") ?? "null")).toEqual({
+      created: ["wonClose"],
+      skipped: ["receptionTally"],
+      statusOptionsAdded: ["Devis envoyé"],
+    });
+  });
+
   it("succès : toast avec Annuler, appel POST activate avec le corps attendu", async () => {
     const { onOpenChange } = await open();
+    await toRecap();
     fireEvent.click(confirmBtn());
     await waitFor(() => expect(h.custom).toHaveBeenCalledTimes(1));
     expect(posts()[0].body).toEqual({
@@ -133,6 +154,7 @@ describe("soumission de la modale d'activation", () => {
 
   it("l'info-bulle de Annuler s'affiche au focus clavier", async () => {
     await open();
+    await toRecap();
     fireEvent.click(confirmBtn());
     await waitFor(() => expect(h.custom).toHaveBeenCalledTimes(1));
     toastOf();
@@ -142,6 +164,7 @@ describe("soumission de la modale d'activation", () => {
 
   it("Annuler appelle deactivate et conserve les bases (aucun appel de suppression)", async () => {
     const { onDone } = await open();
+    await toRecap();
     fireEvent.click(confirmBtn());
     await waitFor(() => expect(h.custom).toHaveBeenCalledTimes(1));
     toastOf();
@@ -155,6 +178,7 @@ describe("soumission de la modale d'activation", () => {
 
   it("double clic sur Annuler : un seul deactivate", async () => {
     await open();
+    await toRecap();
     fireEvent.click(confirmBtn());
     await waitFor(() => expect(h.custom).toHaveBeenCalledTimes(1));
     toastOf();
@@ -173,6 +197,7 @@ describe("soumission de la modale d'activation", () => {
     fireEvent.click(dossiersMode(/^Créer pour Dossiers/));
     fireEvent.change(screen.getByLabelText("Espace des bases à créer"), { target: { value: SP2 } });
     expect(dossiersMode(/^Créer pour Dossiers/).getAttribute("aria-pressed")).toBe("true");
+    await toRecap();
     fireEvent.click(confirmBtn());
     await waitFor(() => expect(posts()).toHaveLength(1));
     expect(posts()[0].body).toMatchObject({ roles: { dossiers: { mode: "create" } } });
@@ -187,19 +212,21 @@ describe("soumission de la modale d'activation", () => {
   it("409 sans base connue : Créer indisponible, message d'invitation à changer d'espace, Confirmer bloqué", async () => {
     activate = { status: 409, body: { error: "x", code: "name_collision", role: "interactions" } };
     const { onOpenChange } = await open();
+    await toRecap();
     fireEvent.click(confirmBtn());
-    const tile = within(screen.getByTestId("activation-role-interactions"));
+    const tile = within(await screen.findByTestId("activation-role-interactions"));
     expect(await tile.findByText(/Changez d'espace pour créer ce rôle/)).toBeTruthy();
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
     expect(tile.queryByText(/Nom déjà pris/)).toBeNull();
     expect(within(screen.getByRole("group", { name: "Mode pour Interactions" })).getByRole("button", { name: /^Créer pour Interactions/ }).getAttribute("aria-disabled")).toBe("true");
-    expect(confirmBtn().getAttribute("aria-disabled")).toBe("true");
+    expect(nextBtn().getAttribute("aria-disabled")).toBe("true");
   });
 
   it("409 sans base connue puis changement d'espace : Créer de nouveau disponible", async () => {
     preview = previewTwoSpaces(false);
     activate = { status: 409, body: { error: "x", code: "name_collision", role: "interactions" } };
     await open();
+    await toRecap();
     fireEvent.click(confirmBtn());
     await waitFor(() => expect(posts()).toHaveLength(1));
     const createInteractions = () =>
@@ -208,25 +235,27 @@ describe("soumission de la modale d'activation", () => {
     fireEvent.change(screen.getByLabelText("Espace des bases à créer"), { target: { value: SP2 } });
     await waitFor(() => expect(createInteractions().getAttribute("aria-disabled")).toBeNull());
     expect(within(screen.getByTestId("activation-role-interactions")).queryByText(/Changez d'espace/)).toBeNull();
-    expect(confirmBtn().getAttribute("aria-disabled")).toBeNull();
+    expect(nextBtn().getAttribute("aria-disabled")).toBeNull();
   });
 
   it("404 et 403 : messages distincts, jamais le nom d'une ressource, boutons réactivés", async () => {
     await open();
     activate = { status: 404, body: { error: "Introuvable : Base secrète" } };
+    await toRecap();
     fireEvent.click(confirmBtn());
-    expect((await screen.findByRole("alert")).textContent).toBe("Introuvable");
+    expect((await screen.findByRole("alert")).textContent).toBe("La création a échoué. Introuvable");
     expect(screen.queryByText(/secrète/)).toBeNull();
     expect(confirmBtn().getAttribute("aria-disabled")).toBeNull();
     activate = { status: 403, body: { error: "Interdit : Base secrète", code: "forbidden" } };
     fireEvent.click(confirmBtn());
-    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("Accès refusé"));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("La création a échoué. Accès refusé"));
     expect(h.error).not.toHaveBeenCalled();
   });
 
   it("quota d'espaces et erreur générique : message unique dans la modale, sans toast d'erreur", async () => {
     await open();
     activate = { status: 400, body: { error: "x", code: "space_quota" } };
+    await toRecap();
     fireEvent.click(confirmBtn());
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Quota d'espaces atteint"));
     activate = { status: 500, body: {} };
@@ -239,9 +268,10 @@ describe("soumission de la modale d'activation", () => {
   it("409 sans rôle : message générique sans rôle vide, boutons réactivés", async () => {
     activate = { status: 409, body: { error: "x", code: "name_collision" } };
     await open();
+    await toRecap();
     fireEvent.click(confirmBtn());
     const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toBe("Une erreur est survenue. Aucune modification n'a été enregistrée.");
+    expect(alert.textContent).toBe("La création a échoué. Une erreur est survenue. Aucune modification n'a été enregistrée.");
     expect(document.body.textContent).not.toMatch(/rôle\s*:/);
     expect(confirmBtn().getAttribute("aria-disabled")).toBeNull();
   });
@@ -249,16 +279,18 @@ describe("soumission de la modale d'activation", () => {
   it("500 (collision d'inverse ou code inconnu) : message générique, boutons réactivés", async () => {
     activate = { status: 500, body: { error: "x", code: "inverse_collision" } };
     await open();
+    await toRecap();
     fireEvent.click(confirmBtn());
     expect((await screen.findByRole("alert")).textContent).toContain("Une erreur est survenue");
     expect(confirmBtn().getAttribute("aria-disabled")).toBeNull();
-    expect(screen.getByRole("button", { name: "Fermer la fenêtre d'activation" }).getAttribute("aria-disabled")).toBeNull();
+    expect(screen.getByRole("button", { name: "Retour" }).getAttribute("aria-disabled")).toBeNull();
   });
 
   it("double clic sur Confirmer : un seul POST", async () => {
     let release!: () => void;
     activate.gate = new Promise<void>((r) => (release = r));
     await open();
+    await toRecap();
     fireEvent.click(confirmBtn());
     fireEvent.click(confirmBtn());
     release();
@@ -270,11 +302,42 @@ describe("soumission de la modale d'activation", () => {
     let release!: () => void;
     activate.gate = new Promise<void>((r) => (release = r));
     await open();
+    await toRecap();
     fireEvent.click(confirmBtn());
     const status = await screen.findByRole("status", { name: "Progression de la création" });
     expect(status.getAttribute("aria-live")).toBe("polite");
     expect(status.textContent).toContain("Création en cours");
     expect(status.textContent).toContain("Raccordement des trois rôles");
+    release();
+    await waitFor(() => expect(h.custom).toHaveBeenCalled());
+  });
+  it("parcours Suivant puis Retour : l'étape 2 verrouille l'organisation et l'espace, Retour restitue les tuiles", async () => {
+    await open();
+    expect(screen.getByRole("list", { name: "Étapes" })).toBeTruthy();
+    expect(document.querySelector('[aria-current="step"]')?.textContent).toContain("Analyse");
+    fireEvent.click(nextBtn());
+    await screen.findByRole("button", { name: "Retour" });
+    expect(document.querySelector('[aria-current="step"]')?.textContent).toContain("Récapitulatif");
+    expect((screen.getByLabelText("Organisation") as HTMLSelectElement).disabled).toBe(true);
+    expect((screen.getByLabelText("Espace des bases à créer") as HTMLSelectElement).disabled).toBe(true);
+    expect(screen.queryByTestId("activation-role-contacts")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Afficher le détail" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Retour" }));
+    expect(await screen.findByTestId("activation-role-contacts")).toBeTruthy();
+    expect(nextBtn()).toBeTruthy();
+  });
+
+  it("pendant la création : Retour désactivé avec sa raison, progression et erreur dans l'étape 2", async () => {
+    let release!: () => void;
+    activate.gate = new Promise<void>((r) => (release = r));
+    await open();
+    await toRecap();
+    fireEvent.click(confirmBtn());
+    await screen.findByRole("status", { name: "Progression de la création" });
+    const back = screen.getByRole("button", { name: "Retour" });
+    expect(back.getAttribute("aria-disabled")).toBe("true");
+    fireEvent.focus(back);
+    expect((await screen.findAllByText("Retour impossible pendant la création")).length).toBeGreaterThan(0);
     release();
     await waitFor(() => expect(h.custom).toHaveBeenCalled());
   });

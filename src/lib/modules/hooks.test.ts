@@ -24,6 +24,7 @@ describe("hooks serveur neutres", () => {
     expect(await h.usage.checkUsersLimit("o")).toEqual({ current: 0, max: null, exceeded: false, percentage: 0 });
     expect(await h.usage.checkSpacesLimit("o")).toEqual({ current: 0, max: null, exceeded: false, percentage: 0 });
     expect(await h.usage.getOrgStorageLimitBytes("o")).toBeNull();
+    expect(await h.usage.getOrgPlan("o")).toBeNull();
     expect(await h.entitlements.getEntitledModuleIds("o")).toBeNull();
     expect(await h.entitlements.hasFeature("sso")).toBe(true);
     expect(await h.entitlements.isFreePlan()).toBe(false);

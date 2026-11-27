@@ -15,6 +15,7 @@ describe("schema-crm", () => {
         "deals_database_id",
         "interactions_database_id",
         "created_database_ids",
+        "created_automation_keys",
         "field_map",
         "created_at",
         "updated_at",

@@ -36,7 +36,6 @@ import {
   Table2,
   Network,
   Palette,
-  Clapperboard,
   Presentation,
   Timer,
   Zap,
@@ -60,7 +59,6 @@ export const defaultAliases: Record<string, string[]> = {
   "Attention": ["callout", "info", "note", "astuce", "alerte", "warning"],
   "Lien": ["url", "href"],
   "Lien document": ["document", "wiki", "wikilink", "lien-doc", "[["],
-  "Vidéo": ["video", "youtube", "vimeo", "dailymotion", "embed"],
   "Graphique": ["chart", "graphe", "diagramme", "barres", "camembert"],
   "Nouvelle base": ["database", "db", "bdd", "donnees", "tableau-donnees", "base-nouvelle", "creer-base"],
   "Base existante": ["base-existante", "lier-base", "reutiliser-base", "db-existante"],
@@ -68,7 +66,6 @@ export const defaultAliases: Record<string, string[]> = {
   "Tableau blanc": ["whiteboard", "dessin", "sketch", "draw", "miro", "tldraw"],
   "Fichier": ["pdf", "document", "piece", "pièce", "joindre", "attachment"],
   "Studio": ["studio", "design", "canvas", "canva", "graphique", "infographie", "maquette", "illustration"],
-  "Montage vidéo": ["montage", "video-editor", "film", "clip"],
   "Présentation": ["presentation", "diaporama", "ppt", "slides", "diapo"],
   "Mind map": ["mindmap", "carte", "mentale", "brainstorm", "arbre"],
   "Carte": ["map", "plan", "itineraire", "osm", "geo", "lieu"],
@@ -286,21 +283,6 @@ export const commands: CommandItem[] = [
     },
   },
   {
-    title: "Vidéo",
-    module: "studiovideo",
-    description: "Intégrer une vidéo YouTube ou Vimeo",
-    aliases: ["video", "youtube", "vimeo", "dailymotion", "embed"],
-    icon: <Video className="h-4 w-4 text-red-500" />,
-    command: ({ editor, range }) => {
-      editor
-        .chain()
-        .focus()
-        .deleteRange(range)
-        .insertContent({ type: "videoEmbed", attrs: { src: "", provider: "", videoid: "" } })
-        .run();
-    },
-  },
-  {
     title: "Graphique",
     description: "Insérer un graphique (barres, courbe, camembert)",
     aliases: ["chart", "graphe", "diagramme", "barres", "camembert"],
@@ -459,19 +441,6 @@ export const commands: CommandItem[] = [
       editor.chain().focus().deleteRange(range).insertContent({
         type: "designBlock",
         attrs: { designId: crypto.randomUUID(), title: "Nouveau studio" },
-      }).run();
-    },
-  },
-  {
-    title: "Montage vidéo",
-    module: "studiovideo",
-    description: "Créer un projet de montage vidéo multi-pistes",
-    aliases: ["montage", "video-editor", "film", "clip"],
-    icon: <Clapperboard className="h-4 w-4 text-orange-500" />,
-    command: ({ editor, range }) => {
-      editor.chain().focus().deleteRange(range).insertContent({
-        type: "videoEditorBlock",
-        attrs: { projectId: null, title: "Nouveau montage" },
       }).run();
     },
   },

@@ -1,20 +1,24 @@
 ---
 title: "Studio design"
-description: "Créer des visuels dans le studio design de LorIAx : canvas type Canva, formats réseaux sociaux, Brand Kit, repères d'alignement et exports PNG, SVG et PDF."
+description: "Créer des visuels dans le studio design de LorIAx : canvas type Canva, formats réseaux sociaux, Brand Kit, repères d'alignement et exports PNG, JPG, SVG et PDF. Accès par la commande /Studio d'un document."
 ---
 
 ## Le studio design
 
 Le studio design est un éditeur de visuels sur canvas, dans l'esprit de Canva. Il sert à composer des images, des affiches ou des publications.
 
-Vous l'ouvrez de deux façons :
+## Accès
 
-- via le bloc « Studio » dans un document (tapez `/` puis Studio),
-- comme bloc autonome de création visuelle.
+Le studio design n'a pas d'entrée dans la barre latérale : il s'ouvre depuis un document.
+
+1. Dans un document, tapez `/` puis choisissez **Studio** (« Éditeur graphique — formes, texte, images, infographie »). La commande n'apparaît que si le module Studio est actif.
+2. Le bloc « Nouveau studio » s'insère dans le document.
+3. Cliquez sur le bouton **Ouvrir** du bloc, ou sur le bloc lui-même, pour ouvrir le canvas en plein écran.
+4. **Enregistrer** sauvegarde le visuel ; la croix **Fermer** referme le studio.
 
 ## Le canvas
 
-Sur le canvas, vous ajoutez et arrangez des objets :
+Le rail de gauche donne accès aux outils **Sélection**, **Texte**, **Formes**, **Photos**, **Marque**, **Dessin**, **Calques** et **Modèles**. Sur le canvas, vous ajoutez et arrangez des objets :
 
 - texte,
 - formes,
@@ -24,7 +28,7 @@ Des outils d'alignement et des repères intelligents (smart guides) facilitent l
 
 ## Formats réseaux sociaux
 
-Le studio propose des formats prêts à l'emploi adaptés aux différents canaux (publications et visuels aux dimensions courantes des réseaux sociaux). Vous choisissez le format en fonction de l'usage visé.
+Le studio propose des formats prêts à l'emploi adaptés aux différents canaux (publications et visuels aux dimensions courantes des réseaux sociaux). Vous choisissez le format dans la liste **Pages** de la barre du bas du studio, qui regroupe les formats **Réseaux sociaux**, **Impression** (A4) et **Autres** (dont un format libre).
 
 ## Brand Kit
 
@@ -33,26 +37,29 @@ Le Brand Kit centralise votre identité visuelle pour garder une cohérence de m
 - couleurs de la marque,
 - éléments de charte réutilisables.
 
-Vous appliquez les éléments du Brand Kit à vos créations pour rester aligné avec votre charte.
+Le Brand Kit (couleurs, logos et polices) se gère dans **Organisation**, onglet **Identité de marque** (`/organisation/marque`). Sa modification est réservée aux administrateurs de l'organisation. Dans le studio, l'outil **Marque** du rail de gauche applique ces éléments à vos créations.
 
 ## Exporter
 
-Le studio permet d'exporter vos visuels en plusieurs formats :
+Les exports sont dans le menu **Plus d'actions** (bouton **…** à droite de **Enregistrer**). Choisissez la **Résolution (ppp)** (72, 150, 300 ou 600), cochez éventuellement **Fond transparent (PNG)**, puis :
 
-- **PNG** (image matricielle),
-- **SVG** (image vectorielle),
-- **PDF**.
+- **Exporter en PNG** (image matricielle),
+- **Exporter en JPG**,
+- **Exporter en SVG** (image vectorielle),
+- **Exporter en PDF (toutes les pages)**.
+
+Le même menu propose **Enregistrer comme template**.
 
 ## Questions fréquentes
 
 **Comment créer une affiche ou une publication ?**
-Ouvrez le studio design via `/` puis Studio, choisissez un format, et composez votre visuel sur le canvas.
+Dans un document, tapez `/` puis **Studio**, cliquez sur **Ouvrir**, choisissez un format dans la liste **Pages**, et composez votre visuel sur le canvas.
 
 **Comment garder les couleurs de ma marque ?**
-Configurez et appliquez votre Brand Kit.
+Un administrateur configure le Brand Kit dans **Organisation** > **Identité de marque** ; vous l'appliquez dans le studio avec l'outil **Marque**.
 
 **Dans quels formats puis-je exporter ?**
-PNG, SVG ou PDF.
+PNG, JPG, SVG ou PDF, depuis le menu **Plus d'actions** du studio.
 
 **Le visuel apparaît-il dans mon document ?**
 Oui, une miniature du studio s'affiche directement dans le document.

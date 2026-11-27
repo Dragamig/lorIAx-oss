@@ -10,8 +10,8 @@ const h = vi.hoisted(() => ({
 
 vi.mock("next-intl", async () => (await import("@/components/media/test-fixtures")).intlMock())
 vi.mock("@/i18n/routing", () => ({
-  Link: ({ href, children, className }: { href: string; children: React.ReactNode; className?: string }) => (
-    <a href={href} className={className}>
+  Link: ({ href, children, ...rest }: { href: string; children: React.ReactNode } & Record<string, unknown>) => (
+    <a href={href} {...rest}>
       {children}
     </a>
   ),
@@ -38,21 +38,23 @@ describe("QuickNav, CRM", () => {
   it("absente quand le module crm n'est pas actif sur l'instance (aucune requête status)", () => {
     h.modules = ["library"]
     render(<QuickNav pathname="/" user={null} />)
-    expect(screen.queryByRole("link", { name: /CRM/ })).toBeNull()
+    expect(screen.queryByRole("button", { name: /CRM/ })).toBeNull()
     expect(h.keys).not.toContain("/api/crm/status")
   })
 
   it("absente quand actif sur l'instance mais enabled faux", () => {
     h.status = { enabled: false, complete: false, canAdmin: true }
     render(<QuickNav pathname="/" user={null} />)
-    expect(screen.queryByRole("link", { name: /CRM/ })).toBeNull()
+    expect(screen.queryByRole("button", { name: /CRM/ })).toBeNull()
   })
 
-  it("présente et active sur /crm/raccordement", () => {
+  it("présente en bouton dépliable, Raccordement actif sur /crm/raccordement", () => {
     render(<QuickNav pathname="/crm/raccordement" user={null} />)
-    const link = screen.getByRole("link", { name: /CRM/ })
-    expect(link.getAttribute("href")).toBe("/crm")
-    expect(link.className).toContain("bg-sidebar-accent font-medium")
+    const btn = screen.getByRole("button", { name: /CRM/ })
+    expect(btn.getAttribute("aria-expanded")).toBe("true")
+    const link = screen.getByRole("link", { name: "Raccordement" })
+    expect(link.getAttribute("href")).toBe("/crm/raccordement")
+    expect(link.getAttribute("aria-current")).toBe("page")
   })
 
   it("badge Non raccordé quand complete est faux, absent quand vrai", () => {

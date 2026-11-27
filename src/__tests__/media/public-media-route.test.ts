@@ -56,13 +56,13 @@ describe("GET /api/public/[token]/media/[id]", () => {
     const { GET } = await import("@/app/api/public/[token]/media/[id]/route");
     expect((await GET(req(), params("pas-un-uuid"))).status).toBe(404);
   });
-  it("200 sans session, Cache-Control public 60 s, nosniff", async () => {
+  it("200 sans session, Cache-Control public no-cache, nosniff", async () => {
     h.verdict = { allowed: true, row: row("image/png", "a.png") };
     const { GET } = await import("@/app/api/public/[token]/media/[id]/route");
     const res = await GET(req(), params());
     expect(res.status).toBe(200);
     expect(h.getUser).not.toHaveBeenCalled();
-    expect(res.headers.get("Cache-Control")).toBe("public, max-age=60");
+    expect(res.headers.get("Cache-Control")).toBe("public, no-cache");
     expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
     expect(res.headers.get("Content-Disposition")).toMatch(/^inline/);
   });

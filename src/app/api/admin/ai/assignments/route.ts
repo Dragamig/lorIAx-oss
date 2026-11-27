@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { aiModelAssignments } from "@/lib/db/schema-ai";
+import { aiModelAssignments, aiUsageTypeEnum } from "@/lib/db/schema-ai";
 import { eq } from "drizzle-orm";
 import { getSessionUser } from "@/lib/auth/get-user";
 import {
@@ -115,5 +115,25 @@ export async function PUT(request: NextRequest) {
     });
   }
 
+  return NextResponse.json({ success: true });
+}
+
+export async function DELETE(request: NextRequest) {
+  const user = await getSessionUser();
+  if (!user || !hasGlobalRole(user.globalRole, "admin")) {
+    return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+  }
+  if (!canCrossOrgBoundary(user.globalRole as UserRole)) {
+    return NextResponse.json({ error: INSTANCE_ADMIN_ONLY_MESSAGE }, { status: 403 });
+  }
+  const usageType = request.nextUrl.searchParams.get("usageType");
+  if (!usageType) {
+    return NextResponse.json({ error: "usageType requis" }, { status: 400 });
+  }
+  const usages: readonly string[] = aiUsageTypeEnum.enumValues;
+  if (!usages.includes(usageType)) {
+    return NextResponse.json({ error: "usageType inconnu" }, { status: 400 });
+  }
+  await db.delete(aiModelAssignments).where(eq(aiModelAssignments.usageType, usageType as (typeof aiUsageTypeEnum.enumValues)[number]));
   return NextResponse.json({ success: true });
 }

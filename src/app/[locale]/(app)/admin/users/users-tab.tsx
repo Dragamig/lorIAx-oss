@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
-import { MoreVertical, Trash2, Shield, UserPlus, Eye, EyeOff } from "lucide-react";
+import { MoreVertical, Trash2, Shield, UserPlus, Eye, EyeOff, BadgeCheck, MailWarning, Send } from "lucide-react";
+import { Hint } from "@/components/ui/hint";
 import { VizHashAvatar } from "@/components/ui/vizhash-avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -41,6 +42,7 @@ interface AdminUser {
   globalRole: string;
   capabilities: string[];
   createdAt: string;
+  emailVerifiedAt: string | null;
 }
 
 const roleLabels: Record<string, string> = {
@@ -160,6 +162,58 @@ export function AdminUsersTab() {
     }
   }
 
+  async function resendVerification(u: AdminUser) {
+    try {
+      const res = await fetch("/api/admin/users/verification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: u.id, action: "resend" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 409) {
+        setUsers((prev) =>
+          prev.map((x) => (x.id === u.id ? { ...x, emailVerifiedAt: x.emailVerifiedAt ?? new Date().toISOString() } : x))
+        );
+        toast.info("Ce compte est déjà vérifié");
+        return;
+      }
+      if (!res.ok) {
+        toast.error(data.error ?? "Erreur lors de l'envoi du lien");
+        return;
+      }
+      if (data.sent) {
+        toast.success(`Lien de vérification envoyé à ${u.email}`);
+      } else if (data.reason === "cooldown") {
+        toast.info("Un lien a été envoyé il y a moins d'une minute");
+      } else {
+        toast.error("Envoi impossible : vérifiez la configuration email");
+      }
+    } catch {
+      toast.error("Erreur réseau lors de l'envoi du lien");
+    }
+  }
+
+  async function markVerified(u: AdminUser) {
+    try {
+      const res = await fetch("/api/admin/users/verification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: u.id, action: "mark_verified" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok && res.status !== 409) {
+        toast.error(data.error ?? "Erreur lors de la mise à jour");
+        return;
+      }
+      setUsers((prev) =>
+        prev.map((x) => (x.id === u.id ? { ...x, emailVerifiedAt: x.emailVerifiedAt ?? new Date().toISOString() } : x))
+      );
+      toast.success(`${u.name} marqué comme vérifié`);
+    } catch {
+      toast.error("Erreur réseau lors de la mise à jour");
+    }
+  }
+
   async function updateRole(userId: string, role: string) {
     try {
       const res = await fetch("/api/admin/users", {
@@ -248,6 +302,7 @@ export function AdminUsersTab() {
               <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">Utilisateur</th>
               <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">Email</th>
               <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">Rôle</th>
+              <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">Statut</th>
               <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">Inscrit le</th>
               <th className="w-10"></th>
             </tr>
@@ -278,10 +333,48 @@ export function AdminUsersTab() {
                     ))}
                   </div>
                 </td>
+                <td className="px-4 py-3">
+                  {u.emailVerifiedAt ? (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
+                      <BadgeCheck className="h-3 w-3" />
+                      Vérifié
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
+                      <MailWarning className="h-3 w-3" />
+                      Email non vérifié
+                    </span>
+                  )}
+                </td>
                 <td className="px-4 py-3 text-sm text-muted-foreground">
                   {new Date(u.createdAt).toLocaleDateString("fr-FR")}
                 </td>
                 <td className="px-4 py-3">
+                  <div className="flex items-center justify-end gap-1">
+                  {!u.emailVerifiedAt && (
+                    <>
+                      <Hint label={`Renvoyer le lien de vérification à ${u.email}`}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          aria-label="Renvoyer le lien"
+                          onClick={() => resendVerification(u)}
+                        >
+                          <Send className="h-4 w-4" />
+                        </Button>
+                      </Hint>
+                      <Hint label="Marquer comme vérifié (irréversible depuis cette liste)">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          aria-label="Marquer comme vérifié"
+                          onClick={() => markVerified(u)}
+                        >
+                          <BadgeCheck className="h-4 w-4" />
+                        </Button>
+                      </Hint>
+                    </>
+                  )}
                   <DropdownMenu>
                     <DropdownMenuTrigger render={<Button variant="ghost" size="sm" />}>
                       <MoreVertical className="h-4 w-4" />
@@ -324,6 +417,7 @@ export function AdminUsersTab() {
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
+                  </div>
                 </td>
               </tr>
             ))}

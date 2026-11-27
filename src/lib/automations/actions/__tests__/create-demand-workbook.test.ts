@@ -4,6 +4,7 @@ vi.mock("@/lib/documents/create-spreadsheet-document", () => ({
   createSpreadsheetDocument: vi.fn(),
   ParentDocumentNotFoundError: class extends Error {},
 }));
+vi.mock("@/lib/crm/demand-lines-ai", () => ({ extractDemandLinesFromBody: vi.fn() }));
 vi.mock("@/lib/documents/create-document", () => ({ createDocument: vi.fn() }));
 vi.mock("@/lib/templates/instantiate", () => ({ instantiateTemplate: vi.fn() }));
 vi.mock("@/lib/db", () => ({
@@ -95,5 +96,37 @@ describe("create_document, mode demand_workbook", () => {
     const { ParentDocumentNotFoundError } = await import("@/lib/documents/create-spreadsheet-document");
     vi.mocked(createSpreadsheetDocument).mockRejectedValue(new ParentDocumentNotFoundError("x"));
     await expect(createDocumentAction.execute(cfg, automation, ctx)).rejects.toThrow(/document parent/i);
+  });
+});
+
+describe("create_document, lignes extraites du corps Tally", () => {
+  it("passe les lignes extraites à workbook.lines et expose les avertissements", async () => {
+    const { extractDemandLinesFromBody } = await import("@/lib/crm/demand-lines-ai");
+    vi.mocked(extractDemandLinesFromBody).mockResolvedValue({
+      lines: [{ modele: "Sweat", quantite: 100 }],
+      warnings: ["1 ligne écartée"],
+    });
+    const tallyCtx = { ...ctx, variables: { body: { eventType: "FORM_RESPONSE", data: { fields: [] } } } } as ExecutionContext;
+    const res = (await createDocumentAction.execute(cfg, automation, tallyCtx)) as unknown as { warnings?: string[] };
+    expect(createSpreadsheetDocument).toHaveBeenCalledWith(
+      expect.objectContaining({ workbook: { lines: [{ modele: "Sweat", quantite: 100 }] } })
+    );
+    expect(res.warnings).toEqual(["1 ligne écartée"]);
+  });
+
+  it("un échec d'extraction ne bloque pas la création du classeur", async () => {
+    const { extractDemandLinesFromBody } = await import("@/lib/crm/demand-lines-ai");
+    vi.mocked(extractDemandLinesFromBody).mockRejectedValue(new Error("boom"));
+    const tallyCtx = { ...ctx, variables: { body: { eventType: "FORM_RESPONSE" } } } as ExecutionContext;
+    const res = (await createDocumentAction.execute(cfg, automation, tallyCtx)) as unknown as { createdDocument: { id: string }; warnings?: string[] };
+    expect(res.createdDocument.id).toBe("doc-1");
+    expect(res.warnings?.[0]).toContain("boom");
+  });
+
+  it("extractLines:false ou pas de corps Tally : aucune extraction", async () => {
+    const { extractDemandLinesFromBody } = await import("@/lib/crm/demand-lines-ai");
+    await createDocumentAction.execute(cfg, automation, ctx);
+    await createDocumentAction.execute({ ...cfg, extractLines: false }, automation, { ...ctx, variables: { body: { eventType: "FORM_RESPONSE" } } } as ExecutionContext);
+    expect(extractDemandLinesFromBody).not.toHaveBeenCalled();
   });
 });

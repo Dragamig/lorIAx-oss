@@ -14,6 +14,9 @@ import { getHooks } from "@/lib/modules/hooks";
 import { getDefaultOrgId } from "@/lib/org/get-org-id";
 import { sendEmail } from "@/lib/email/send";
 import { getRegistrationRefusal } from "@/lib/auth/registration-policy";
+import { isRegistrationOpen } from "@/lib/auth/registration-setting";
+import { sendVerificationEmail } from "@/lib/auth/email-verification";
+import { sendPasswordResetEmail } from "@/lib/auth/password-reset";
 
 /**
  * Message unique de la route, aligné sur /api/auth/register-org et sur le
@@ -27,7 +30,7 @@ import { getRegistrationRefusal } from "@/lib/auth/registration-policy";
  */
 const REPONSE_UNIFORME = {
   message:
-    "Votre demande a été enregistrée. Connectez-vous pour accéder à votre espace. Si cette adresse est déjà rattachée à un compte, un courriel vient de vous être envoyé.",
+    "Votre demande a été enregistrée. Si un lien de vérification est nécessaire, il vient de vous être envoyé par email.",
 } as const;
 
 function demandeEnregistree() {
@@ -69,6 +72,33 @@ async function notifyExistingAccount(email: string): Promise<void> {
   }
 }
 
+/** Never lets a mail failure change the (uniform) response. */
+async function trySendVerification(user: { id: string; name: string; email: string }): Promise<void> {
+  try {
+    await sendVerificationEmail(user);
+  } catch (err) {
+    logger.warn({ err }, "[register] Verification email failed");
+  }
+}
+
+/**
+ * Known address, not yet verified: a reset link, never a verification link,
+ * against pre-verification account takeover (decision 21/11/2026). The
+ * response stays uniform whatever happens to the mail.
+ */
+async function trySendReset(user: { id: string; name: string; email: string }): Promise<void> {
+  try {
+    await sendPasswordResetEmail(user);
+  } catch (err) {
+    logger.warn({ err }, "[register] Password reset email failed");
+  }
+}
+
+const REGISTRATION_CLOSED_BODY = {
+  error: "Les inscriptions sont fermées.",
+  code: "registration_closed",
+} as const;
+
 const registerSchema = z.object({
   name: z.string().min(2, "Le nom doit faire au moins 2 caracteres"),
   email: z.string().email("Email invalide"),
@@ -91,6 +121,10 @@ export async function POST(request: Request) {
         { status: 429 }
       );
     }
+  }
+
+  if (!(await isRegistrationOpen())) {
+    return NextResponse.json(REGISTRATION_CLOSED_BODY, { status: 403 });
   }
 
   try {
@@ -125,7 +159,10 @@ export async function POST(request: Request) {
     // non amorcée. Indépendante de l'adresse, donc sans effet d'oracle.
     const refusal = await getRegistrationRefusal();
     if (refusal) {
-      return NextResponse.json({ error: refusal.error }, { status: refusal.status });
+      return NextResponse.json(
+        { error: refusal.error, code: REGISTRATION_CLOSED_BODY.code },
+        { status: refusal.status },
+      );
     }
 
     // ORDRE DES CONTROLES. Les refus qui ne dépendent PAS de l'adresse (absence
@@ -166,13 +203,18 @@ export async function POST(request: Request) {
     // découler : on ne crée rien, on prévient le titulaire par courriel, et on
     // rend EXACTEMENT la réponse du succès.
     const [existing] = await db
-      .select({ id: users.id })
+      .select({ id: users.id, name: users.name, emailVerifiedAt: users.emailVerifiedAt })
       .from(users)
       .where(eq(users.email, email))
       .limit(1);
 
     if (existing) {
-      await notifyExistingAccount(email);
+      if (existing.emailVerifiedAt === null) {
+        // Unverified account: reset link, never touch the stored password.
+        await trySendReset({ id: existing.id, name: existing.name, email });
+      } else {
+        await notifyExistingAccount(email);
+      }
       logger.info("[register] Adresse déjà connue, aucune création");
       return demandeEnregistree();
     }
@@ -182,7 +224,7 @@ export async function POST(request: Request) {
     // Creer l'utilisateur
     const [user] = await db
       .insert(users)
-      .values({ name, email, passwordHash })
+      .values({ name, email, passwordHash, emailVerifiedAt: null })
       .returning();
 
     // Rattacher l'utilisateur à son organisation d'accueil (cloisonnement
@@ -212,6 +254,8 @@ export async function POST(request: Request) {
     await ensurePersonalCalendar(user.id, name).catch((err) =>
       logger.error({ err }, "[register] Erreur création calendrier personnel")
     );
+
+    await trySendVerification({ id: user.id, name, email });
 
     // Même corps, même statut que la branche « adresse déjà connue » : plus
     // aucun champ (`userId` compris) ne dépend de la branche empruntée.

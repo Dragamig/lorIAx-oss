@@ -1,5 +1,6 @@
 "use client"
 
+import { useRef, useState } from "react"
 import { useLocale, useTranslations } from "next-intl"
 import { Download } from "lucide-react"
 import { buttonVariants } from "@/components/ui/button"
@@ -7,8 +8,11 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import type { MediaListItem } from "@/lib/media/list"
 import { cn } from "@/lib/utils"
 import { ActionButton } from "./action-button"
+import { ExtractedTextDialog } from "./extracted-text-dialog"
 import { formatMediaSize } from "./media-format"
 import { KIND_ICONS } from "./media-kind-icon"
+import { mediaContentUrl } from "@/lib/media/urls"
+import { retouchEntryReason } from "./retouch/retouch-actions"
 
 type Props = {
   /** Liste courante, dans l'ordre affiché : la navigation s'y limite. */
@@ -17,12 +21,18 @@ type Props = {
   index: number | null
   onIndexChange: (index: number) => void
   onClose: () => void
+  /** Ouvre le retoucheur sur l'image affichée ; absent : pas de bouton. */
+  onRetouch?: (item: MediaListItem) => void
+  /** L'utilisateur peut écrire dans au moins un espace. */
+  canWriteSpace?: boolean
 }
 
 /** Aperçu agrandi navigable au clavier ; le focus revient à la tuile d'origine. */
-export function PreviewDialog({ items, index, onIndexChange, onClose }: Props) {
+export function PreviewDialog({ items, index, onIndexChange, onClose, onRetouch, canWriteSpace = true }: Props) {
   const t = useTranslations("library")
   const locale = useLocale()
+  const mediaRef = useRef<HTMLVideoElement & HTMLAudioElement>(null)
+  const [textOpen, setTextOpen] = useState(false)
   const item = index !== null ? items[index] : undefined
   const open = Boolean(item)
   const last = items.length - 1
@@ -42,13 +52,13 @@ export function PreviewDialog({ items, index, onIndexChange, onClose }: Props) {
     if (item.kind === "image") {
       // SVG inclus : toujours en balise img, jamais en object ni en ligne.
       // eslint-disable-next-line @next/next/no-img-element
-      body = <img src={item.url} alt={item.altText ?? ""} className="max-h-full max-w-full object-contain" />
+      body = <img src={mediaContentUrl(item)} alt={item.altText ?? ""} className="max-h-full max-w-full object-contain" />
     } else if (mime === "application/pdf") {
       body = <iframe src={item.url} title={t("preview.frame", { name })} className="h-full w-full rounded-md border border-border bg-background" />
     } else if (item.kind === "video") {
-      body = <video key={item.id} src={item.url} controls className="max-h-full max-w-full" />
+      body = <video key={item.id} ref={mediaRef} src={item.url} controls className="max-h-full max-w-full" />
     } else if (item.kind === "audio") {
-      body = <audio key={item.id} src={item.url} controls className="w-full max-w-md" />
+      body = <audio key={item.id} ref={mediaRef} src={item.url} controls className="w-full max-w-md" />
     } else {
       body = (
         <div className="flex flex-col items-center gap-3 text-center">
@@ -91,9 +101,40 @@ export function PreviewDialog({ items, index, onIndexChange, onClose }: Props) {
                 {t("preview.meta", { kind: t(`kinds.${item.kind}`), size: formatMediaSize(item.sizeBytes, locale) })}
               </DialogDescription>
             </div>
+            {(item.kind === "video" || item.kind === "audio" || mime === "application/pdf") && (
+              <ActionButton id="openText" onAction={() => setTextOpen(true)} />
+            )}
+            {onRetouch && (() => {
+              const entry = retouchEntryReason(item, { canWriteSpace, canWriteOriginal: item.canWrite })
+              return (
+                <ActionButton
+                  id="openRetouch"
+                  variant="outline"
+                  size="sm"
+                  showLabel
+                  onAction={() => onRetouch(item)}
+                  disabledReason={entry ? t(`retouch.entry.${entry}`) : undefined}
+                />
+              )
+            })()}
             <ActionButton id="previewNext" onAction={() => go(index! + 1)} disabledReason={index === last ? t("preview.last") : undefined} />
           </div>
           <div className="flex min-h-0 items-center justify-center overflow-hidden rounded-md bg-muted p-2">{body}</div>
+          {textOpen && (
+            <ExtractedTextDialog
+              mediaId={item.id}
+              name={name}
+              open
+              onOpenChange={setTextOpen}
+              onSeek={(seconds) => {
+                const el = mediaRef.current
+                if (!el) return
+                el.currentTime = seconds
+                void el.play?.()
+                setTextOpen(false)
+              }}
+            />
+          )}
         </DialogContent>
       )}
     </Dialog>

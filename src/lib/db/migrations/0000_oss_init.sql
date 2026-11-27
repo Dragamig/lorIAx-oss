@@ -6,7 +6,7 @@ CREATE EXTENSION IF NOT EXISTS btree_gist;
 CREATE TYPE "public"."attendee_role" AS ENUM('organizer', 'required', 'optional');--> statement-breakpoint
 CREATE TYPE "public"."attendee_status" AS ENUM('accepted', 'declined', 'tentative', 'needs-action');--> statement-breakpoint
 CREATE TYPE "public"."database_automation_action" AS ENUM('webhook', 'notify_user', 'create_row', 'update_row', 'send_email', 'ai', 'create_document', 'create_task', 'create_design');--> statement-breakpoint
-CREATE TYPE "public"."database_automation_trigger" AS ENUM('row_created', 'row_updated', 'row_deleted', 'cron', 'date_reached', 'value_changed', 'manual', 'webhook_inbound');--> statement-breakpoint
+CREATE TYPE "public"."database_automation_trigger" AS ENUM('row_created', 'row_updated', 'row_deleted', 'cron', 'date_reached', 'value_changed', 'manual', 'webhook_inbound', 'media_uploaded');--> statement-breakpoint
 CREATE TYPE "public"."backup_status" AS ENUM('running', 'completed', 'failed');--> statement-breakpoint
 CREATE TYPE "public"."backup_type" AS ENUM('client', 'technical', 'full');--> statement-breakpoint
 CREATE TYPE "public"."calendar_permission" AS ENUM('read', 'write', 'admin');--> statement-breakpoint
@@ -35,7 +35,7 @@ CREATE TYPE "public"."user_role" AS ENUM('super_admin', 'admin', 'editor', 'view
 CREATE TYPE "public"."database_view_type" AS ENUM('grid', 'kanban', 'gallery', 'calendar', 'form', 'dashboard');--> statement-breakpoint
 CREATE TYPE "public"."visio_action" AS ENUM('join_immediate', 'join_scheduled_invited', 'join_scheduled_uninvited', 'create_immediate', 'create_scheduled', 'modify_cancel');--> statement-breakpoint
 CREATE TYPE "public"."ai_log_status" AS ENUM('success', 'error', 'timeout', 'fallback', 'quota_exceeded');--> statement-breakpoint
-CREATE TYPE "public"."ai_usage_type" AS ENUM('chat', 'summary_doc', 'summary_meeting', 'embeddings', 'playground', 'database_ai_create', 'database_ai_formula', 'automation_ai', 'help', 'voice_note_summary', 'voice_note_cleanup', 'rerank');--> statement-breakpoint
+CREATE TYPE "public"."ai_usage_type" AS ENUM('chat', 'summary_doc', 'summary_meeting', 'embeddings', 'playground', 'database_ai_create', 'database_ai_formula', 'automation_ai', 'help', 'voice_note_summary', 'voice_note_cleanup', 'rerank', 'chat_database_actions', 'creation');--> statement-breakpoint
 CREATE TYPE "public"."connector_type" AS ENUM('anthropic', 'openai_compatible', 'mistral');--> statement-breakpoint
 CREATE TYPE "public"."quota_period" AS ENUM('daily', 'monthly');--> statement-breakpoint
 CREATE TYPE "public"."quota_scope" AS ENUM('org', 'team', 'user');--> statement-breakpoint
@@ -47,10 +47,12 @@ CREATE TYPE "public"."voice_note_status" AS ENUM('recording', 'transcribing', 'r
 CREATE TYPE "public"."media_kind" AS ENUM('image', 'pdf', 'document', 'video', 'audio', 'archive', 'other');--> statement-breakpoint
 CREATE TYPE "public"."media_origin" AS ENUM('upload', 'stock', 'automation', 'studio');--> statement-breakpoint
 CREATE TYPE "public"."media_usage_source" AS ENUM('content', 'explicit');--> statement-breakpoint
-CREATE TYPE "public"."media_usage_target" AS ENUM('document', 'database_row', 'design', 'video_project', 'brand_kit', 'presentation');--> statement-breakpoint
+CREATE TYPE "public"."media_usage_target" AS ENUM('document', 'database_row', 'design', 'video_project', 'brand_kit', 'presentation', 'whiteboard');--> statement-breakpoint
 CREATE TYPE "public"."row_change_kind" AS ENUM('created', 'updated', 'deleted');--> statement-breakpoint
-CREATE TYPE "public"."row_change_source" AS ENUM('ui', 'automation', 'import', 'public_form', 'sync', 'relation_sync', 'restore', 'system');--> statement-breakpoint
+CREATE TYPE "public"."row_change_source" AS ENUM('ui', 'automation', 'import', 'public_form', 'sync', 'relation_sync', 'restore', 'system', 'ai');--> statement-breakpoint
 CREATE TYPE "public"."row_task_event_kind" AS ENUM('created', 'completed', 'reopened');--> statement-breakpoint
+CREATE TYPE "public"."ai_proposal_status" AS ENUM('pending', 'applying', 'applied', 'dismissed', 'stale', 'undone', 'expired', 'failed');--> statement-breakpoint
+CREATE TYPE "public"."ai_proposal_type" AS ENUM('update_rows', 'delete_rows', 'merge_duplicates', 'create_rows');--> statement-breakpoint
 CREATE TABLE "activity_log" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"user_id" uuid,
@@ -352,6 +354,16 @@ CREATE TABLE "documents" (
 	"properties" jsonb,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "email_verification_tokens" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"user_id" uuid NOT NULL,
+	"token_hash" varchar(64) NOT NULL,
+	"expires_at" timestamp with time zone NOT NULL,
+	"used_at" timestamp with time zone,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "email_verification_tokens_token_hash_unique" UNIQUE("token_hash")
 );
 --> statement-breakpoint
 CREATE TABLE "event_dependencies" (
@@ -772,6 +784,7 @@ CREATE TABLE "users" (
 	"theme_preferences" jsonb DEFAULT '{}',
 	"token_invalidated_at" timestamp with time zone,
 	"must_reset_password" boolean DEFAULT false NOT NULL,
+	"email_verified_at" timestamp with time zone DEFAULT now(),
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "users_email_unique" UNIQUE("email")
@@ -1102,6 +1115,7 @@ CREATE TABLE "media" (
 	"page_count" integer,
 	"thumbnail_key" varchar(1024),
 	"current_version" integer DEFAULT 1 NOT NULL,
+	"source_media_id" uuid,
 	"uploaded_by" uuid NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
@@ -1144,6 +1158,100 @@ CREATE TABLE "media_usages" (
 	"space_id" uuid,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "media_versions" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"media_id" uuid NOT NULL,
+	"version" integer NOT NULL,
+	"storage_key" varchar(1024) NOT NULL,
+	"thumbnail_key" varchar(1024),
+	"filename" varchar(500) NOT NULL,
+	"mime_type" varchar(255) NOT NULL,
+	"size_bytes" bigint NOT NULL,
+	"checksum_sha256" char(64),
+	"width" integer,
+	"height" integer,
+	"page_count" integer,
+	"created_by" uuid,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"comment" text,
+	"restored_from" integer
+);
+--> statement-breakpoint
+CREATE TABLE "media_multipart_uploads" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"organization_id" uuid NOT NULL,
+	"user_id" uuid NOT NULL,
+	"space_id" uuid,
+	"folder_id" uuid,
+	"filename" varchar(500) NOT NULL,
+	"mime_type" varchar(255) NOT NULL,
+	"size_bytes" bigint NOT NULL,
+	"part_size" integer NOT NULL,
+	"s3_upload_id" varchar(1024) NOT NULL,
+	"storage_key" varchar(1024) NOT NULL,
+	"status" varchar(16) DEFAULT 'open' NOT NULL,
+	"tags" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"expires_at" timestamp with time zone NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "media_saved_views" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"organization_id" uuid NOT NULL,
+	"user_id" uuid NOT NULL,
+	"name" varchar(80) NOT NULL,
+	"query" text DEFAULT '' NOT NULL,
+	"shared" boolean DEFAULT false NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "media_ai_daily_usage" (
+	"organization_id" uuid NOT NULL,
+	"day" date NOT NULL,
+	"transcribe_seconds" integer DEFAULT 0 NOT NULL,
+	"indexed_passes" integer DEFAULT 0 NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "media_ai_daily_usage_organization_id_day_pk" PRIMARY KEY("organization_id","day")
+);
+--> statement-breakpoint
+CREATE TABLE "media_ai_settings" (
+	"organization_id" uuid PRIMARY KEY NOT NULL,
+	"index_enabled" boolean DEFAULT false NOT NULL,
+	"transcribe_enabled" boolean DEFAULT false NOT NULL,
+	"updated_by" uuid,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "media_embeddings" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"media_id" uuid NOT NULL,
+	"organization_id" uuid NOT NULL,
+	"chunk_index" integer NOT NULL,
+	"chunk_text" text NOT NULL,
+	"model" varchar(255) NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "media_texts" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"media_id" uuid NOT NULL,
+	"organization_id" uuid NOT NULL,
+	"status" varchar(16) DEFAULT 'pending' NOT NULL,
+	"reason" varchar(32),
+	"source" varchar(16),
+	"text" text,
+	"text_chars" integer DEFAULT 0 NOT NULL,
+	"truncated" boolean DEFAULT false NOT NULL,
+	"version" integer DEFAULT 1 NOT NULL,
+	"attempts" integer DEFAULT 0 NOT NULL,
+	"next_attempt_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"locked_at" timestamp with time zone,
+	"indexed_at" timestamp with time zone,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "uq_media_texts_media" UNIQUE("media_id")
 );
 --> statement-breakpoint
 CREATE TABLE "database_row_changes" (
@@ -1189,6 +1297,7 @@ CREATE TABLE "crm_connections" (
 	"deals_database_id" uuid,
 	"interactions_database_id" uuid,
 	"created_database_ids" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"created_automation_keys" jsonb DEFAULT '[]'::jsonb NOT NULL,
 	"field_map" jsonb DEFAULT '{}'::jsonb NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
@@ -1213,6 +1322,111 @@ CREATE TABLE "presentations" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "presentations_space_or_template_chk" CHECK (space_id IS NOT NULL OR is_template)
+);
+--> statement-breakpoint
+CREATE TABLE "mail_accounts" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"organization_id" uuid NOT NULL,
+	"user_id" uuid NOT NULL,
+	"address" varchar(320) NOT NULL,
+	"display_name" varchar(255) DEFAULT '' NOT NULL,
+	"smtp_host" varchar(255) NOT NULL,
+	"smtp_port" integer NOT NULL,
+	"smtp_security" varchar(16) NOT NULL,
+	"imap_host" varchar(255) NOT NULL,
+	"imap_port" integer NOT NULL,
+	"imap_security" varchar(16) NOT NULL,
+	"password_enc" text,
+	"signature" text DEFAULT '' NOT NULL,
+	"cancel_delay_seconds" integer DEFAULT 10 NOT NULL,
+	"poll_interval_minutes" integer DEFAULT 5 NOT NULL,
+	"last_poll_at" timestamp with time zone,
+	"status" varchar(16) DEFAULT 'unverified' NOT NULL,
+	"status_message" text,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "mail_messages" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"organization_id" uuid NOT NULL,
+	"account_id" uuid,
+	"user_id" uuid NOT NULL,
+	"direction" varchar(8) NOT NULL,
+	"status" varchar(16) NOT NULL,
+	"message_id" varchar(998),
+	"in_reply_to" varchar(998),
+	"references" text[] DEFAULT '{}'::text[] NOT NULL,
+	"thread_key" varchar(998),
+	"from_address" varchar(320) NOT NULL,
+	"to_addresses" text[] DEFAULT '{}'::text[] NOT NULL,
+	"cc_addresses" text[] DEFAULT '{}'::text[] NOT NULL,
+	"bcc_addresses" text[] DEFAULT '{}'::text[] NOT NULL,
+	"subject" text DEFAULT '' NOT NULL,
+	"body_html" text DEFAULT '' NOT NULL,
+	"body_text" text DEFAULT '' NOT NULL,
+	"attachments" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"scheduled_at" timestamp with time zone,
+	"sent_at" timestamp with time zone,
+	"attempts" integer DEFAULT 0 NOT NULL,
+	"last_error" text,
+	"trace_attempts" integer DEFAULT 0 NOT NULL,
+	"client_key" varchar(64),
+	"contact_database_id" uuid,
+	"contact_row_id" uuid,
+	"dossier_database_id" uuid,
+	"dossier_row_id" uuid,
+	"interaction_row_id" uuid,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "ai_proposals" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"org_id" uuid NOT NULL,
+	"user_id" uuid NOT NULL,
+	"database_id" uuid NOT NULL,
+	"type" "ai_proposal_type" NOT NULL,
+	"payload" jsonb NOT NULL,
+	"freshness" jsonb NOT NULL,
+	"status" "ai_proposal_status" DEFAULT 'pending' NOT NULL,
+	"undo_snapshot" jsonb,
+	"batch_id" uuid DEFAULT gen_random_uuid() NOT NULL,
+	"replaces_id" uuid,
+	"failure_message" text,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"applied_at" timestamp with time zone,
+	"dismissed_at" timestamp with time zone,
+	"undone_at" timestamp with time zone,
+	"expires_at" timestamp with time zone NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "ai_tool_calls" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"org_id" uuid NOT NULL,
+	"user_id" uuid NOT NULL,
+	"tool" varchar(100) NOT NULL,
+	"args" jsonb NOT NULL,
+	"status" varchar(16) NOT NULL,
+	"duration_ms" integer NOT NULL,
+	"proposal_id" uuid,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "ai_creation_proposals" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"org_id" uuid NOT NULL,
+	"user_id" uuid NOT NULL,
+	"space_id" uuid,
+	"kind" varchar(20) NOT NULL,
+	"payload" jsonb NOT NULL,
+	"status" varchar(20) DEFAULT 'pending' NOT NULL,
+	"result_id" uuid,
+	"result_type" varchar(20),
+	"overrides" jsonb,
+	"expires_at" timestamp with time zone NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"applied_at" timestamp with time zone
 );
 --> statement-breakpoint
 ALTER TABLE "activity_log" ADD CONSTRAINT "activity_log_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
@@ -1266,6 +1480,7 @@ ALTER TABLE "documents" ADD CONSTRAINT "documents_parent_id_documents_id_fk" FOR
 ALTER TABLE "documents" ADD CONSTRAINT "documents_template_id_templates_id_fk" FOREIGN KEY ("template_id") REFERENCES "public"."templates"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "documents" ADD CONSTRAINT "documents_created_by_users_id_fk" FOREIGN KEY ("created_by") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "documents" ADD CONSTRAINT "documents_locked_by_users_id_fk" FOREIGN KEY ("locked_by") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "email_verification_tokens" ADD CONSTRAINT "email_verification_tokens_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "event_dependencies" ADD CONSTRAINT "event_dependencies_source_event_id_calendar_events_id_fk" FOREIGN KEY ("source_event_id") REFERENCES "public"."calendar_events"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "event_dependencies" ADD CONSTRAINT "event_dependencies_target_event_id_calendar_events_id_fk" FOREIGN KEY ("target_event_id") REFERENCES "public"."calendar_events"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "external_database_mappings" ADD CONSTRAINT "external_database_mappings_user_database_id_user_databases_id_fk" FOREIGN KEY ("user_database_id") REFERENCES "public"."user_databases"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -1370,6 +1585,7 @@ ALTER TABLE "media" ADD CONSTRAINT "media_organization_id_organizations_id_fk" F
 ALTER TABLE "media" ADD CONSTRAINT "media_space_id_spaces_id_fk" FOREIGN KEY ("space_id") REFERENCES "public"."spaces"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "media" ADD CONSTRAINT "media_folder_id_media_folders_id_fk" FOREIGN KEY ("folder_id") REFERENCES "public"."media_folders"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "media" ADD CONSTRAINT "media_document_id_documents_id_fk" FOREIGN KEY ("document_id") REFERENCES "public"."documents"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "media" ADD CONSTRAINT "media_source_media_id_media_id_fk" FOREIGN KEY ("source_media_id") REFERENCES "public"."media"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "media" ADD CONSTRAINT "media_uploaded_by_users_id_fk" FOREIGN KEY ("uploaded_by") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "media" ADD CONSTRAINT "media_deleted_by_users_id_fk" FOREIGN KEY ("deleted_by") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "media_folders" ADD CONSTRAINT "media_folders_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -1379,6 +1595,22 @@ ALTER TABLE "media_tag_links" ADD CONSTRAINT "media_tag_links_media_id_media_id_
 ALTER TABLE "media_tag_links" ADD CONSTRAINT "media_tag_links_tag_id_media_tags_id_fk" FOREIGN KEY ("tag_id") REFERENCES "public"."media_tags"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "media_tags" ADD CONSTRAINT "media_tags_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "media_usages" ADD CONSTRAINT "media_usages_media_id_media_id_fk" FOREIGN KEY ("media_id") REFERENCES "public"."media"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "media_versions" ADD CONSTRAINT "media_versions_media_id_media_id_fk" FOREIGN KEY ("media_id") REFERENCES "public"."media"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "media_versions" ADD CONSTRAINT "media_versions_created_by_users_id_fk" FOREIGN KEY ("created_by") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "media_multipart_uploads" ADD CONSTRAINT "media_multipart_uploads_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "media_multipart_uploads" ADD CONSTRAINT "media_multipart_uploads_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "media_multipart_uploads" ADD CONSTRAINT "media_multipart_uploads_space_id_spaces_id_fk" FOREIGN KEY ("space_id") REFERENCES "public"."spaces"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "media_multipart_uploads" ADD CONSTRAINT "media_multipart_uploads_folder_id_media_folders_id_fk" FOREIGN KEY ("folder_id") REFERENCES "public"."media_folders"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "media_saved_views" ADD CONSTRAINT "media_saved_views_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "media_saved_views" ADD CONSTRAINT "media_saved_views_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "media_ai_daily_usage" ADD CONSTRAINT "media_ai_daily_usage_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "media_ai_settings" ADD CONSTRAINT "media_ai_settings_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "media_ai_settings" ADD CONSTRAINT "media_ai_settings_updated_by_users_id_fk" FOREIGN KEY ("updated_by") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "media_embeddings" ADD CONSTRAINT "media_embeddings_media_id_media_id_fk" FOREIGN KEY ("media_id") REFERENCES "public"."media"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "media_embeddings" ADD CONSTRAINT "media_embeddings_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "media_embeddings" ADD CONSTRAINT "media_embeddings_media_text_fkey" FOREIGN KEY ("media_id") REFERENCES "public"."media_texts"("media_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "media_texts" ADD CONSTRAINT "media_texts_media_id_media_id_fk" FOREIGN KEY ("media_id") REFERENCES "public"."media"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "media_texts" ADD CONSTRAINT "media_texts_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "database_row_changes" ADD CONSTRAINT "database_row_changes_database_id_user_databases_id_fk" FOREIGN KEY ("database_id") REFERENCES "public"."user_databases"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "database_row_changes" ADD CONSTRAINT "database_row_changes_actor_user_id_users_id_fk" FOREIGN KEY ("actor_user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "database_row_comments" ADD CONSTRAINT "database_row_comments_database_id_user_databases_id_fk" FOREIGN KEY ("database_id") REFERENCES "public"."user_databases"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -1395,6 +1627,18 @@ ALTER TABLE "presentations" ADD CONSTRAINT "presentations_space_id_spaces_id_fk"
 ALTER TABLE "presentations" ADD CONSTRAINT "presentations_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "presentations" ADD CONSTRAINT "presentations_document_id_documents_id_fk" FOREIGN KEY ("document_id") REFERENCES "public"."documents"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "presentations" ADD CONSTRAINT "presentations_created_by_users_id_fk" FOREIGN KEY ("created_by") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "mail_accounts" ADD CONSTRAINT "mail_accounts_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "mail_accounts" ADD CONSTRAINT "mail_accounts_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "mail_messages" ADD CONSTRAINT "mail_messages_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "mail_messages" ADD CONSTRAINT "mail_messages_account_id_mail_accounts_id_fk" FOREIGN KEY ("account_id") REFERENCES "public"."mail_accounts"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "ai_proposals" ADD CONSTRAINT "ai_proposals_org_id_organizations_id_fk" FOREIGN KEY ("org_id") REFERENCES "public"."organizations"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "ai_proposals" ADD CONSTRAINT "ai_proposals_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "ai_proposals" ADD CONSTRAINT "ai_proposals_database_id_user_databases_id_fk" FOREIGN KEY ("database_id") REFERENCES "public"."user_databases"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "ai_tool_calls" ADD CONSTRAINT "ai_tool_calls_org_id_organizations_id_fk" FOREIGN KEY ("org_id") REFERENCES "public"."organizations"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "ai_tool_calls" ADD CONSTRAINT "ai_tool_calls_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "ai_creation_proposals" ADD CONSTRAINT "ai_creation_proposals_org_id_organizations_id_fk" FOREIGN KEY ("org_id") REFERENCES "public"."organizations"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "ai_creation_proposals" ADD CONSTRAINT "ai_creation_proposals_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "ai_creation_proposals" ADD CONSTRAINT "ai_creation_proposals_space_id_spaces_id_fk" FOREIGN KEY ("space_id") REFERENCES "public"."spaces"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "idx_activity_entity" ON "activity_log" USING btree ("entity_type","entity_id");--> statement-breakpoint
 CREATE INDEX "idx_activity_user" ON "activity_log" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "idx_ai_providers_org" ON "ai_providers" USING btree ("organization_id");--> statement-breakpoint
@@ -1446,6 +1690,7 @@ CREATE INDEX "idx_documents_space" ON "documents" USING btree ("space_id");--> s
 CREATE INDEX "idx_documents_updated" ON "documents" USING btree ("updated_at");--> statement-breakpoint
 CREATE INDEX "idx_documents_slug" ON "documents" USING btree ("slug");--> statement-breakpoint
 CREATE INDEX "idx_documents_created_by" ON "documents" USING btree ("created_by");--> statement-breakpoint
+CREATE INDEX "idx_email_verification_user" ON "email_verification_tokens" USING btree ("user_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "uq_event_deps" ON "event_dependencies" USING btree ("source_event_id","target_event_id");--> statement-breakpoint
 CREATE INDEX "idx_event_deps_source" ON "event_dependencies" USING btree ("source_event_id");--> statement-breakpoint
 CREATE INDEX "idx_event_deps_target" ON "event_dependencies" USING btree ("target_event_id");--> statement-breakpoint
@@ -1530,6 +1775,7 @@ CREATE INDEX "idx_media_folder" ON "media" USING btree ("folder_id");--> stateme
 CREATE INDEX "idx_media_kind" ON "media" USING btree ("kind");--> statement-breakpoint
 CREATE INDEX "idx_media_checksum" ON "media" USING btree ("checksum_sha256");--> statement-breakpoint
 CREATE INDEX "idx_media_uploaded_by" ON "media" USING btree ("uploaded_by");--> statement-breakpoint
+CREATE INDEX "idx_media_source" ON "media" USING btree ("source_media_id") WHERE "media"."source_media_id" is not null;--> statement-breakpoint
 CREATE INDEX "idx_media_no_space" ON "media" USING btree ("organization_id") WHERE "media"."space_id" is null;--> statement-breakpoint
 CREATE INDEX "idx_media_filename_trgm" ON "media" USING gin ("filename" gin_trgm_ops);--> statement-breakpoint
 CREATE INDEX "idx_media_title_trgm" ON "media" USING gin ("title" gin_trgm_ops);--> statement-breakpoint
@@ -1540,6 +1786,17 @@ CREATE UNIQUE INDEX "uq_media_tags_slug" ON "media_tags" USING btree ("organizat
 CREATE UNIQUE INDEX "uq_media_usages_slot" ON "media_usages" USING btree ("media_id","target_type","target_id",coalesce("context", ''));--> statement-breakpoint
 CREATE INDEX "idx_media_usages_target" ON "media_usages" USING btree ("target_type","target_id");--> statement-breakpoint
 CREATE INDEX "idx_media_usages_media" ON "media_usages" USING btree ("media_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "uq_media_versions_media_version" ON "media_versions" USING btree ("media_id","version");--> statement-breakpoint
+CREATE UNIQUE INDEX "uq_media_versions_storage_key" ON "media_versions" USING btree ("storage_key");--> statement-breakpoint
+CREATE INDEX "idx_media_versions_media" ON "media_versions" USING btree ("media_id");--> statement-breakpoint
+CREATE INDEX "idx_media_multipart_status_expires" ON "media_multipart_uploads" USING btree ("status","expires_at");--> statement-breakpoint
+CREATE INDEX "idx_media_multipart_org_user" ON "media_multipart_uploads" USING btree ("organization_id","user_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "uq_media_saved_views_user_name" ON "media_saved_views" USING btree ("user_id","name");--> statement-breakpoint
+CREATE INDEX "idx_media_saved_views_org" ON "media_saved_views" USING btree ("organization_id","shared");--> statement-breakpoint
+CREATE UNIQUE INDEX "uq_media_embeddings_media_chunk" ON "media_embeddings" USING btree ("media_id","chunk_index");--> statement-breakpoint
+CREATE INDEX "idx_media_embeddings_org" ON "media_embeddings" USING btree ("organization_id");--> statement-breakpoint
+CREATE INDEX "idx_media_texts_queue" ON "media_texts" USING btree ("next_attempt_at") WHERE "media_texts"."status" = 'pending';--> statement-breakpoint
+CREATE INDEX "idx_media_texts_org_status" ON "media_texts" USING btree ("organization_id","status");--> statement-breakpoint
 CREATE INDEX "idx_row_changes_row" ON "database_row_changes" USING btree ("database_id","row_id","created_at" DESC NULLS LAST,"id" DESC NULLS LAST);--> statement-breakpoint
 CREATE INDEX "idx_row_changes_batch" ON "database_row_changes" USING btree ("batch_id");--> statement-breakpoint
 CREATE INDEX "idx_row_changes_deleted" ON "database_row_changes" USING btree ("database_id","row_id","created_at") WHERE "database_row_changes"."kind" = 'deleted';--> statement-breakpoint
@@ -1550,4 +1807,15 @@ CREATE INDEX "idx_row_task_events_task" ON "database_row_task_events" USING btre
 CREATE INDEX "idx_presentations_space" ON "presentations" USING btree ("space_id");--> statement-breakpoint
 CREATE INDEX "idx_presentations_document" ON "presentations" USING btree ("document_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "idx_presentations_template_seed" ON "presentations" USING btree ("organization_id","template_seed_key") WHERE "presentations"."template_seed_key" IS NOT NULL;--> statement-breakpoint
-CREATE INDEX "idx_presentations_org_templates" ON "presentations" USING btree ("organization_id") WHERE "presentations"."is_template";
+CREATE INDEX "idx_presentations_org_templates" ON "presentations" USING btree ("organization_id") WHERE "presentations"."is_template";--> statement-breakpoint
+CREATE UNIQUE INDEX "mail_accounts_org_user_idx" ON "mail_accounts" USING btree ("organization_id","user_id");--> statement-breakpoint
+CREATE INDEX "idx_mail_messages_contact" ON "mail_messages" USING btree ("organization_id","contact_row_id","created_at");--> statement-breakpoint
+CREATE INDEX "idx_mail_messages_dossier" ON "mail_messages" USING btree ("organization_id","dossier_row_id","created_at");--> statement-breakpoint
+CREATE INDEX "idx_mail_messages_due" ON "mail_messages" USING btree ("status","scheduled_at");--> statement-breakpoint
+CREATE INDEX "idx_mail_messages_thread" ON "mail_messages" USING btree ("organization_id","thread_key");--> statement-breakpoint
+CREATE UNIQUE INDEX "mail_messages_account_message_id_idx" ON "mail_messages" USING btree ("account_id","message_id") WHERE "mail_messages"."message_id" IS NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "mail_messages_account_client_key_idx" ON "mail_messages" USING btree ("account_id","client_key");--> statement-breakpoint
+CREATE INDEX "idx_ai_proposals_user_status" ON "ai_proposals" USING btree ("user_id","status");--> statement-breakpoint
+CREATE INDEX "idx_ai_proposals_expires" ON "ai_proposals" USING btree ("expires_at");--> statement-breakpoint
+CREATE INDEX "idx_ai_tool_calls_org_created" ON "ai_tool_calls" USING btree ("org_id","created_at");--> statement-breakpoint
+CREATE INDEX "idx_ai_creation_proposals_org_user_status" ON "ai_creation_proposals" USING btree ("org_id","user_id","status");

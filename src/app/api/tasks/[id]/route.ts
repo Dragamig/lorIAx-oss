@@ -44,6 +44,29 @@ export async function PATCH(
     return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
   }
 
+  // Tâche de document : le document est la seule source du statut. La synchro
+  // document → tâches (syncDocumentTasks) recalcule le statut à chaque
+  // enregistrement, donc un statut écrit ici serait écrasé silencieusement. On
+  // ne réécrit pas le document depuis cette route : son contenu vit à la fois
+  // dans l'état Yjs (Hocuspocus), dans les éditeurs ouverts (y compris hors
+  // collaboration, qui renvoient leur JSON complet) et dans le Markdown, qui ne
+  // conserve ni le nodeId ni le statut « en cours ». Refus explicite, sans
+  // écriture partielle. Placé après le contrôle assigné/auteur : aucune fuite.
+  if (
+    task.kind === "document_item" &&
+    parsed.data.status !== undefined &&
+    parsed.data.status !== task.status
+  ) {
+    return NextResponse.json(
+      {
+        error:
+          "Le statut d'une tâche de document se change dans le document. Ouvrez le document pour la cocher ou changer son statut.",
+        code: "DOCUMENT_TASK_STATUS_IN_DOCUMENT",
+      },
+      { status: 409 }
+    );
+  }
+
   const assigneeChanged =
     parsed.data.assigneeId !== undefined &&
     parsed.data.assigneeId !== null &&

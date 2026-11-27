@@ -27,6 +27,7 @@ vi.mock("@/lib/db", () => ({
           rows = table === media ? mediaRows : table === videoProjects ? [] : [];
           return b;
         }),
+        innerJoin: vi.fn(() => b),
         where: vi.fn(() => b),
         limit: vi.fn(() => Promise.resolve(rows)),
       };

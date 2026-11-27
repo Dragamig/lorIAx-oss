@@ -535,6 +535,17 @@ export function DatabaseTable({
                 )}
               </DragOverlay>
             </DndContext>
+            {!readOnly && (
+              <button
+                onClick={addRow}
+                className="database-block-add-row"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Nouvelle ligne
+              </button>
+            )}
+            {/* Espaceur : garde la dernière ligne et « Nouvelle ligne » atteignables sous la barre de sélection flottante. */}
+            <div aria-hidden="true" className="h-24 shrink-0" />
           </div>
 
           <SelectionBar
@@ -547,15 +558,6 @@ export function DatabaseTable({
             }}
           />
 
-          {!readOnly && (
-            <button
-              onClick={addRow}
-              className="database-block-add-row"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Nouvelle ligne
-            </button>
-          )}
         </>
       )}
 

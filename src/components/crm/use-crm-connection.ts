@@ -13,6 +13,7 @@ export interface CrmRoleView {
   connected: boolean;
   databaseId?: string;
   databaseName?: string;
+  spaceId?: string;
   spaceName?: string;
   fields: Record<string, FieldState>;
   columnIds: Record<string, string | null>;

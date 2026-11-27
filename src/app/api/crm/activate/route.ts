@@ -45,5 +45,8 @@ export async function POST(req: NextRequest) {
     created: result.created,
     completed: result.completed,
     unlinkedRelations: result.unlinkedRelations,
+    automationsCreated: result.automationsCreated,
+    automationsSkipped: result.automationsSkipped,
+    statusOptionsAdded: result.statusOptionsAdded,
   });
 }

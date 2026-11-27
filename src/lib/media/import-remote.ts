@@ -2,7 +2,6 @@ import { fileTypeFromBuffer } from "file-type";
 import { OutboundRequestError, safeExternalFetch } from "@/lib/security/outbound-fetch";
 import type { SessionUser } from "@/types";
 import { isStockImageHost } from "@/lib/images/stock-hosts";
-import { isOrgAdminOrOwner } from "./access";
 import { canWriteLibrary } from "./folders";
 import { ingestMedia, type IngestResult } from "./ingest";
 import { MAX_UPLOAD_BYTES } from "./upload-limits";
@@ -68,11 +67,6 @@ export async function importRemoteImage(input: ImportRemoteInput): Promise<Inges
 
   if (!(await canWriteLibrary(user, orgId))) return fail(403, "forbidden");
 
-  // Média hors espace : réservé aux administrateurs, sauf banque d'images.
-  if (!spaceId && origin !== "stock" && !(await isOrgAdminOrOwner(user.id, orgId))) {
-    return fail(400, "space_required");
-  }
-
   let body: Buffer;
   try {
     const res = await safeExternalFetch(target.toString(), {
@@ -107,7 +101,6 @@ export async function importRemoteImage(input: ImportRemoteInput): Promise<Inges
     orgId,
     spaceId,
     origin,
-    allowOrgLevel: !spaceId,
     displayName: input.displayName,
     file: { name, size: body.length, type: detected.mime },
     buffer: body,

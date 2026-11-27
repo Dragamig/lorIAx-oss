@@ -3,6 +3,8 @@ import { videoProjects } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { checkSpaceReadAccess } from "@/lib/auth/check-access";
 import { getMediaByStorageKey, resolveMediaAccess } from "@/lib/media/access";
+import { loadConnection } from "@/lib/crm/connection";
+import { isOrgMember } from "@/lib/org/resolve-request-org";
 import type { SessionUser } from "@/types";
 
 /**
@@ -28,7 +30,7 @@ const READABLE_PREFIXES = [
  * passer par `/api/attachments` serait un contournement de ces contrôles.
  */
 const DENIED_PREFIXES = [
-  "studio/", // /api/studio/images/[id]
+  "studio/", // anciennes URLs /api/studio/images/<id> réécrites en /api/media/<id>
   "meeting-rooms/", // /api/meeting-rooms/[id]/...
   "designs/", // /api/designs/[id]
   "automations/", // /api/databases/.../runs/[runId]/document
@@ -46,8 +48,10 @@ const UUID_RE =
  * 2. Repli historique : clé préfixée d'un UUID d'espace → contrôle d'espace.
  * 3. Médias du banc de montage (`video-editor/{projectId}/...`) → contrôle de
  *    l'espace du projet (imports Pexels et exports, sans ligne `media`).
- * 4. `avatars/` et `branding/` → lecture autorisée.
- * 5. Tout le reste → refus.
+ * 4. Pièces du Mailing (`mail/{orgId}/...`, tracées dans l'Interaction CRM) : membre de
+ *    l'organisation ET lecture de la base Interactions du raccordement CRM.
+ * 5. `avatars/` et `branding/` → lecture autorisée.
+ * 6. Tout le reste → refus.
  */
 export async function canReadStorageKey(
   user: SessionUser,
@@ -81,9 +85,26 @@ export async function canReadStorageKey(
     return checkSpaceReadAccess(user, project.spaceId);
   }
 
+  if (first === "mail") {
+    if (!UUID_RE.test(second)) return false;
+    return canReadMailAttachment(user, second);
+  }
+
   if (UUID_RE.test(first)) {
     return checkSpaceReadAccess(user, first);
   }
 
   return false;
+}
+
+/**
+ * Pièces téléversées par le Mailing, lues depuis la trace CRM : l'organisation de la clé doit être
+ * celle d'un membre, et la base Interactions du raccordement doit lui être lisible (permission
+ * d'espace réelle de l'utilisateur, filtrée par organisation).
+ */
+async function canReadMailAttachment(user: SessionUser, orgId: string): Promise<boolean> {
+  if (!(await isOrgMember(user.id, orgId))) return false;
+  const conn = await loadConnection(orgId, user.id, "viewer");
+  const ix = conn?.roles.interactions;
+  return !!ix?.connected && !!ix.databaseId;
 }

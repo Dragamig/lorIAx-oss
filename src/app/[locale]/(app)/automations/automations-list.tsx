@@ -4,7 +4,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useMemo, useEffect } from "react";
 import { toast } from "sonner";
+import { useTranslations } from "next-intl";
 import { Switch } from "@/components/ui/switch";
+import { Tip } from "@/components/editor/extensions/database-block/row-tip";
+import { TallyFormButton } from "@/components/crm/tally/tally-form-button";
+import { TallyReceptionDialog } from "@/components/crm/tally/tally-reception-dialog";
+import { tallyFormMissing } from "@/lib/automations/tally-activation-guard";
 import { ExternalLink, History, MoreHorizontal, Pencil, Plus, Workflow } from "lucide-react";
 
 import type { AutomationGraph } from "@/lib/automations/automation-graph";
@@ -15,6 +20,7 @@ import { RunHistory } from "./debug-history";
 import { Tooltip, SELECTED_CLS, FOCUS_CLS } from "./debug-shared";
 import { RealModeBanner } from "./debug-toolbar";
 import { USER_PLACEHOLDER_GROUP, cellsToOptions, useAutomationColumns } from "./automation-shared";
+import { MANAGE_AUTOMATIONS_REQUIRED } from "./automation-access";
 
 import {
   Dialog,
@@ -42,7 +48,9 @@ type TriggerType =
   // Déclencheur manuel (workflow autonome — bouton dans un document).
   | "manual"
   // Déclencheur webhook entrant (Spec 1 — câblage UI dans un lot ultérieur).
-  | "webhook_inbound";
+  | "webhook_inbound"
+  // Un média est ajouté à la médiathèque (écran de configuration dans un lot ultérieur).
+  | "media_uploaded";
 type ActionType =
   | "webhook"
   | "notify_user"
@@ -72,6 +80,7 @@ const TRIGGERS: { value: TriggerType; label: string }[] = [
 const AUTONOMOUS_TRIGGERS: { value: TriggerType; label: string }[] = [
   { value: "manual", label: "Manuel (bouton)" },
   { value: "webhook_inbound", label: "Webhook entrant" },
+  { value: "media_uploaded", label: "Média ajouté" },
 ];
 
 type AutomationKind = "base" | "autonomous";
@@ -112,6 +121,15 @@ interface AutomationItem {
   enabled: boolean;
   lastRunAt: string | null;
   lastRunStatus: string | null;
+}
+
+/** Automatisme de réception Tally d'une base : webhook entrant déclarant la clé `tallyFormId`. */
+function isTallyReception(item: AutomationItem): boolean {
+  return (
+    item.triggerType === "webhook_inbound" &&
+    !!item.databaseId &&
+    Object.prototype.hasOwnProperty.call(item.triggerConfig ?? {}, "tallyFormId")
+  );
 }
 
 interface BaseRef {
@@ -227,14 +245,22 @@ export function AutomationsList({
   items,
   bases,
   currentSpaceId,
-  canMutate,
+  canManage,
 }: {
   items: AutomationItem[];
   bases: BaseRef[];
   currentSpaceId: string;
-  canMutate: boolean;
+  /**
+   * Droit de créer, modifier, activer, supprimer, tester et rejouer : calculé
+   * côté serveur par `canManageSpaceAutomations` (mêmes gardes que l'API).
+   * Sans lui, l'écran reste consultable (liste, enchaînement, historique).
+   */
+  canManage: boolean;
 }) {
   const router = useRouter();
+  const tCrm = useTranslations("crm");
+  const tTally = useTranslations("crm.tally");
+  const [tallyDialogId, setTallyDialogId] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
 
@@ -297,6 +323,7 @@ export function AutomationsList({
   }
 
   function openCreate(kind: AutomationKind = defaultKind) {
+    if (!canManage) return;
     if (kind === "base" && bases.length === 0) {
       toast.error("Créez d'abord une base dans cet espace.");
       return;
@@ -308,6 +335,7 @@ export function AutomationsList({
   }
 
   function openEdit(item: AutomationItem) {
+    if (!canManage) return;
     setEditing(item);
     setForm(fromItem(item));
     setFormError(null);
@@ -315,7 +343,11 @@ export function AutomationsList({
   }
 
   async function toggle(item: AutomationItem) {
-    if (!canMutate) return;
+    if (!canManage) return;
+    if (!item.enabled && tallyFormMissing(item.triggerType, item.triggerConfig)) {
+      toast.error(tTally("list.switchBlocked"));
+      return;
+    }
     setBusy(item.id);
     try {
       const res = await fetch(itemEndpoint(item), {
@@ -326,7 +358,10 @@ export function AutomationsList({
       if (res.ok) {
         toast.success(item.enabled ? "Désactivée" : "Activée");
         router.refresh();
-      } else toast.error("Action impossible");
+      } else {
+        const data = await res.json().catch(() => null);
+        toast.error(data?.code === "tally_form_required" ? tCrm("errors.tallyFormRequired") : "Action impossible");
+      }
     } finally {
       setBusy(null);
     }
@@ -584,7 +619,7 @@ export function AutomationsList({
           aria-label="Filtrer les automatisations"
           className="flex-1 min-w-[200px] rounded border border-neutral-300 bg-white px-3 py-1.5 text-sm dark:border-neutral-700 dark:bg-neutral-900"
         />
-        {canMutate && (
+        {canManage ? (
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
@@ -611,13 +646,24 @@ export function AutomationsList({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+        ) : (
+          <Tip label={MANAGE_AUTOMATIONS_REQUIRED}>
+            <button
+              type="button"
+              aria-disabled="true"
+              className="inline-flex cursor-not-allowed items-center gap-1.5 rounded bg-neutral-900 px-3 py-1.5 text-sm text-white opacity-50 dark:bg-neutral-100 dark:text-neutral-900"
+            >
+              <Plus className="h-3.5 w-3.5" aria-hidden />
+              Nouvelle
+            </button>
+          </Tip>
         )}
       </div>
 
       {items.length === 0 ? (
         <p className="rounded border border-dashed border-neutral-300 p-6 text-center text-sm italic text-neutral-400 dark:border-neutral-700">
           Aucune automatisation pour l&apos;instant.
-          {canMutate && " Cliquez sur « Nouvelle » pour créer un workflow autonome ou une automatisation de base."}
+          {canManage && " Cliquez sur « Nouvelle » pour créer un workflow autonome ou une automatisation de base."}
         </p>
       ) : (
         <div className="space-y-3">
@@ -679,6 +725,16 @@ export function AutomationsList({
                   <span>
                     {item.triggerLabel} → {item.actionLabel}
                   </span>
+                  {isTallyReception(item) && (
+                    <>
+                      <span>•</span>
+                      <span className={tallyFormMissing(item.triggerType, item.triggerConfig) ? "font-medium text-amber-800 dark:text-amber-300" : undefined}>
+                        {tallyFormMissing(item.triggerType, item.triggerConfig)
+                          ? tTally("list.subtitleNone")
+                          : tTally("list.subtitleId", { id: String(item.triggerConfig.tallyFormId) })}
+                      </span>
+                    </>
+                  )}
                   {item.lastRunAt && (
                     <>
                       <span>•</span>
@@ -709,7 +765,7 @@ export function AutomationsList({
                 </div>
               </div>
 
-              {canMutate && (
+              {canManage && (
                 <DropdownMenu>
                   <DropdownMenuTrigger
                     render={
@@ -775,11 +831,10 @@ export function AutomationsList({
                   ? "Workflow autonome (bouton)"
                   : selected.databaseName}
               </span>
-              {canMutate && (
-                <div className="ml-auto flex items-center gap-1.5">
+              <div className="ml-auto flex flex-wrap items-center gap-1.5">
                   <div role="tablist" aria-label="Vue de l'automatisation" className="inline-flex rounded-md border border-neutral-200 p-0.5 dark:border-neutral-800">
                     {([
-                      ["editor", "Éditeur", Pencil, "Modifier et tester le scénario"],
+                      ["editor", "Éditeur", Pencil, canManage ? "Modifier et tester le scénario" : "Consulter le scénario"],
                       ["history", "Historique", History, "Exécutions passées, détail par étape et rejeu"],
                     ] as const).map(([k, label, TabIcon, tip]) => (
                       <span key={k} className="group/tip relative inline-flex">
@@ -801,34 +856,59 @@ export function AutomationsList({
                       </span>
                     ))}
                   </div>
-                  <span className="group relative inline-flex items-center gap-1.5 text-xs">
-                    <Switch
-                      size="sm"
-                      checked={selected.enabled}
-                      disabled={!canMutate || busy === selected.id}
-                      onCheckedChange={() => toggle(selected)}
-                      aria-label={selected.enabled ? "Désactiver l'automatisme" : "Activer l'automatisme"}
+                  {isTallyReception(selected) && (
+                    <TallyFormButton
+                      formMissing={tallyFormMissing(selected.triggerType, selected.triggerConfig)}
+                      disabledReason={canManage ? undefined : MANAGE_AUTOMATIONS_REQUIRED}
+                      onClick={() => setTallyDialogId(selected.id)}
                     />
+                  )}
+                  <span className="relative inline-flex items-center gap-1.5 text-xs">
+                    <Tip
+                      label={
+                        !canManage
+                          ? MANAGE_AUTOMATIONS_REQUIRED
+                          : !selected.enabled && tallyFormMissing(selected.triggerType, selected.triggerConfig)
+                            ? tTally("list.switchBlocked")
+                            : busy === selected.id
+                              ? "Changement en cours"
+                              : selected.enabled
+                                ? "Désactiver l'automatisme"
+                                : "Activer l'automatisme"
+                      }
+                    >
+                      <Switch
+                        size="sm"
+                        checked={selected.enabled}
+                        disabled={!canManage || busy === selected.id}
+                        aria-disabled={!selected.enabled && tallyFormMissing(selected.triggerType, selected.triggerConfig) ? true : undefined}
+                        className={!selected.enabled && tallyFormMissing(selected.triggerType, selected.triggerConfig) ? "opacity-50" : undefined}
+                        onCheckedChange={() => toggle(selected)}
+                        aria-label={selected.enabled ? "Désactiver l'automatisme" : "Activer l'automatisme"}
+                      />
+                    </Tip>
                     <span aria-hidden>{selected.enabled ? "Activé" : "Désactivé"}</span>
-                    <Tooltip>
-                      {!canMutate
-                        ? "Modification non autorisée avec vos droits"
-                        : busy === selected.id
-                          ? "Changement en cours"
-                          : selected.enabled
-                            ? "Désactiver l'automatisme"
-                            : "Activer l'automatisme"}
-                    </Tooltip>
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => openEdit(selected)}
-                    className="rounded border border-neutral-300 px-2 py-1 text-xs hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
-                  >
-                    Réglages…
-                  </button>
+                  {canManage ? (
+                    <button
+                      type="button"
+                      onClick={() => openEdit(selected)}
+                      className="rounded border border-neutral-300 px-2 py-1 text-xs hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
+                    >
+                      Réglages…
+                    </button>
+                  ) : (
+                    <Tip label={MANAGE_AUTOMATIONS_REQUIRED}>
+                      <button
+                        type="button"
+                        aria-disabled="true"
+                        className="cursor-not-allowed rounded border border-neutral-300 px-2 py-1 text-xs opacity-50 dark:border-neutral-700"
+                      >
+                        Réglages…
+                      </button>
+                    </Tip>
+                  )}
                 </div>
-              )}
             </div>
             {/* Historique des exécutions, ou canevas déclencheur → actions */}
             {realMode && <RealModeBanner onRevert={() => setRealMode(false)} />}
@@ -836,7 +916,7 @@ export function AutomationsList({
               <RunHistory
                 key={selected.id}
                 endpoint={itemEndpoint(selected)}
-                canReplay={canMutate}
+                canReplay={canManage}
                 refreshKey={historyKey}
                 databaseId={selected.databaseId ?? undefined}
               />
@@ -858,6 +938,7 @@ export function AutomationsList({
                     enabled: selected.enabled,
                   }}
                   onOpenHistory={() => setShowHistory(true)}
+                  readOnly={!canManage}
                   onSaved={() => router.refresh()}
                   realMode={realMode}
                   onRealModeChange={setRealMode}
@@ -1330,6 +1411,18 @@ export function AutomationsList({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {(() => {
+        const tallyItem = items.find((i) => i.id === tallyDialogId && isTallyReception(i));
+        return tallyItem && tallyItem.databaseId ? (
+          <TallyReceptionDialog
+            open
+            onOpenChange={(o) => !o && setTallyDialogId(null)}
+            automation={{ id: tallyItem.id, databaseId: tallyItem.databaseId, triggerConfig: tallyItem.triggerConfig ?? {} }}
+            onSaved={() => router.refresh()}
+          />
+        ) : null;
+      })()}
 
     </div>
   );

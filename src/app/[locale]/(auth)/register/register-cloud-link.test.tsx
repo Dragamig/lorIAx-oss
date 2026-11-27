@@ -9,6 +9,7 @@ vi.mock("@/i18n/routing", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
   Link: ({ href, children }: { href: string; children: React.ReactNode }) => <a href={href}>{children}</a>,
 }));
+vi.mock("@/hooks/use-registration-open", () => ({ useRegistrationOpen: () => ({ open: true }) }));
 vi.mock("@/lib/modules/hooks.client.generated", () => ({ registerIncludedModuleHooks: () => {} }));
 
 import { resetClientSlotsForTests, registerClientSlots } from "@/lib/modules/hooks.client";
@@ -37,14 +38,14 @@ async function submit() {
 }
 
 describe("page d'inscription du noyau", () => {
-  it("core_auth_pages_do_not_link_to_signup_without_commercial", async () => {
+  it("core_register_page_shows_no_cloud_link_without_slot", async () => {
     const c = await submit();
-    expect(c.querySelector('a[href="/signup"]')).toBeNull();
+    expect(c.querySelector('a[href="/cloud-entry"]')).toBeNull();
   });
 
-  it("links_to_signup_when_the_cloud_slot_is_registered", async () => {
-    registerClientSlots({ cloudSignup: true });
+  it("shows_the_cloud_link_when_the_slot_is_registered", async () => {
+    registerClientSlots({ CloudSignupLink: () => <a href="/cloud-entry">cloud</a> });
     const c = await submit();
-    expect(c.querySelector('a[href="/signup"]')).not.toBeNull();
+    expect(c.querySelector('a[href="/cloud-entry"]')).not.toBeNull();
   });
 });

@@ -141,3 +141,10 @@ describe("CollabReportEntry", () => {
     expect(toReportOutcome("error")).toBe("unparseable");
   });
 });
+
+describe("substituteResolvedRefs, URL studio", () => {
+  it("réécrit /api/studio/images/<uuid> en /api/media/<uuid> sans carte", () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    expect(substituteResolvedRefs(`![a](/api/studio/images/${id})`, new Map())).toBe(`![a](/api/media/${id})`);
+  });
+});

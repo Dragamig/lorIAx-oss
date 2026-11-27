@@ -33,5 +33,11 @@ export const viewsApi = {
   remove: (databaseId: string, viewId: string) => call(`${base(databaseId)}/${viewId}`, "DELETE"),
   /** Recrée une vue supprimée à l'identique (même portée, nom, type et config). */
   restore: (databaseId: string, v: ViewDef) =>
-    call<{ id: string }>(base(databaseId), "POST", { name: v.name, type: v.type, scope: v.scope, config: v.config }),
+    call<{ id: string }>(base(databaseId), "POST", {
+      name: v.name,
+      type: v.type,
+      scope: v.scope,
+      config: v.config,
+      ...(v.isDefault !== undefined ? { isDefault: v.isDefault } : {}),
+    }),
 };

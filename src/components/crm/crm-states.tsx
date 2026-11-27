@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Unlink } from "lucide-react";
+import { AlertTriangle, Unlink, type LucideIcon } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tip } from "@/components/editor/extensions/database-block/row-tip";
@@ -9,12 +9,17 @@ import { cn } from "@/lib/utils";
 
 interface ActionButtonProps {
   actionId: string;
+  /** Remplace l'icône du registre (variantes d'une même action, par exemple les filtres). */
+  icon?: LucideIcon;
   /** Texte visible ; absent pour un bouton icône seule. */
   label?: string;
   tip: string;
   ariaLabel: string;
   onClick?: () => void;
   pressed?: boolean;
+  expanded?: boolean;
+  /** Action en cours : expose aria-busy. */
+  busy?: boolean;
   /** Raison affichée dans l'info-bulle quand le bouton est désactivé. */
   disabledReason?: string;
   className?: string;
@@ -22,22 +27,25 @@ interface ActionButtonProps {
   tipAboveToasts?: boolean;
 }
 
-const base =
-  "inline-flex min-h-6 min-w-6 items-center justify-center gap-1.5 rounded-md border border-border bg-background px-2 py-1 text-xs font-medium text-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring aria-pressed:bg-muted aria-disabled:cursor-not-allowed aria-disabled:opacity-50";
+export const crmButtonClass =
+  "inline-flex min-h-6 whitespace-nowrap min-w-6 items-center justify-center gap-1.5 rounded-md border border-border bg-background px-2 py-1 text-xs font-medium text-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring aria-pressed:bg-muted aria-disabled:cursor-not-allowed aria-disabled:opacity-50";
 
 /** Bouton d'action CRM : icône du registre, info-bulle au survol et au focus, nom accessible. */
 export function CrmActionButton({
   actionId,
+  icon,
   label,
   tip,
   ariaLabel,
   onClick,
   pressed,
+  expanded,
+  busy,
   disabledReason,
   className,
   tipAboveToasts,
 }: ActionButtonProps) {
-  const Icon = getCrmAction(actionId).icon;
+  const Icon = icon ?? getCrmAction(actionId).icon;
   const disabled = !!disabledReason;
   return (
     <Tip label={disabled ? disabledReason : tip} aboveToasts={tipAboveToasts}>
@@ -45,9 +53,11 @@ export function CrmActionButton({
         type="button"
         aria-label={ariaLabel}
         aria-pressed={pressed}
+        aria-expanded={expanded}
+        aria-busy={busy || undefined}
         aria-disabled={disabled || undefined}
         data-action={actionId}
-        className={cn(base, className)}
+        className={cn(crmButtonClass, className)}
         onClick={disabled ? undefined : onClick}
       >
         <Icon className="size-3.5" aria-hidden="true" />
@@ -56,6 +66,9 @@ export function CrmActionButton({
     </Tip>
   );
 }
+
+export const fieldClass =
+  "h-7 rounded-md border border-border bg-background px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring aria-[invalid=true]:border-destructive";
 
 export function CrmLoadingState() {
   const t = useTranslations("crm");

@@ -2,8 +2,12 @@ import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { getTableColumns } from "drizzle-orm";
+import { getTableConfig } from "drizzle-orm/pg-core";
 import * as schema from "@/lib/db/schema";
-import { media, mediaUsages } from "./schema-media";
+import { media, mediaUsages, mediaVersions } from "./schema-media";
+
+// L'édition open source n'embarque qu'une migration initiale : les migrations numérotées sont absentes.
+const hasNumberedMigrations = fs.existsSync(path.join(process.cwd(), "src/lib/db/migrations/0072_media_whiteboard_trigger.sql"));
 
 describe("schema-media", () => {
   it("réexporte schema-media depuis schema.ts", () => {
@@ -45,5 +49,45 @@ describe("schema-media", () => {
     expect(cols).toHaveProperty("context");
     expect(cols).toHaveProperty("spaceId");
     expect(cols.source.default).toBe("content");
+  });
+
+  it("cible d'usage whiteboard et déclencheur media_uploaded", () => {
+    expect(schema.mediaUsageTargetEnum.enumValues).toContain("whiteboard");
+    expect(schema.automationTriggerEnum.enumValues).toContain("media_uploaded");
+  });
+
+  it.skipIf(!hasNumberedMigrations)("la migration 0072 ajoute les deux valeurs d'enum", () => {
+    const sql = fs.readFileSync(
+      path.join(process.cwd(), "src/lib/db/migrations/0072_media_whiteboard_trigger.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/media_usage_target[\s\S]*ADD VALUE IF NOT EXISTS 'whiteboard'/);
+    expect(sql).toMatch(/database_automation_trigger[\s\S]*ADD VALUE IF NOT EXISTS 'media_uploaded'/);
+  });
+
+  it("media_versions porte les colonnes et les index uniques", () => {
+    expect(schema.mediaVersions).toBeDefined();
+    const cols = getTableColumns(mediaVersions);
+    for (const c of [
+      "id", "mediaId", "version", "storageKey", "thumbnailKey", "filename", "mimeType",
+      "sizeBytes", "checksumSha256", "width", "height", "pageCount", "createdBy", "createdAt",
+      "comment", "restoredFrom",
+    ]) {
+      expect(cols).toHaveProperty(c);
+    }
+    const cfg = getTableConfig(mediaVersions);
+    const uniques = cfg.indexes.filter((i) => i.config.unique);
+    const byCols = uniques.map((i) => i.config.columns.map((c) => (c as { name: string }).name).join(","));
+    expect(byCols).toContain("media_id,version");
+    expect(byCols).toContain("storage_key");
+  });
+
+  it.skipIf(!hasNumberedMigrations)("la migration 0073 est idempotente", () => {
+    const sql = fs.readFileSync(
+      path.join(process.cwd(), "src/lib/db/migrations/0073_media_versions.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/CREATE TABLE IF NOT EXISTS media_versions/);
+    expect(sql).toMatch(/INSERT INTO media_versions[\s\S]*FROM media[\s\S]*ON CONFLICT DO NOTHING/);
   });
 });

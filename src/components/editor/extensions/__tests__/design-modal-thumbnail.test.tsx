@@ -6,6 +6,7 @@ const h = vi.hoisted(() => ({
   canvasProps: null as null | { onSave: (d: unknown, t: string) => void; onClose: () => void },
   upload: vi.fn(),
   postBatch: vi.fn(),
+  toastError: vi.fn(),
 }))
 
 vi.mock("next/dynamic", () => ({
@@ -17,6 +18,8 @@ vi.mock("next/dynamic", () => ({
 vi.mock("@/hooks/use-block-lock", () => ({
   useBlockLock: () => ({ isLockedByOther: false, acquireLock: vi.fn(), releaseLock: vi.fn() }),
 }))
+vi.mock("next-intl", () => ({ useTranslations: () => (k: string) => k }))
+vi.mock("sonner", () => ({ toast: { error: h.toastError, success: vi.fn() } }))
 vi.mock("../design-thumbnail", () => ({ uploadDesignThumbnail: h.upload }))
 vi.mock("@/components/media/bulk-api", () => ({ postBatch: h.postBatch }))
 
@@ -30,6 +33,7 @@ beforeEach(() => {
   h.canvasProps = null
   h.upload.mockReset()
   h.postBatch.mockReset()
+  h.toastError.mockReset()
   h.upload.mockResolvedValue(`/api/media/${NEW}`)
   h.postBatch.mockResolvedValue([])
   fetchMock.mockReset()
@@ -113,5 +117,27 @@ describe("DesignModal : miniature", () => {
     await h.canvasProps!.onSave({ pages: [] }, "")
     h.canvasProps!.onClose()
     expect(h.upload).not.toHaveBeenCalled()
+  })
+
+  it("handleSave appelle PUT usages/explicit avec targetType design et targetId du design", async () => {
+    const A = "0b1c2d3e-0000-4000-8000-00000000000a"
+    setup()
+    await waitFor(() => expect(h.canvasProps).not.toBeNull())
+    await h.canvasProps!.onSave({ pages: [{ src: `/api/media/${A}` }] }, "")
+    const call = fetchMock.mock.calls.find(([u]) => u === "/api/media/usages/explicit")
+    expect(call).toBeTruthy()
+    expect(call![1].method).toBe("PUT")
+    expect(JSON.parse(call![1].body)).toEqual({
+      targetType: "design", targetId: "d1", documentId: "doc1", spaceId: "sp-doc", mediaIds: [A],
+    })
+    expect(h.toastError).not.toHaveBeenCalled()
+  })
+
+  it("échec de la synchro des usages : toast d'erreur, sauvegarde non bloquée", async () => {
+    fetchMock.mockImplementation(async (u: string) => ({ ok: u !== "/api/media/usages/explicit", json: async () => ({}) }))
+    setup()
+    await waitFor(() => expect(h.canvasProps).not.toBeNull())
+    await h.canvasProps!.onSave({ pages: [] }, "")
+    expect(h.toastError).toHaveBeenCalledWith("usageSyncFailed")
   })
 })

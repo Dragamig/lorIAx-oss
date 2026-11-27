@@ -5,6 +5,8 @@ import { toast } from "sonner";
 import { renderWithIntl } from "@/__tests__/components/support/render-intl";
 import { LibraryAdminClient } from "./library-admin-client";
 
+vi.mock("./ai-settings", () => ({ MediaAiSettings: () => null }));
+
 vi.mock("sonner", () => {
   const fn = Object.assign(vi.fn(), { info: vi.fn(), success: vi.fn(), error: vi.fn() });
   return { toast: fn };

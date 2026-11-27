@@ -98,7 +98,7 @@ export function MediaTile({ item, selected, current, compact, focusable, flagged
             alt={item.altText ?? ""}
             loading="lazy"
             draggable={false}
-            className="h-full w-full object-cover"
+            className={cn("h-full w-full object-cover", item.kind === "pdf" && "object-top")}
           />
         ) : (
           <Icon className="h-10 w-10" aria-hidden />

@@ -7,6 +7,7 @@ import { CellEditor } from "@/components/editor/extensions/database-block/databa
 import type { useRelationData } from "@/components/editor/extensions/database-block/use-relation-data";
 import type { CellValue, DbColumn, DbRow } from "@/components/editor/extensions/database-block/types";
 import type { RecordNav } from "@/lib/bases/record-navigation";
+import { deleteRowsRequest, restoreRowsRequest } from "@/lib/bases/delete-rows";
 import { RowAside } from "./row-aside";
 import { RecordSheet, type RecordSheetStatus } from "./record-sheet";
 
@@ -14,6 +15,13 @@ export interface RecordSlotContext {
   row: DbRow;
   columns: DbColumn[];
   spaceId: string;
+}
+
+export interface RecordDeletion {
+  /** Called after a deletion or its undo: the host view refreshes its data. */
+  onChanged: () => void;
+  /** True when the user cannot edit: the button stays visible but disabled. */
+  readOnly?: boolean;
 }
 
 export interface RecordDialogProps {
@@ -41,6 +49,8 @@ export interface RecordDialogProps {
   onRetry?: () => void;
   entityLabel?: string;
   openInBasesHref?: string;
+  /** Delete button (needs `databaseId`). Absent = no button. */
+  deletion?: RecordDeletion;
   sections?: (ctx: RecordSlotContext) => React.ReactNode;
   aside?: (ctx: RecordSlotContext) => React.ReactNode;
 }
@@ -61,6 +71,7 @@ export function RecordDialog({
   onRetry,
   entityLabel,
   openInBasesHref,
+  deletion,
   sections,
   aside,
 }: RecordDialogProps) {
@@ -118,6 +129,35 @@ export function RecordDialog({
     });
   }
 
+  async function handleDelete(target: DbRow): Promise<boolean> {
+    if (!databaseId || !deletion) return false;
+    let deleted;
+    try {
+      ({ deleted } = await deleteRowsRequest(databaseId, [target.id]));
+    } catch {
+      toast.error(t("deleteError"));
+      return false;
+    }
+    onClose();
+    deletion.onChanged();
+    toast.success(t("deleted"), {
+      duration: 8000,
+      action: {
+        label: t("undo"),
+        onClick: async () => {
+          try {
+            await restoreRowsRequest(databaseId, deleted);
+            toast.success(t("restored"));
+          } catch {
+            toast.error(t("restoreError"));
+          }
+          deletion.onChanged();
+        },
+      },
+    });
+    return true;
+  }
+
   const ctx: RecordSlotContext | null = row ? { row, columns, spaceId } : null;
 
   return (
@@ -131,6 +171,14 @@ export function RecordDialog({
       onClose={onClose}
       onNavigate={onNavigate}
       onRetry={onRetry}
+      deletion={
+        row && databaseId && deletion
+          ? {
+              onConfirm: () => handleDelete(row),
+              disabledReason: deletion.readOnly ? t("deleteReadOnly") : undefined,
+            }
+          : undefined
+      }
       sections={ctx && sections ? sections(ctx) : undefined}
       aside={
         ctx && aside ? (

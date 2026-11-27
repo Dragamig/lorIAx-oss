@@ -10,12 +10,17 @@ describe("registre d'actions CRM", () => {
   it("chaque action a un libellé présent dans messages/fr.json (crm.*), une icône et un id unique", () => {
     const ids = CRM_ACTIONS.map((a) => a.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect(ids).toEqual([
+    expect(ids.slice(0, 9)).toEqual([
       "chooseBase", "showFields", "openInBases", "dissociateRole", "deactivate",
       "retry", "goToRaccordement", "activate", "cancelActivation",
-      "activation.setMode", "activation.pickBase", "activation.adopt", "activation.switchOrg",
-      "activation.confirm", "activation.undo", "activation.toggleRecap",
     ]);
+    expect(ids).toEqual(
+      expect.arrayContaining([
+        "activation.setMode", "activation.pickBase", "activation.adopt", "activation.switchOrg",
+        "activation.confirm", "activation.undo", "activation.next", "activation.back",
+        "pipelineMine", "pipelineLate", "pipelineOwner", "pipelineWeighted", "pipelineMove", "pipelineOpenInBases",
+      ]),
+    );
     for (const a of CRM_ACTIONS) {
       expect(typeof resolve(a.labelKey), a.id).toBe("string");
       expect(a.icon, a.id).toBeTruthy();

@@ -23,6 +23,7 @@ interface GalleryViewProps {
   columns: DbColumn[];
   rows: DbRow[];
   onRefresh: () => void;
+  readOnly?: boolean;
 }
 
 const btn =
@@ -38,7 +39,7 @@ function formatValue(column: DbColumn, v: unknown, relationLabels: string[]): st
   return String(v);
 }
 
-export function GalleryView({ databaseId, spaceId, viewId, viewConfig, columns, rows, onRefresh }: GalleryViewProps) {
+export function GalleryView({ databaseId, spaceId, viewId, viewConfig, columns, rows, onRefresh, readOnly = false }: GalleryViewProps) {
   const [busy, setBusy] = useState(false);
   const { display, changeDisplay } = useViewDisplayConfig(databaseId, viewId, viewConfig);
   const { mergedRows, writeCell } = useRowWrites(databaseId, rows);
@@ -170,6 +171,7 @@ export function GalleryView({ databaseId, spaceId, viewId, viewConfig, columns, 
         nav={nav}
         onNavigate={navigate}
         onClose={closeRecord}
+        deletion={{ onChanged: onRefresh, readOnly }}
       />
     </div>
   );

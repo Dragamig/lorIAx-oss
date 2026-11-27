@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { execSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { getAllModuleManifests } from "./registry";
 import { INCLUDED_MODULE_IDS } from "./registry.generated";
@@ -11,7 +11,6 @@ const CLOUD = /\/signup|register-org|admin\/license|admin\/organizations|admin\/
 
 /** Explicit allowlist: file and reason. Anything else mentioning a cloud route outside the commercial module fails. */
 const ALLOWED: Record<string, string> = {
-  "src/app/[locale]/(auth)/register/page.tsx": "lien /signup affiché seulement si le slot client cloudSignup est fourni par le module commercial",
   "src/app/api/auth/register/route.ts": "commentaires seulement : la route du noyau renvoie needsOrg et mentionne la route cloud dans sa documentation",
   "src/lib/modules/registry.ts": "déclare les ownedPaths du module commercial",
 };
@@ -28,7 +27,9 @@ describe("noyau sans lien cloud", () => {
       .split("\n")
       .filter((f) => /\.(ts|tsx)$/.test(f) && !/\.test\.(ts|tsx)$/.test(f))
       .filter((f) => !f.startsWith("src/tests/") && !f.startsWith("src/__tests__/"))
-      .filter((f) => !owned.some((p) => pathMatchesPattern(f, p)));
+      .filter((f) => !owned.some((p) => pathMatchesPattern(f, p)))
+      // Un export élagué peut garder un index git périmé : on ne teste que ce qui est présent sur disque.
+      .filter((f) => existsSync(resolve(ROOT, f)));
     const offenders = files.filter((f) => {
       if (f in ALLOWED) return false;
       return CLOUD.test(readFileSync(resolve(ROOT, f), "utf8"));
@@ -37,8 +38,14 @@ describe("noyau sans lien cloud", () => {
   });
 
   it("allowlist_entries_are_still_needed", () => {
+    // Le registre exporté ne décrit plus le module commercial (élagué à l'export) : rien à autoriser.
+    const hasCommercial = getAllModuleManifests().some((m) => m.id === "commercial");
     for (const f of Object.keys(ALLOWED)) {
       const txt = readFileSync(resolve(ROOT, f), "utf8");
+      if (f === "src/lib/modules/registry.ts" && !hasCommercial) {
+        expect(CLOUD.test(txt), f).toBe(false);
+        continue;
+      }
       expect(CLOUD.test(txt), f).toBe(true);
     }
   });

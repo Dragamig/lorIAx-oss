@@ -7,20 +7,30 @@ const h = vi.hoisted(() => ({
   inserted: [] as Record<string, unknown>[],
   updated: [] as Record<string, unknown>[],
   order: [] as string[],
+  versionInserted: [] as Record<string, unknown>[],
+  versionUpdated: [] as Record<string, unknown>[],
   forArgs: [] as unknown[][],
+  calls: 0,
+  oldVersion: null as Record<string, unknown> | null,
+  parent: null as Record<string, unknown> | null,
 }));
 
-vi.mock("@/lib/db", () => {
+vi.mock("@/lib/db", async () => {
+  const { mediaVersions: versionsTable, mediaMultipartUploads: multipartTable } = await vi.importActual<
+    typeof import("@/lib/db/schema")
+  >("@/lib/db/schema");
   const tx = {
     execute: () => {
       h.order.push("lock");
       return Promise.resolve();
     },
     select: (cols?: unknown) => ({
-      from: () => ({
+      from: (t: unknown) => ({
+        innerJoin: () => ({ where: () => Promise.resolve([{ total: "0" }]) }),
         where: () => {
-          if (cols) return Promise.resolve([{ total: String(h.used) }]);
-          const rows = () => Promise.resolve(h.existing ? [h.existing] : []);
+          if (cols) return Promise.resolve([{ total: t === multipartTable ? "0" : String(h.used) }]);
+          const src = t === versionsTable ? h.oldVersion : h.calls++ === 0 ? h.existing : h.parent;
+          const rows = () => Promise.resolve(src ? [src] : []);
           return Object.assign(rows(), {
             for: (...a: unknown[]) => {
               h.forArgs.push(a);
@@ -30,16 +40,26 @@ vi.mock("@/lib/db", () => {
         },
       }),
     }),
-    insert: () => ({
-      values: (v: Record<string, unknown>) => ({
-        returning: () => {
-          h.inserted.push(v);
-          return Promise.resolve([{ id: "new", ...v }]);
-        },
-      }),
+    insert: (t: unknown) => ({
+      values: (v: Record<string, unknown>) => {
+        if (t === versionsTable) {
+          h.versionInserted.push(v);
+          return Promise.resolve();
+        }
+        return {
+          returning: () => {
+            h.inserted.push(v);
+            return Promise.resolve([{ id: "new", currentVersion: 1, ...v }]);
+          },
+        };
+      },
     }),
-    update: () => ({
+    update: (t: unknown) => ({
       set: (v: Record<string, unknown>) => {
+        if (t === versionsTable) {
+          h.versionUpdated.push(v);
+          return { where: () => Promise.resolve() };
+        }
         h.updated.push(v);
         return {
           where: () => ({
@@ -72,10 +92,15 @@ const values = {
 
 beforeEach(() => {
   h.existing = null;
+  h.oldVersion = null;
+  h.parent = null;
+  h.calls = 0;
   h.used = 0;
   h.limit = 1000;
   h.inserted.length = 0;
   h.updated.length = 0;
+  h.versionInserted.length = 0;
+  h.versionUpdated.length = 0;
   h.order.length = 0;
   h.forArgs.length = 0;
 });
@@ -86,6 +111,32 @@ describe("reserveMediaRow", () => {
     expect(r.ok).toBe(true);
     expect(h.order[0]).toBe("lock");
     expect(h.inserted[0]).toMatchObject({ organizationId: "o1", sizeBytes: 100 });
+  });
+
+  it("insère la version 1 dans la même transaction, même clé et même taille", async () => {
+    await reserveMediaRow({ orgId: "o1", sizeBytes: 100, values });
+    expect(h.versionInserted).toHaveLength(1);
+    expect(h.versionInserted[0]).toMatchObject({
+      mediaId: "new",
+      version: 1,
+      storageKey: values.storageKey,
+      sizeBytes: 100,
+      filename: "a.mp4",
+      createdBy: "u1",
+    });
+  });
+
+  it("refus de quota : aucune version insérée", async () => {
+    h.used = 950;
+    await reserveMediaRow({ orgId: "o1", sizeBytes: 100, values });
+    expect(h.versionInserted).toHaveLength(0);
+  });
+
+  it("réécriture : la version courante est mise à jour, aucune version ajoutée", async () => {
+    h.existing = { id: "m1", organizationId: "o1", sizeBytes: 400, currentVersion: 1 };
+    await reserveMediaRow({ orgId: "o1", sizeBytes: 500, values, replaceExisting: true });
+    expect(h.versionInserted).toHaveLength(0);
+    expect(h.versionUpdated[0]).toMatchObject({ sizeBytes: 500 });
   });
 
   it("refuse en 507 au-delà du quota, sans insertion", async () => {
@@ -134,6 +185,18 @@ describe("reserveMediaRow", () => {
     ).rejects.toThrow(/corbeille/);
     expect(h.updated).toHaveLength(0);
     expect(h.inserted).toHaveLength(0);
+  });
+
+  it("réécriture d'une clé d'ancienne version : met à jour la version, aucune insertion", async () => {
+    h.existing = null;
+    h.oldVersion = { id: "v1", mediaId: "m1", version: 1, sizeBytes: 400 };
+    h.parent = { id: "m1", organizationId: "o1", sizeBytes: 900, currentVersion: 2, deletedAt: null };
+    const r = await reserveMediaRow({ orgId: "o1", sizeBytes: 500, values, replaceExisting: true });
+    expect(r).toMatchObject({ ok: true, media: { id: "m1" } });
+    expect(h.inserted).toHaveLength(0);
+    expect(h.versionInserted).toHaveLength(0);
+    expect(h.versionUpdated[0]).toMatchObject({ sizeBytes: 500 });
+    expect(h.updated).toHaveLength(0);
   });
 
   it("replaceExisting sans ligne : insère", async () => {

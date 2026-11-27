@@ -2,6 +2,9 @@ import { describe, it, expect } from "vitest";
 import { getAllModuleManifests, getModuleManifests } from "./registry";
 import { resolveModuleState } from "./resolve";
 
+// L'export de l'édition publique retire du registre les modules exclus : leurs gardes sont sans objet.
+const hasStudiovideo = getAllModuleManifests().some((m) => m.id === "studiovideo");
+
 describe("registre de modules", () => {
   it("contient meeting-rooms", () => {
     const ids = getModuleManifests().map((m) => m.id);
@@ -22,7 +25,7 @@ describe("registre de modules", () => {
   });
 
   it("les modules séparables déclarent des ownedPaths non vides", () => {
-    const SEPARABLE = ["studio", "studiovideo", "ldap", "meeting-rooms", "livekit", "whisper"];
+    const SEPARABLE = ["studio", ...(hasStudiovideo ? ["studiovideo"] : []), "ldap", "meeting-rooms", "livekit", "whisper"];
     // Registre statique complet : indépendant du profil de composition (l'édition oss exclut studiovideo).
     const manifests = getAllModuleManifests();
     const byId = new Map<string, (typeof manifests)[number]>(manifests.map((m) => [m.id, m]));
@@ -44,7 +47,7 @@ describe("registre de modules", () => {
   // Régression : studio/studiovideo étaient "licensed" mais absents de tout plan
   // → jamais entitlés → état "locked" → slash command masquée, seul le tableau
   // blanc (non gaté) restait visible. Doivent être actifs sans licence ni toggle.
-  it("studio et studiovideo sont actifs sans licence (canvas gratuits)", () => {
+  it.skipIf(!hasStudiovideo)("studio et studiovideo sont actifs sans licence (canvas gratuits)", () => {
     const manifests = getAllModuleManifests();
     const byId = new Map(manifests.map((m) => [m.id, m]));
     const compiled = new Set(manifests.map((m) => m.id));

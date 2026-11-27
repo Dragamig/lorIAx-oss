@@ -13,6 +13,7 @@ const h = vi.hoisted(() => ({
   selectRows: [] as unknown[],
   updateThrows: false,
   executeCalls: 0,
+  reserve: vi.fn(async () => true),
 }));
 
 vi.mock("@/lib/auth/require-org-scoped", () => ({
@@ -23,6 +24,13 @@ vi.mock("@/lib/auth/require-org-scoped", () => ({
 }));
 vi.mock("@/lib/auth/rbac", () => ({ canManageAutomations: () => h.canManage }));
 vi.mock("@/lib/settings/system-settings", () => ({ getSetting: vi.fn().mockResolvedValue(null) }));
+vi.mock("@/lib/integrations/tally/submission-claims", () => ({
+  tallyResponseIdFromBody: (b: { eventType?: string; data?: { responseId?: string } }) =>
+    b?.eventType === "FORM_RESPONSE" ? (b.data?.responseId ?? null) : null,
+  reserveSubmission: h.reserve,
+  markSubmissionDone: vi.fn(async () => undefined),
+  releaseSubmission: vi.fn(async () => undefined),
+}));
 vi.mock("@/lib/automations/executor", () => ({
   executeAutomation: vi.fn(async () => {
     h.executeCalls += 1;
@@ -122,6 +130,17 @@ describe("création base-liée webhook_inbound", () => {
 });
 
 describe("PATCH base-lié", () => {
+  it("refuse d'activer un Tally sans formulaire, puis l'accepte une fois choisi", async () => {
+    h.selectRows = [{ ...stored, enabled: false, triggerConfig: { ...stored.triggerConfig, tallyFormId: null } }];
+    const refused = await PATCH(json({ enabled: true }) as never, patchParams);
+    expect(refused.status).toBe(422);
+    expect((await refused.json()).code).toBe("tally_form_required");
+    expect(h.updated).toBeNull();
+    const ok = await PATCH(json({ enabled: true, triggerConfig: { tallyFormId: "wMeKx2" } }) as never, patchParams);
+    expect(ok.status).toBe(200);
+    expect((h.updated!.triggerConfig as Record<string, unknown>).tallyFormId).toBe("wMeKx2");
+  });
+
   it("ne laisse pas le client écraser ni effacer les clés serveur", async () => {
     h.selectRows = [stored];
     const res = await PATCH(
@@ -206,5 +225,82 @@ describe("point d'entrée public : lastReceived", () => {
     const res = await HOOK(json({ a: 1 }, { "x-webhook-secret": "b".repeat(48) }) as never, hookParams);
     expect(res.status).toBe(200);
     expect(h.executeCalls).toBe(1);
+  });
+
+  describe("filtre par formulaire Tally", () => {
+    // Sans eventType : la réservation de soumission (base mockée ici) n'intervient pas.
+    const tally = (formId: string) => ({ data: { formId, fields: [] } });
+    const hdr = { "x-webhook-secret": "b".repeat(48) };
+    const withForm = (cfg: Record<string, unknown>) => ({ ...stored, triggerConfig: { ...stored.triggerConfig, ...cfg } });
+
+    it("même formulaire : déclenché", async () => {
+      h.selectRows = [withForm({ tallyFormId: "wMeKx2" })];
+      const res = await HOOK(json(tally("wMeKx2"), hdr) as never, hookParams);
+      expect(res.status).toBe(200);
+      expect(h.executeCalls).toBe(1);
+      expect(writtenLastReceived()).not.toBeNull();
+    });
+
+    it("autre formulaire : ignoré, 2xx neutre, ni exécution ni lastReceived", async () => {
+      h.selectRows = [withForm({ tallyFormId: "wMeKx2" })];
+      const res = await HOOK(json(tally("autre"), hdr) as never, hookParams);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ status: "ignored" });
+      expect(h.executeCalls).toBe(0);
+      expect(h.updated).toBeNull();
+    });
+
+    it("pas de clé tallyFormId : déclenché comme avant", async () => {
+      h.selectRows = [stored];
+      const res = await HOOK(json(tally("n'importe lequel"), hdr) as never, hookParams);
+      expect(res.status).toBe(200);
+      expect(h.executeCalls).toBe(1);
+    });
+  });
+
+  describe("automatisme désactivé", () => {
+    const hdr = { "x-webhook-secret": "b".repeat(48) };
+    const off = { ...stored, enabled: false };
+
+    it("secret valide : enregistre lastReceived, n'exécute rien, répond 202", async () => {
+      h.selectRows = [off];
+      const res = await HOOK(json({ hello: "x" }, hdr) as never, hookParams);
+      expect(res.status).toBe(202);
+      expect(await res.json()).toEqual({ status: "received" });
+      expect(h.executeCalls).toBe(0);
+      expect(writtenLastReceived()!.body).toEqual({ hello: "x" });
+    });
+
+    it("réponse Tally avec secret valide : aucune réservation de soumission", async () => {
+      h.reserve.mockClear();
+      h.selectRows = [off];
+      const body = { eventType: "FORM_RESPONSE", data: { responseId: "r1", formId: "f1", fields: [] } };
+      const res = await HOOK(json(body, hdr) as never, hookParams);
+      expect(res.status).toBe(202);
+      expect(h.reserve).not.toHaveBeenCalled();
+      expect(h.executeCalls).toBe(0);
+    });
+
+    it("secret invalide : 404 inchangé, aucune écriture", async () => {
+      h.selectRows = [off];
+      const res = await HOOK(json({ a: 1 }, { "x-webhook-secret": "faux" }) as never, hookParams);
+      expect(res.status).toBe(404);
+      expect(h.updated).toBeNull();
+      expect(h.executeCalls).toBe(0);
+    });
+
+    it("activé : exécution comme avant", async () => {
+      h.selectRows = [stored];
+      const res = await HOOK(json({ a: 1 }, hdr) as never, hookParams);
+      expect(res.status).toBe(200);
+      expect(h.executeCalls).toBe(1);
+    });
+
+    it("autre formulaire Tally : ignoré sans écriture même désactivé", async () => {
+      h.selectRows = [{ ...off, triggerConfig: { ...stored.triggerConfig, tallyFormId: "wMeKx2" } }];
+      const res = await HOOK(json({ data: { formId: "autre", fields: [] } }, hdr) as never, hookParams);
+      expect(await res.json()).toEqual({ status: "ignored" });
+      expect(h.updated).toBeNull();
+    });
   });
 });

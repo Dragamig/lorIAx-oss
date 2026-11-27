@@ -2,7 +2,7 @@
  * Cadre de décision du script media:rewrite-collab (B123).
  * Aucune connexion base ici : module pur, testable sans infrastructure.
  */
-import { ATTACHMENT_RE, safeDecode } from "@/lib/media/rewrite-document-refs";
+import { ATTACHMENT_RE, rewriteStudioRefs, safeDecode } from "@/lib/media/rewrite-document-refs";
 import type { RewriteOutcome } from "./report";
 
 export type CollabAction = "rewrite_state" | "resync_markdown" | "skip_clean" | "skip_active";
@@ -71,7 +71,7 @@ export function collectMarkdownKeys(text: string | null | undefined): string[] {
  * Les clés absentes de la carte restent telles quelles.
  */
 export function substituteResolvedRefs(text: string, map: ReadonlyMap<string, string>): string {
-  let out = text;
+  let out = rewriteStudioRefs(text);
   if (out.includes("/api/attachments/")) {
     out = out.replace(new RegExp(ATTACHMENT_RE.source, "g"), (whole, raw: string) => {
       const id = map.get(safeDecode(raw));

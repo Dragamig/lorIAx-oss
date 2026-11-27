@@ -38,6 +38,16 @@ const EXPECTED_KEYS = [
   "kbdEscape",
   "kbdFullscreen",
   "openRecord",
+  "delete",
+  "deleteReadOnly",
+  "deleteTitle",
+  "deleteBody",
+  "deleteConfirm",
+  "deleteCancel",
+  "deleted",
+  "deleteError",
+  "restored",
+  "restoreError",
 ].sort();
 
 const EM_DASH = "\u2014";
@@ -61,7 +71,7 @@ const messages = Object.fromEntries(LOCALES.map((l) => [l, loadRecordSheet(l)]))
 
 describe("recordSheet messages", () => {
   it("defines recordSheet in all 7 locales with the same keys as fr", () => {
-    expect(EXPECTED_KEYS).toHaveLength(33);
+    expect(EXPECTED_KEYS).toHaveLength(43);
     for (const locale of LOCALES) {
       expect(Object.keys(messages[locale]).sort(), locale).toEqual(EXPECTED_KEYS);
     }

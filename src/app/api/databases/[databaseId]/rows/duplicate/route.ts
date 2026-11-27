@@ -4,6 +4,10 @@ import { dispatchRowEvents } from "@/lib/automations/dispatch-row-events";
 import { rowBatchErrorResponse } from "@/lib/databases/row-batch-http";
 import { duplicateDatabaseRows } from "@/lib/databases/row-batch";
 import { rowContextFromRequest } from "@/lib/databases/row-request-context";
+import { validateRelationWrites } from "@/lib/databases/relation-write-guard";
+import { db } from "@/lib/db";
+import { userDatabaseRows } from "@/lib/db/schema";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 const schema = z.object({
@@ -31,6 +35,17 @@ export async function POST(
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
   }
+
+  // La copie reprend les relations de la source : l'inverse est écrit dans la base cible.
+  const sources = await db
+    .select({ cells: userDatabaseRows.cells })
+    .from(userDatabaseRows)
+    .where(and(eq(userDatabaseRows.databaseId, databaseId), inArray(userDatabaseRows.id, parsed.data.rowIds)));
+  const relGuard = await validateRelationWrites(
+    databaseId,
+    sources.map((r) => ({ cells: (r.cells ?? {}) as Record<string, unknown> }))
+  );
+  if (!relGuard.ok) return NextResponse.json({ error: relGuard.error }, { status: relGuard.status });
 
   try {
     const rows = await duplicateDatabaseRows(
