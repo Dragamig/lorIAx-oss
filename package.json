@@ -217,7 +217,7 @@
   "license": "FSL-1.1-MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Flavien-Dragamig/lorIAx-oss.git"
+    "url": "git+https://github.com/Dragamig/lorIAx-oss.git"
   },
   "loriax": {
     "basedOn": "1.210.x"

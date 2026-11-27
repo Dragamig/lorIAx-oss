@@ -18,7 +18,7 @@ LorIAx réunit un éditeur de documents riche, la collaboration en temps réel, 
 
 > **Pour qui ?** Les organismes multi-services qui veulent garder leurs données chez eux : collectivités, associations, PME structurées.
 
-**Version** : lorIAx-oss 2.0.0, basée sur LorIAx 1.210.x, sous licence FSL-1.1-MIT. Tous les modules sont actifs, sans quota ni clé de licence. Seul le studio vidéo n'est pas inclus. Les versions 1.21.0 et 1.21.1 restent sous licence MIT : le tag [`v1.21.1`](https://github.com/Flavien-Dragamig/lorIAx-oss/tree/v1.21.1) donne la dernière version MIT.
+**Version** : lorIAx-oss 2.0.0, basée sur LorIAx 1.210.x, sous licence FSL-1.1-MIT. Tous les modules sont actifs, sans quota ni clé de licence. Seul le studio vidéo n'est pas inclus. Les versions 1.21.0 et 1.21.1 restent sous licence MIT : le tag [`v1.21.1`](https://github.com/Dragamig/lorIAx-oss/tree/v1.21.1) donne la dernière version MIT.
 
 ## Lancement rapide
 
@@ -36,7 +36,7 @@ Installation sur un serveur Linux avec Docker, à la main ou pilotée par un ass
 3. Récupérer le code et lancer l'installeur.
 
    ```bash
-   git clone https://github.com/Flavien-Dragamig/lorIAx-oss.git
+   git clone https://github.com/Dragamig/lorIAx-oss.git
    cd lorIAx-oss
    LORIAX_URL=https://wiki.exemple.fr bash install.sh
    ```
@@ -83,7 +83,7 @@ Invite à donner à Claude Code :
 
 ```text
 Déploie LorIAx sur un VPS Hostinger avec le plugin Hostinger. Crée un VPS Ubuntu avec Docker (8 Go de RAM),
-connecte-toi en SSH, clone le dépôt (git clone https://github.com/Flavien-Dragamig/lorIAx-oss.git),
+connecte-toi en SSH, clone le dépôt (git clone https://github.com/Dragamig/lorIAx-oss.git),
 lance LORIAX_URL=https://<domaine> bash install.sh depuis la racine du dépôt, installe un reverse proxy HTTPS
 pour mon domaine <domaine> devant http://127.0.0.1:3000, crée l'enregistrement DNS et vérifie /api/health.
 Ne m'affiche aucun secret, sauf la clé d'installation de /setup.
@@ -127,7 +127,7 @@ Invite à donner à Gemini CLI :
 
 ```text
 Déploie LorIAx sur un VPS Hostinger avec le serveur MCP Hostinger. Crée un VPS Ubuntu avec Docker (8 Go de RAM),
-connecte-toi en SSH, clone le dépôt (git clone https://github.com/Flavien-Dragamig/lorIAx-oss.git),
+connecte-toi en SSH, clone le dépôt (git clone https://github.com/Dragamig/lorIAx-oss.git),
 lance LORIAX_URL=https://<domaine> bash install.sh depuis la racine du dépôt, installe un reverse proxy HTTPS
 pour mon domaine <domaine> devant http://127.0.0.1:3000, crée l'enregistrement DNS et vérifie /api/health.
 Ne m'affiche aucun secret, sauf la clé d'installation de /setup.
@@ -171,7 +171,7 @@ Invite à donner à Codex :
 
 ```text
 Déploie LorIAx sur un VPS Hostinger avec le serveur MCP Hostinger. Crée un VPS Ubuntu avec Docker (8 Go de RAM),
-connecte-toi en SSH, clone le dépôt (git clone https://github.com/Flavien-Dragamig/lorIAx-oss.git),
+connecte-toi en SSH, clone le dépôt (git clone https://github.com/Dragamig/lorIAx-oss.git),
 lance LORIAX_URL=https://<domaine> bash install.sh depuis la racine du dépôt, installe un reverse proxy HTTPS
 pour mon domaine <domaine> devant http://127.0.0.1:3000, crée l'enregistrement DNS et vérifie /api/health.
 Ne m'affiche aucun secret, sauf la clé d'installation de /setup.
@@ -419,7 +419,7 @@ Pour travailler sur le code. Pour installer une instance, voir [Lancement rapide
 ### Installation
 
 ```bash
-git clone https://github.com/Flavien-Dragamig/lorIAx-oss.git
+git clone https://github.com/Dragamig/lorIAx-oss.git
 cd lorIAx-oss
 npm ci --legacy-peer-deps
 npm run test -- --run
@@ -629,7 +629,7 @@ npx tsc --noEmit          # contrôle des types
 
 ## Contribuer
 
-Les règles de contribution sont dans [CONTRIBUTING.md](CONTRIBUTING.md), le code de conduite dans [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Les anomalies et les demandes se déposent dans les [issues GitHub](https://github.com/Flavien-Dragamig/lorIAx-oss/issues).
+Les règles de contribution sont dans [CONTRIBUTING.md](CONTRIBUTING.md), le code de conduite dans [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Les anomalies et les demandes se déposent dans les [issues GitHub](https://github.com/Dragamig/lorIAx-oss/issues).
 
 ## Sécurité
 
@@ -656,7 +656,7 @@ Les choix d'architecture, la relecture et la validation du code sont humains ; l
 
 Le code peut être utilisé, modifié et redistribué pour tout usage, sauf pour proposer un produit ou un service concurrent. Chaque version passe sous licence MIT deux ans après sa publication. Le logiciel est fourni sans garantie.
 
-Les versions 1.21.0 et 1.21.1 ont été publiées sous licence MIT et le restent : voir le tag [`v1.21.1`](https://github.com/Flavien-Dragamig/lorIAx-oss/tree/v1.21.1).
+Les versions 1.21.0 et 1.21.1 ont été publiées sous licence MIT et le restent : voir le tag [`v1.21.1`](https://github.com/Dragamig/lorIAx-oss/tree/v1.21.1).
 
 ---
 
